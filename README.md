@@ -113,7 +113,7 @@ We're actively working on:
 ## Credits
 Created by your friends in the [Canva Creative Team](https://canvacreative.team). 
 
-Idea and initial development by Jack Jaeschke. UI & icons by Sam Mularczyk.
+Idea and development by Jack Jaeschke using Cursor. UI & icons by Sam Mularczyk.
 
 ## License
 MIT
