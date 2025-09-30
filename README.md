@@ -91,6 +91,7 @@ Coming soon!
 | Blend modes  | Basic support |
 | Background blur  | ❌  |
 | Masks and clip paths  | ❌  |
+| Text alignment  | ❌  |
 
 
 
