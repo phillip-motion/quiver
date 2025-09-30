@@ -1,5 +1,17 @@
 # Quiver
-![Screenshot of the Quiver UI.](/docs/quiver-screenshot.png)
+<p align="center" style="margin-top:0;margin-bottom:0;">
+
+  <img alt="Screenshot of the Quiver UI." src="/docs/quiver-screenshot.png" />
+  
+</p>
+
+<p align="center" style="margin-top:0;margin-bottom:0;">
+
+  <a href="https://github.com/phillip-motion/quiver/releases/latest">
+<img width="200" height="80" src="https://github.com/user-attachments/assets/f7b3b274-ce43-4c46-bd55-bec9a45634ce" alt="Download Quiver" />
+  </a>
+</p>
+
 
 ### Making SVG import into Cavalry as smooth as drawing an arrow and letting it fly 🏹
 
