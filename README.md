@@ -1,14 +1,15 @@
-# Quiver
-<p align="center" style="margin-top:0;margin-bottom:0;">
 
-  <img alt="Screenshot of the Quiver UI." src="/docs/quiver-screenshot.png" />
-  
+<p align="center" style="margin-top:0;margin-bottom:0;">
+  <img width="240" height="75" alt="quiver_logo" src="https://github.com/user-attachments/assets/305b99e9-4ec3-48af-9c6b-e3f131d13acc" />
 </p>
 
 <p align="center" style="margin-top:0;margin-bottom:0;">
+  <img width="340" height="311" alt="Quiver UI Screenshot" src="https://github.com/user-attachments/assets/95384e89-26ba-45a9-84bf-74d0c18d57e7" />
+</p>
 
+<p align="center" style="margin-top:0;margin-bottom:0;">
   <a href="https://github.com/phillip-motion/quiver/releases/latest">
-<img width="200" height="80" src="https://github.com/user-attachments/assets/f7b3b274-ce43-4c46-bd55-bec9a45634ce" alt="Download Quiver" />
+    <img width="186" height="108" alt="quiver_download" src="https://github.com/user-attachments/assets/61bc714d-397e-4bc5-9500-09572df9f6be" />
   </a>
 </p>
 
