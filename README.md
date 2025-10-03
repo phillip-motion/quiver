@@ -2,17 +2,15 @@
 <p align="center" style="margin-top:0;margin-bottom:0;">
   <img width="240" height="75" alt="quiver_logo" src="https://github.com/user-attachments/assets/305b99e9-4ec3-48af-9c6b-e3f131d13acc" />
 </p>
+<p align="center" style="margin-top:0;margin-bottom:0;">
+  <a href="https://github.com/phillip-motion/quiver/releases/latest">
+    <img width="186" height="108" alt="quiver_download" src="https://github.com/user-attachments/assets/9295a646-c7ba-4649-b069-2e78204dc1ce" />
+  </a>
+</p>
 
 <p align="center" style="margin-top:0;margin-bottom:0;">
   <img width="340" height="311" alt="Quiver UI Screenshot" src="https://github.com/user-attachments/assets/95384e89-26ba-45a9-84bf-74d0c18d57e7" />
 </p>
-
-<p align="center" style="margin-top:0;margin-bottom:0;">
-  <a href="https://github.com/phillip-motion/quiver/releases/latest">
-    <img width="186" height="108" alt="quiver_download" src="https://github.com/user-attachments/assets/61bc714d-397e-4bc5-9500-09572df9f6be" />
-  </a>
-</p>
-
 
 ### Making SVG import into Cavalry as smooth as drawing an arrow and letting it fly 🏹
 
@@ -33,6 +31,12 @@ Quiver improves on Cavalry's native SVG import by adding support for gradients, 
 ## Installation
 Copy Quiver.js and the `quiver_assets` folder into your Cavalry Scripts folder.
 
+## Demo
+https://github.com/user-attachments/assets/1c0cfc9d-ce9f-459b-bc7d-59b72ef73f61
+
+
+
+
 ## Usage
 
 > [!IMPORTANT]
@@ -40,7 +44,7 @@ Copy Quiver.js and the `quiver_assets` folder into your Cavalry Scripts folder.
 
 Simply click Paste to fire an SVG from your clipboard, or click Import to select a file. 
 
-See [Preparing your SVGs](#preparing-your-svgs) to make sure your SVG files are in the right format.
+See [Preparing your SVGs](#preparing-your-svgs) to make sure your SVG files have the right settings.
 
 
 ### Convert to Rectangle
@@ -119,8 +123,8 @@ Coming soon!
 
 ## Roadmap
 We're actively working on:
-- Adding support for Affinity Designer
-- Improving letter-spacing import
+- Adding support for Canva and Affinity Designer
+- Improving letter-spacing and text alignment
 - Supporting more filter effects
 
 ## Credits
