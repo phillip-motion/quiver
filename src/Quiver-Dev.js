@@ -1,6 +1,14 @@
-// Quiver 🏹 
+// Quiver 🏹 - Development Version
 // Fire SVGs straight into Cavalry.
-const currentVersion = "0.9.0";
+// 
+// 📝 This is the SOURCE file for development.
+// When ready for production, run: npm run build
+//
+
+
+// IMPORTANT!!!!!! Version number must be in the format x.x.x for update checking to work!!!
+const currentVersion = "1.0.1";
+
 const SCRIPT_KEY = "com.canva.quiver"; 
 ui.setTitle("Quiver-Dev " + currentVersion);
 ui.setBackgroundColor("#2d2d2d");
@@ -9,10 +17,11 @@ ui.setBackgroundColor("#2d2d2d");
 api.load(ui.scriptLocation+"/functions/quiver_utilities_checkVersion.js");
 
 api.load(ui.scriptLocation+"/functions/quiver_createUI.js");
+api.load(ui.scriptLocation+"/functions/quiver_function_flattenShape.js");
 api.load(ui.scriptLocation+"/functions/quiver_function_convertToRectangle.js");
 api.load(ui.scriptLocation+"/functions/quiver_function_dynamicAlign.js");
 api.load(ui.scriptLocation+"/functions/quiver_function_renameLayers.js");
-api.load(ui.scriptLocation+"/functions/quiver_utilities_sharedFunctions.js");
+api.load(ui.scriptLocation+"/functions/quiver_utiltiies_sharedFunctions.js");
 api.load(ui.scriptLocation+"/functions/quiver_utilities_gradient.js");
 api.load(ui.scriptLocation+"/functions/quiver_utilities_patterns.js");
 api.load(ui.scriptLocation+"/functions/quiver_utilities_images.js");

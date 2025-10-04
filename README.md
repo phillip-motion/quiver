@@ -124,7 +124,7 @@ Coming soon!
 ## Roadmap
 We're actively working on:
 - Adding support for Canva and Affinity Designer
-- Improving letter-spacing and text alignment
+- Improving text alignment
 - Supporting more filter effects
 
 ## Credits

@@ -1,0 +1,18 @@
+{
+  "name": "quiver",
+  "version": "1.0.0",
+  "description": "Quiver - Fire SVGs straight into Cavalry",
+  "scripts": {
+    "build": "node build.js",
+    "build:minify": "node build.js --minify"
+  },
+  "keywords": [
+    "cavalry",
+    "svg"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "terser": "^5.36.0"
+  }
+}

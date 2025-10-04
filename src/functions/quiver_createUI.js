@@ -418,7 +418,7 @@ var cornerRadiusInput = new ui.LineEdit();
     sloganLabel.setTextColor("#bebebe");
     sloganLabel.setAlignment(1); // Center align
     settingsLayout.add(sloganLabel);
-    var versionLabel = new ui.Label("Version 1.0 — 10.09.25");
+    var versionLabel = new ui.Label("Version " + currentVersion);
     versionLabel.setAlignment(1); // Center align
     versionLabel.setTextColor("#bebebe");
     settingsLayout.add(versionLabel);
@@ -430,16 +430,23 @@ var cornerRadiusInput = new ui.LineEdit();
     finePrint1.setAlignment(1); // Center align
     settingsLayout.add(finePrint1);
 
-    var finePrint2 = new ui.Label("Reach out to #motion-powerhouse or #cavalry-squad");
+    var finePrint2 = new ui.Label("Raise an issue on GitHub.");
     finePrint2.setTextColor("#969696");
     finePrint2.setAlignment(1); // Center align
     settingsLayout.add(finePrint2);
 
-    var finePrintCredit = new ui.Label("Made for Canva's Motion Powerhouse by Jack Jaeschke");
+    var finePrintCredit = new ui.Label("Made for the Canva Creative Team by Jack Jaeschke");
     finePrintCredit.setAlignment(1); // Center align
     finePrintCredit.setTextColor("#969696");
     settingsLayout.add(finePrintCredit);
-    
+
+    var openGitHubButton = new ui.Button("Open GitHub Repo");
+    openGitHubButton.setMinimumHeight(24);
+    openGitHubButton.onClick = function() {
+        api.openURL("https://github.com/phillip-motion/quiver");
+    };
+    settingsLayout.add(openGitHubButton);
+
     settingsLayout.addSpacing(5);
     settingsLayout.addStretch();
     
@@ -462,10 +469,32 @@ mainLayout.setMargins(4, 4, 4, 4);
 // Top row with settings button
 var headerLayout = new ui.HLayout();
 
+
+var newVersionAvailableLayout = new ui.HLayout();
+newVersionAvailableLayout.setMargins(6, 0, 3, 6);
+
+var newVersionAvailableLabel = new ui.Label("New version available");
+newVersionAvailableLabel.setMinimumWidth(120);
+newVersionAvailableLabel.setContentsMargins(0,7,0,0);
+
+newVersionAvailableLabel.setTextColor("#ffffff");
+newVersionAvailableLayout.add(newVersionAvailableLabel);
+
+var newVersionAvailableButton = new ui.Button("Update");
+newVersionAvailableButton.setMinimumHeight(24);
+newVersionAvailableButton.onClick = function() {
+    api.openURL("https://github.com/phillip-motion/quiver/releases/latest");
+};
+newVersionAvailableLayout.addStretch();
+newVersionAvailableLayout.add(newVersionAvailableButton);
+
+var newVersionAvailable = new ui.Container();
+newVersionAvailable.setBackgroundColor("#4a53fa");
+newVersionAvailable.setRadius(3,3,3,3);
+newVersionAvailable.setLayout(newVersionAvailableLayout);
+
 if (api.getPreferenceObject(SCRIPT_KEY).newVersionAvailable == true) {
-    var newVersionAvailableLabel = new ui.Label("New version available");
-    newVersionAvailableLabel.setTextColor("#969696");
-    mainLayout.add(newVersionAvailableLabel);
+    mainLayout.add(newVersionAvailable);
 }
 
 var logo = new ui.ImageButton(ui.scriptLocation+"/quiver_assets/quiver_logo.png");
