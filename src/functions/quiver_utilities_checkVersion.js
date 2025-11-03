@@ -30,11 +30,7 @@ function checkForUpdate() {
         //     newVersionAvailable: false
         // });
         
-        if (prefs.newVersionAvailable == true) {
-            return;
-        }
-
-        if (prefs.lastCheck > oneDayAgo) {
+        if (prefs.newVersionAvailable == true && prefs.lastCheck > oneDayAgo) {
             return;
         }
 
