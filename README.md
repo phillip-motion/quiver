@@ -76,7 +76,7 @@ Batch rename selected layers. Eg. [name] 1, [name] 2 etc.
 - [ ] Ignore overlapping layers
 4. Export or copy your frame as SVG!
 
-### Importing from Affinity Designer
+### Importing from Affinity
 Coming soon!
 
 
@@ -123,7 +123,7 @@ Coming soon!
 
 ## Roadmap
 We're actively working on:
-- Adding support for Canva and Affinity Designer
+- Adding support for Canva and Affinity
 - Improving text alignment
 - Supporting more filter effects
 
