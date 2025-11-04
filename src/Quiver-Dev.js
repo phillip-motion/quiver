@@ -7,7 +7,7 @@
 
 
 // IMPORTANT!!!!!! Version number must be in the format x.x.x for update checking to work!!!
-const currentVersion = "1.1.0";
+const currentVersion = "1.2.0";
 
 const SCRIPT_KEY = "com.canva.quiver"; 
 ui.setTitle("Quiver-Dev " + currentVersion);
@@ -31,5 +31,6 @@ api.load(ui.scriptLocation+"/functions/quiver_svgParser.js");
 api.load(ui.scriptLocation+"/functions/quiver_utilities_shapes.js");
 api.load(ui.scriptLocation+"/functions/quiver_utilities_text.js");
 api.load(ui.scriptLocation+"/functions/quiver_processAndImport.js");
+api.load(ui.scriptLocation+"/functions/quiver_utilities_webserver.js");
 
 ui.show();

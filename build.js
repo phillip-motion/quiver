@@ -6,7 +6,12 @@ const path = require('path');
 // Check for minify flag
 const shouldMinify = process.argv.includes('--minify');
 
+// Read version from package.json
+const packageJson = JSON.parse(fs.readFileSync(path.join(__dirname, 'package.json'), 'utf8'));
+const VERSION = packageJson.version;
+
 console.log('🏹 Building Quiver...\n');
+console.log(`📌 Version: ${VERSION}\n`);
 if (shouldMinify) {
     console.log('🗜️  Minification enabled\n');
 }
@@ -18,6 +23,7 @@ const SRC_ASSETS_DIR = path.join(SRC_DIR, 'quiver_assets');
 const ROOT_ASSETS_DIR = path.join(__dirname, 'quiver_assets');
 const DEV_FILE = path.join(SRC_DIR, 'Quiver-Dev.js');
 const OUTPUT_FILE = path.join(__dirname, 'Quiver.js');
+const FIGMA_UI_FILE = path.join(__dirname, 'figma', 'ui.html');
 
 /**
  * Recursively copy directory
@@ -46,9 +52,23 @@ function copyDir(src, dest) {
  * Main build function
  */
 async function build() {
+    // Update version in source file first
+    console.log('📝 Updating version in source files...');
+    let devContent = fs.readFileSync(DEV_FILE, 'utf8');
+    const updatedDevContent = devContent.replace(
+        /const currentVersion = "[\d.]+";/,
+        `const currentVersion = "${VERSION}";`
+    );
+    if (updatedDevContent !== devContent) {
+        fs.writeFileSync(DEV_FILE, updatedDevContent, 'utf8');
+        console.log(`  ✓ Updated src/Quiver-Dev.js to v${VERSION}`);
+        devContent = updatedDevContent;
+    } else {
+        console.log(`  ✓ src/Quiver-Dev.js already at v${VERSION}`);
+    }
+    
     // Read the dev file
-    console.log('📖 Reading Quiver-Dev.js...');
-    const devContent = fs.readFileSync(DEV_FILE, 'utf8');
+    console.log('\n📖 Reading Quiver-Dev.js...');
     
     // Split into lines for processing
     const lines = devContent.split('\n');
@@ -174,8 +194,23 @@ async function build() {
         console.warn('⚠️  Warning: src/quiver_assets/ not found, skipping asset copy...');
     }
     
+    // Update Figma plugin version
+    console.log('\n🎨 Updating Figma plugin...');
+    
+    // Update ui.html version number
+    if (fs.existsSync(FIGMA_UI_FILE)) {
+        let uiContent = fs.readFileSync(FIGMA_UI_FILE, 'utf8');
+        uiContent = uiContent.replace(
+            /<div id="versionNumber" class="version-number">v[\d.]+<\/div>/,
+            `<div id="versionNumber" class="version-number">v${VERSION}</div>`
+        );
+        fs.writeFileSync(FIGMA_UI_FILE, uiContent, 'utf8');
+        console.log('  ✓ Updated figma/ui.html version');
+    }
+    
     // Summary
     console.log('\n✨ Build complete!');
+    console.log(`   Version: ${VERSION}`);
     console.log(`   Output: ${path.relative(__dirname, OUTPUT_FILE)}`);
     console.log(`   Size: ${(fs.statSync(OUTPUT_FILE).size / 1024).toFixed(2)} KB`);
 }
