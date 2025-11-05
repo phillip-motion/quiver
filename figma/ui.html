@@ -42,7 +42,7 @@
     }
 
     .logo-icon {
-      fill: var(--cavalry-color-brand-text);
+      fill: var(--figma-color-text);
       width: 2em;
       height: 2em;
     }
@@ -75,19 +75,30 @@
       width: 100%;
     }
 
-    .version-number {
+    .version-number,
+    .version-number a {
       color: var(--figma-color-text-tertiary);
+      text-decoration: none;
+      cursor: pointer;
+    }
+    .version-number a:hover {
+      text-decoration: underline;
+      color: var(--figma-color-text);
     }
     
     .status-dot {
       width: 0.5em;
       height: 0.5em;
+      flex-shrink: 0;
       border-radius: 50%;
       background: var(--figma-color-bg-disabled);
     }
     
     .status-dot.connected {
       background: var(--figma-color-bg-success);
+    }
+    .status-dot.error {
+      background: var(--figma-color-bg-danger);
     }
   </style>
 </head>
@@ -113,7 +124,7 @@
   <div class="connection-status">
     <div id="statusDot" class="status-dot"></div>
     <div id="connectionText" class="connection-text">Checking connection...</div>
-    <div id="versionNumber" class="version-number">v1.5.0</div>
+    <div id="versionNumber" class="version-number"><a href="#" onclick="openGithub(); return false;">v1.5.0↗</a></div>
   </div>
   
   <script>
@@ -121,6 +132,7 @@
     const QUIVER_URL = `http://localhost:${QUIVER_PORT}/post`;
     
     let isConnected = false;
+    let isError = false;
     let currentSelection = null;
     
     // DOM elements
@@ -140,13 +152,17 @@
         
         if (response.ok) {
           isConnected = true;
+          isError = false;
+          statusDot.classList.remove('error');
           statusDot.classList.add('connected');
           connectionText.textContent = 'Connected to Quiver';
           return true;
         }
       } catch (error) {
         isConnected = false;
+        isError = true;
         statusDot.classList.remove('connected');
+        statusDot.classList.add('error');
         connectionText.textContent = 'Make sure Quiver is running';
       }
       return false;
@@ -187,6 +203,7 @@
         }
       } catch (error) {
         isConnected = false;
+        isError = true;
         statusDot.classList.remove('connected');
         connectionText.textContent = 'Quiver not found';
         
@@ -216,6 +233,12 @@
         await sendToCavalry(msg.svgCode, msg.nodeName);
       }
     };
+    
+    // Open GitHub repository
+    function openGithub() {
+      parent.postMessage({ pluginMessage: { type: 'open-github' } }, '*');
+      return false; // Prevent default link behavior
+    }
     
     // Initialize plugin
     function init() {

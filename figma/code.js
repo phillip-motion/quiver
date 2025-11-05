@@ -16,6 +16,9 @@ figma.ui.onmessage = async (msg) => {
   } else if (msg.type === 'fetch-error') {
     // UI failed to send
     figma.notify('❌ ' + (msg.message || 'Failed to connect to Cavalry'), { error: true });
+  } else if (msg.type === 'open-github') {
+    // Open GitHub repository in browser
+    figma.openExternal('https://github.com/phillip-motion/quiver');
   } else if (msg.type === 'cancel') {
     figma.closePlugin();
   }
@@ -117,6 +120,7 @@ async function sendSelectionToCavalry() {
     });
   }
 }
+
 
 // Monitor selection changes
 figma.on('selectionchange', () => {
