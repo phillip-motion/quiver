@@ -23,7 +23,7 @@ function checkForUpdate() {
         const now = new Date().getTime();
         const oneDayAgo = now - (24 * 60 * 60 * 1000);
 
-        // Uncomment this to reset the version check
+        // Uncomment below to reset the version check
         // api.setPreferenceObject(SCRIPT_KEY, {
         //     lastCheck: null,
         //     latestVersion: null,

@@ -497,7 +497,7 @@ newVersionAvailableLayout.add(newVersionAvailableButton);
 
 var newVersionAvailable = new ui.Container();
 newVersionAvailable.setBackgroundColor("#4a53fa");
-newVersionAvailable.setRadius(3,3,3,3);
+// newVersionAvailable.setRadius(3,3,3,3);
 newVersionAvailable.setLayout(newVersionAvailableLayout);
 
 if (api.getPreferenceObject(SCRIPT_KEY).newVersionAvailable == true) {
