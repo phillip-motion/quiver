@@ -436,7 +436,7 @@ var cornerRadiusInput = new ui.LineEdit();
     finePrint2.setAlignment(1); // Center align
     settingsLayout.add(finePrint2);
 
-    var finePrintCredit = new ui.Label("Made for the Canva Creative Team by Jack Jaeschke");
+    var finePrintCredit = new ui.Label("Made by the Canva Creative Team");
     finePrintCredit.setAlignment(1); // Center align
     finePrintCredit.setTextColor("#969696");
     settingsLayout.add(finePrintCredit);
@@ -447,6 +447,12 @@ var cornerRadiusInput = new ui.LineEdit();
         api.openURL("https://github.com/phillip-motion/quiver");
     };
     settingsLayout.add(openGitHubButton);
+    var openCreativeTeamButton = new ui.Button("canvacreative.team/motion");
+    openCreativeTeamButton.setMinimumHeight(24);
+    openCreativeTeamButton.onClick = function() {
+        api.openURL("https://canvacreative.team/motion");
+    };
+    settingsLayout.add(openCreativeTeamButton);
 
     settingsLayout.addSpacing(5);
     settingsLayout.addStretch();
