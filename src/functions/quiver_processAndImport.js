@@ -1,10 +1,47 @@
-function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHiddenDefs) {
+function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHiddenDefs, inheritedScale, parentMatrix) {
     inheritedTranslate = inheritedTranslate || {x:0,y:0};
+    inheritedScale = inheritedScale || {x:1,y:1};
+    parentMatrix = parentMatrix || null;
     inHiddenDefs = !!inHiddenDefs;
     var nodeT = parseTranslate(node.attrs && node.attrs.transform);
 
     if (node.type === 'g' || node.type === 'svg' || node.type === 'root') {
-        var groupName = decodeEntitiesForName(node.name || 'group');
+        // Skip empty groups (no children)
+        if (node.type === 'g' && (!node.children || node.children.length === 0)) {
+            console.log('Skipping empty group:', node.name);
+            return null;
+        }
+        
+        var rawGroupName = decodeEntitiesForName(node.name || 'group');
+        
+        // Number anonymous groups for better naming
+        var groupName = rawGroupName;
+        if (node.type === 'g' && (rawGroupName === 'g' || rawGroupName === 'group')) {
+            __groupCounter++;
+            groupName = 'Group ' + __groupCounter;
+        }
+        
+        // Extract scale and full matrix from this group's transform
+        var groupScale = {x: 1, y: 1};
+        var groupMatrix = null;
+        if (node.attrs && node.attrs.transform) {
+            console.log('=== GROUP WITH TRANSFORM ===');
+            console.log('Group name:', groupName);
+            console.log('Transform:', node.attrs.transform);
+            
+            groupMatrix = parseTransformMatrixList(node.attrs.transform);
+            var decomposed = decomposeMatrix(groupMatrix);
+            groupScale.x = decomposed.scaleX;
+            groupScale.y = decomposed.scaleY;
+            console.log('Extracted scale:', groupScale);
+        }
+        
+        // Combine with inherited scale
+        var combinedScale = {
+            x: inheritedScale.x * groupScale.x,
+            y: inheritedScale.y * groupScale.y
+        };
+        
         var gid = parentId;
         // Optionally flatten anonymous wrapper <g> layers (often named just "g") with no transform/style
         if (node.type === 'g') {
@@ -40,7 +77,7 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
                         if (!node.children[fi].attrs) node.children[fi].attrs = {};
                         if (!node.children[fi].attrs.filter) node.children[fi].attrs._inheritedFilterId = inheritedFilterForFlatten;
                     }
-                    importNode(node.children[fi], parentId, vb, {x:0,y:0}, stats, model, false);
+                    importNode(node.children[fi], parentId, vb, {x:0,y:0}, stats, model, false, inheritedScale, parentMatrix);
                 }
                 return parentId;
             }
@@ -52,15 +89,26 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
         // Propagate filter from this group to children if present
         var inheritedFilterId = extractUrlRefId(node.attrs && node.attrs.filter);
         if (!inheritedFilterId && node.attrs && node.attrs._inheritedFilterId) inheritedFilterId = node.attrs._inheritedFilterId;
-        if ((nodeT.x !== 0 || nodeT.y !== 0) && node.type !== 'root') {
-            var zero = svgToCavalryPosition(0, 0, vb);
-            var moved = svgToCavalryPosition(nodeT.x, nodeT.y, vb);
-            api.set(gid, {"position.x": moved.x - zero.x, "position.y": moved.y - zero.y});
-        }
-        // Apply rotation from transform to group (Cavalry uses degrees CCW with Y up; SVG rotate is CW with Y down)
-        var rotDeg = getRotationDegFromTransform(node.attrs && node.attrs.transform || '');
-        if (Math.abs(rotDeg) > 0.0001 && gid != null) {
-            api.set(gid, {"rotation": -rotDeg});
+        
+        // Only set group position/rotation if there's NO matrix transform
+        // If groupMatrix exists, the full transform (position + rotation) is applied to children
+        if (!groupMatrix) {
+            // Apply rotation from transform to group
+            var rotDeg = getRotationDegFromTransform(node.attrs && node.attrs.transform || '');
+            if (Math.abs(rotDeg) > 0.0001 && gid != null) {
+                api.set(gid, {"rotation": -rotDeg});
+                console.log('Set group rotation:', -rotDeg);
+            }
+            
+            // Apply position
+            if ((nodeT.x !== 0 || nodeT.y !== 0) && node.type !== 'root') {
+                var zero = svgToCavalryPosition(0, 0, vb);
+                var moved = svgToCavalryPosition(nodeT.x, nodeT.y, vb);
+                console.log('Setting group position:', {x: moved.x - zero.x, y: moved.y - zero.y});
+                api.set(gid, {"position.x": moved.x - zero.x, "position.y": moved.y - zero.y});
+            }
+        } else {
+            console.log('Skipping group position/rotation (using matrix transform on children instead)');
         }
         // If this group has a filter, only propagate to children that don't have their own filter AND are likely to be the target:
         // Heuristic: prefer geometry-bearing leaves (path/rect/circle/ellipse/text) and only the first such child if siblings exist.
@@ -109,15 +157,25 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
                 }
             }
         }
+        // Compose parent matrix with this group's matrix for nested transforms
+        var composedMatrix = groupMatrix;
+        if (parentMatrix && groupMatrix) {
+            // Multiply parent matrix by this group's matrix
+            composedMatrix = _matMultiply(parentMatrix, groupMatrix);
+            console.log('Composed nested matrix transforms');
+        } else if (parentMatrix && !groupMatrix) {
+            composedMatrix = parentMatrix;
+        }
+        
         for (var i = 0; i < node.children.length; i++) {
-            importNode(node.children[i], gid, vb, {x:0,y:0}, stats, model, false);
+            importNode(node.children[i], gid, vb, {x:0,y:0}, stats, model, false, combinedScale, composedMatrix);
         }
         return gid;
     }
     if (node.type === 'clipPath' || node.type === 'mask' || node.type === 'defs') {
         // Do not create visible groups or children for defs/masks/clipPaths. Preserve only in model for future use.
         for (var i2 = 0; i2 < node.children.length; i2++) {
-            importNode(node.children[i2], parentId, vb, {x:0,y:0}, stats, model, true);
+            importNode(node.children[i2], parentId, vb, {x:0,y:0}, stats, model, true, inheritedScale, parentMatrix);
         }
         return null;
     }
@@ -287,10 +345,33 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
         return eid;
     }
     if (node.type === 'text') {
+        console.log('=== IMPORTING TEXT NODE ===');
+        console.log('Parent transform chain (if any):', inheritedTranslate);
+        console.log('Inherited scale:', inheritedScale);
+        console.log('Has parent matrix:', !!parentMatrix);
+        console.log('Node transform:', node.attrs.transform);
+        
         // Shift tspans
         var cloneT = JSON.parse(JSON.stringify(node));
         
-        // Check if we have a matrix transform
+        console.log('Original tspan 0 position:', cloneT.tspans[0].x, cloneT.tspans[0].y);
+        
+        // Apply parent matrix transform if it exists
+        if (parentMatrix) {
+            console.log('Applying parent matrix transform to text positions');
+            for (var k = 0; k < cloneT.tspans.length; k++) {
+                var origX = cloneT.tspans[k].x;
+                var origY = cloneT.tspans[k].y;
+                // Transform using parent matrix (a*x + c*y + e, b*x + d*y + f)
+                var newX = parentMatrix.a * origX + parentMatrix.c * origY + parentMatrix.e;
+                var newY = parentMatrix.b * origX + parentMatrix.d * origY + parentMatrix.f;
+                cloneT.tspans[k].x = newX;
+                cloneT.tspans[k].y = newY;
+            }
+            console.log('After parent matrix, tspan 0 position:', cloneT.tspans[0].x, cloneT.tspans[0].y);
+        }
+        
+        // Then apply node's own transform if it has one
         if (node.attrs && node.attrs.transform && node.attrs.transform.indexOf('matrix') !== -1) {
             // Apply matrix transform to each tspan position
             for (var k = 0; k < cloneT.tspans.length; k++) {
@@ -298,15 +379,17 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
                 cloneT.tspans[k].x = transformed.x + inheritedTranslate.x;
                 cloneT.tspans[k].y = transformed.y + inheritedTranslate.y;
             }
-        } else {
-            // Use simple translation
+        } else if (!parentMatrix) {
+            // Only apply simple translation if we didn't already apply parent matrix
             for (var k = 0; k < cloneT.tspans.length; k++) {
                 cloneT.tspans[k].x += nodeT.x + inheritedTranslate.x;
                 cloneT.tspans[k].y += nodeT.y + inheritedTranslate.y;
             }
         }
         
-        var tid = createText(cloneT, parentId, vb);
+        console.log('Final tspan 0 position:', cloneT.tspans[0].x, cloneT.tspans[0].y);
+        
+        var tid = createText(cloneT, parentId, vb, inheritedScale);
         if (!tid) {
             // Text creation skipped (likely disabled in settings)
             return null;
@@ -397,11 +480,155 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
         if (stats) stats.images = (stats.images || 0) + 1;
         return idImg;
     }
+    if (node.type === 'use') {
+        // Handle <use> elements - treat them like images if they reference an image
+        console.log('=== IMPORTING USE NODE ===');
+        console.log('href:', node.attrs.href);
+        console.log('Has parent matrix:', !!parentMatrix);
+        
+        // Resolve the reference (e.g., #_Image3) to get the actual image data
+        var refId = (node.attrs.href || '').replace('#', '');
+        console.log('Resolving reference ID:', refId);
+        
+        // Look up the referenced element in the model's ID index
+        var referencedNode = model._idIndex && model._idIndex[refId];
+        console.log('Referenced node found:', !!referencedNode, 'type:', referencedNode && referencedNode.type);
+        
+        if (!referencedNode || referencedNode.type !== 'image') {
+            console.log('Referenced element is not an image, skipping');
+            return null;
+        }
+        
+        // Treat <use> as an image element - copy attributes and process
+        var cloneUse = JSON.parse(JSON.stringify(node));
+        cloneUse.type = 'image'; // Convert to image type for processing
+        
+        // Get the actual image href from the referenced node
+        var actualHref = referencedNode.attrs && (referencedNode.attrs.href || referencedNode.attrs['xlink:href']);
+        console.log('Actual image href:', actualHref ? actualHref.substring(0, 50) + '...' : 'null');
+        cloneUse.attrs.href = actualHref;
+        
+        var x = parseFloat(cloneUse.attrs.x || '0');
+        var y = parseFloat(cloneUse.attrs.y || '0');
+        var w = parseFloat(cloneUse.attrs.width || '0');
+        var h = parseFloat(cloneUse.attrs.height || '0');
+        
+        // Apply parent matrix if it exists - use full matrix like we do for paths/text
+        if (parentMatrix) {
+            console.log('Applying parent matrix to <use> element bounds');
+            
+            // Transform all four corners to handle rotation correctly
+            var tl = {x: parentMatrix.a * x + parentMatrix.c * y + parentMatrix.e,
+                      y: parentMatrix.b * x + parentMatrix.d * y + parentMatrix.f};
+            var tr = {x: parentMatrix.a * (x+w) + parentMatrix.c * y + parentMatrix.e,
+                      y: parentMatrix.b * (x+w) + parentMatrix.d * y + parentMatrix.f};
+            var bl = {x: parentMatrix.a * x + parentMatrix.c * (y+h) + parentMatrix.e,
+                      y: parentMatrix.b * x + parentMatrix.d * (y+h) + parentMatrix.f};
+            var br = {x: parentMatrix.a * (x+w) + parentMatrix.c * (y+h) + parentMatrix.e,
+                      y: parentMatrix.b * (x+w) + parentMatrix.d * (y+h) + parentMatrix.f};
+            
+            // Find the bounding box of the transformed corners
+            var minX = Math.min(tl.x, tr.x, bl.x, br.x);
+            var maxX = Math.max(tl.x, tr.x, bl.x, br.x);
+            var minY = Math.min(tl.y, tr.y, bl.y, br.y);
+            var maxY = Math.max(tl.y, tr.y, bl.y, br.y);
+            
+            cloneUse.attrs.x = minX.toString();
+            cloneUse.attrs.y = minY.toString();
+            cloneUse.attrs.width = (maxX - minX).toString();
+            cloneUse.attrs.height = (maxY - minY).toString();
+            
+            console.log('Transformed bounds - x:', minX, 'y:', minY, 'w:', maxX - minX, 'h:', maxY - minY);
+        }
+        
+        // Instead of trying to create an image layer (doesn't work in Cavalry API),
+        // create a rectangle with an image shader (like Figma patterns do)
+        var rectId = api.primitive('rectangle', cloneUse.name || 'image');
+        if (parentId) api.parent(rectId, parentId);
+        _registerChild(parentId, rectId);
+        
+        // Calculate position and size
+        var x = parseFloat(cloneUse.attrs.x || '0');
+        var y = parseFloat(cloneUse.attrs.y || '0');
+        var w = parseFloat(cloneUse.attrs.width || '0');
+        var h = parseFloat(cloneUse.attrs.height || '0');
+        var centre = svgToCavalryPosition(x + w/2, y + h/2, vb);
+        
+        // Set rectangle size and position
+        // Note: rotation is handled by parent group, not applied to the <use> element directly
+        try {
+            api.set(rectId, {
+                'generator.dimensions': [w, h],
+                'position.x': centre.x,
+                'position.y': centre.y
+            });
+            console.log('Set rectangle position:', centre.x, centre.y, 'size:', w, h);
+        } catch (eSet) {}
+        
+        // Create image shader and connect it
+        __imageCounter++;
+        var shaderName = (cloneUse.name || 'image') + '_' + __imageCounter;
+        var shaderNode = api.create('imageShader', shaderName);
+        
+        if (shaderNode && actualHref) {
+            // Save the image file
+            var saved = _resolveImageHrefToAsset(actualHref, cloneUse);
+            var linkVal = saved || actualHref;
+            
+            if (linkVal) {
+                // Load as asset and connect
+                var assetId = null;
+                try { if (saved && api.loadAsset) assetId = api.loadAsset(saved, false); } catch (eLoad) {}
+                if (!assetId) { try { if (saved && api.importAsset) assetId = api.importAsset(saved); } catch (eImp) {} }
+                
+                if (assetId) {
+                    try { api.connect(assetId, 'id', shaderNode, 'image'); } catch (eConn) {}
+                    
+                    // Parent asset under Quiver group
+                    var quiverGroup = _ensureQuiverAssetGroup();
+                    if (quiverGroup) {
+                        try { api.parent(assetId, quiverGroup); } catch (ePar) {}
+                    }
+                } else {
+                    // Fallback: set path directly
+                    _setFirstSupported(shaderNode, ['image','generator.image','file','path'], linkVal);
+                }
+            }
+            
+            // Connect shader to rectangle
+            try {
+                api.setFill(rectId, true);
+                api.set(rectId, {"material.materialColor.a": 0});
+                api.connect(shaderNode, 'id', rectId, 'material.colorShaders');
+                api.parent(shaderNode, rectId);
+                
+                // Configure shader (same as pattern images)
+                try { if (_hasAttr(shaderNode, 'legacyGraph')) api.set(shaderNode, { 'legacyGraph': false }); } catch (eLG) {}
+                try { api.set(shaderNode, { 'scaleMode': 4 }); } catch (eSM) {}
+                try { api.set(shaderNode, { 'tilingX': 3, 'tilingY': 3 }); } catch (eT) {}
+                _setFirstSupported(shaderNode, ['offset','generator.offset'], [0,0]);
+                console.log('Connected image shader to rectangle');
+            } catch (eShader) {
+                console.log('Error connecting shader:', eShader);
+            }
+        }
+        
+        if (stats) stats.images = (stats.images || 0) + 1;
+        console.log('Created rectangle with image shader from <use> element');
+        return rectId;
+    }
     if (node.type === 'path' || node.type === 'polygon' || node.type === 'polyline') {
+        console.log('=== IMPORTING PATH NODE ===');
+        console.log('Has parent matrix:', !!parentMatrix);
+        console.log('Node transform:', node.attrs && node.attrs.transform);
+        
         var translateAll = {x: nodeT.x + inheritedTranslate.x, y: nodeT.y + inheritedTranslate.y};
         
         // Check if we have a matrix transform - if so, we need to transform all points
         var hasMatrix = node.attrs && node.attrs.transform && node.attrs.transform.indexOf('matrix') !== -1;
+        
+        // If we have a parent matrix, we need to apply it to the path data
+        var hasParentMatrix = !!parentMatrix;
         
         if (node.type === 'polygon' || node.type === 'polyline') {
             var polyPts = parsePoints(node.attrs.points || '');
@@ -429,8 +656,46 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
         if (node.type === 'path') {
             segments = parsePathDataToAbsolute(node.attrs.d || '');
             
-            // Apply matrix transform to path segments if needed
+            console.log('Path has', segments.length, 'segments');
+            
+            // Apply parent matrix first if it exists
+            if (hasParentMatrix) {
+                console.log('Applying parent matrix to path segments');
+                for (var si = 0; si < segments.length; si++) {
+                    var seg = segments[si];
+                    if (seg.x !== undefined && seg.y !== undefined) {
+                        var newX = parentMatrix.a * seg.x + parentMatrix.c * seg.y + parentMatrix.e;
+                        var newY = parentMatrix.b * seg.x + parentMatrix.d * seg.y + parentMatrix.f;
+                        seg.x = newX;
+                        seg.y = newY;
+                    }
+                    // Handle control points for curves
+                    if (seg.cp1x !== undefined && seg.cp1y !== undefined) {
+                        var newCp1X = parentMatrix.a * seg.cp1x + parentMatrix.c * seg.cp1y + parentMatrix.e;
+                        var newCp1Y = parentMatrix.b * seg.cp1x + parentMatrix.d * seg.cp1y + parentMatrix.f;
+                        seg.cp1x = newCp1X;
+                        seg.cp1y = newCp1Y;
+                    }
+                    if (seg.cp2x !== undefined && seg.cp2y !== undefined) {
+                        var newCp2X = parentMatrix.a * seg.cp2x + parentMatrix.c * seg.cp2y + parentMatrix.e;
+                        var newCp2Y = parentMatrix.b * seg.cp2x + parentMatrix.d * seg.cp2y + parentMatrix.f;
+                        seg.cp2x = newCp2X;
+                        seg.cp2y = newCp2Y;
+                    }
+                    if (seg.cpx !== undefined && seg.cpy !== undefined) {
+                        var newCpX = parentMatrix.a * seg.cpx + parentMatrix.c * seg.cpy + parentMatrix.e;
+                        var newCpY = parentMatrix.b * seg.cpx + parentMatrix.d * seg.cpy + parentMatrix.f;
+                        seg.cpx = newCpX;
+                        seg.cpy = newCpY;
+                    }
+                }
+                // Reset translate since we've already applied the full parent transform
+                translateAll = {x: 0, y: 0};
+            }
+            
+            // Then apply node's own matrix transform if it has one
             if (hasMatrix) {
+                console.log('Applying node matrix to path segments');
                 for (var si = 0; si < segments.length; si++) {
                     var seg = segments[si];
                     if (seg.x !== undefined && seg.y !== undefined) {
@@ -451,7 +716,9 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
                     }
                 }
                 // Reset translate since we've already applied the full transform
-                translateAll = {x: inheritedTranslate.x, y: inheritedTranslate.y};
+                if (!hasParentMatrix) {
+                    translateAll = {x: inheritedTranslate.x, y: inheritedTranslate.y};
+                }
             }
         } else {
             if (polyPts && polyPts.length) {
@@ -627,9 +894,15 @@ function processAndImportSVG(svgCode) {
         var vb = extractViewBox(svgCode);
         if (!vb) vb = {x:0,y:0,width:1000,height:1000};
         
+        console.log('=== VIEWBOX INFO ===');
+        console.log('ViewBox:', JSON.stringify(vb));
+        
         // Reset image counter for consistent numbering per import
         __imageCounter = 0;
         __imageNamingContext = {};
+        
+        // Reset group counter for consistent numbering per import
+        __groupCounter = 0;
 
         var model = parseSVGStructure(svgCode);
         // Normalize: merge separate fill/stroke siblings before creating layers
@@ -647,8 +920,11 @@ function processAndImportSVG(svgCode) {
         // Use the proven gradient extractor logic pattern
         var gradientMap = {};
         var gradsArr = extractGradients(svgCode);
+        console.log('=== EXTRACTED GRADIENTS ===');
+        console.log('Found', gradsArr.length, 'gradients');
         for (var gi = 0; gi < gradsArr.length; gi++) {
             var gid = gradsArr[gi].id;
+            console.log('Gradient', gi, ':', JSON.stringify(gradsArr[gi], null, 2));
             if (gid) gradientMap[gid] = gradsArr[gi];
         }
         setGradientContext(gradientMap);
@@ -676,7 +952,7 @@ function processAndImportSVG(svgCode) {
         }
 
         for (var i = 0; i < model.children.length; i++) {
-            importNode(model.children[i], rootId, vb, {x:0,y:0}, stats, model);
+            importNode(model.children[i], rootId, vb, {x:0,y:0}, stats, model, false, {x:1,y:1}, null);
         }
         postProcessMasks(rootId, model);
 

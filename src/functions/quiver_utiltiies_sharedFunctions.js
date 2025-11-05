@@ -75,8 +75,14 @@ function normalizeDashArrayToCsv(val) {
 
 function extractAttribute(tag, name) {
     if (!tag || !name) return null;
-    var regex = new RegExp('(?:^|\\s)' + name + '\\s*=\\s*["\']([^"\']*)["\']');
-    var match = regex.exec(tag);
+    // Try to match attribute with its value, handling nested quotes
+    // First try double quotes
+    var regex1 = new RegExp('(?:^|\\s)' + name + '\\s*=\\s*"([^"]*)"');
+    var match = regex1.exec(tag);
+    if (match) return match[1];
+    // Then try single quotes
+    var regex2 = new RegExp("(?:^|\\s)" + name + "\\s*=\\s*'([^']*)'");
+    match = regex2.exec(tag);
     return match ? match[1] : null;
 }
 
@@ -166,6 +172,7 @@ var __patternImageShaderCache = {}; // patternId -> shaderId
 var __lastPatternOrImageName = 'img';
 var __imageNamingContext = {}; // Store parent context for better image naming
 var __imageCounter = 0; // Global counter for unique image numbers
+var __groupCounter = 0; // Global counter for anonymous groups
 
 function setPatternContext(map) {
     __svgPatternMap = map || {};

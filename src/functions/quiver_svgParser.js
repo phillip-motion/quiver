@@ -10,8 +10,8 @@ function parseSVGStructure(svgCode) {
     var tree = makeNode({ type: 'root', name: 'root', children: [], attrs: {}, transformChain: [] });
     var stack = [tree];
 
-    // Extract opening tags and self-closing blocks for supported types (including image/pattern)
-    var regex = /<(svg|g|rect|circle|ellipse|text|path|polygon|polyline|image|pattern|defs|clipPath|mask)([^>]*)>|<\/\s*(svg|g|text|defs|clipPath|mask|pattern)\s*>|<tspan([^>]*)>(.*?)<\/tspan>/g;
+    // Extract opening tags and self-closing blocks for supported types (including image/pattern/use)
+    var regex = /<(svg|g|rect|circle|ellipse|text|path|polygon|polyline|image|pattern|defs|clipPath|mask|use)([^>]*)>|<\/\s*(svg|g|text|defs|clipPath|mask|pattern)\s*>|<tspan([^>]*)>(.*?)<\/tspan>/g;
     var match;
     var textBuffer = null;
     while ((match = regex.exec(svgCode)) !== null) {
@@ -29,11 +29,44 @@ function parseSVGStructure(svgCode) {
                     var val = extractAttribute(opening, key);
                     if (val !== null) node.attrs[key] = val;
                 }
-                // Merge inline style
+                // Preserve the original style attribute (needed for fallback extraction)
+                var styleAttr = extractAttribute(opening, 'style');
+                if (styleAttr) node.attrs.style = styleAttr;
+                // Merge inline style properties into attrs for easy access
                 var inline = mergeInlineStyleIntoAttrs(opening);
                 for (var k in inline) node.attrs[k] = inline[k];
                 stack[stack.length - 1].children.push(node);
                 stack.push(node);
+                
+                // For text elements, capture any direct text content before first tspan (Affinity SVG support)
+                if (tag === 'text') {
+                    console.log('=== PARSING TEXT ELEMENT ===');
+                    console.log('opening tag:', opening.substring(0, 200));
+                    try {
+                        var textEndPos = match.index + match[0].length;
+                        var nextTagMatch = /<[^>]+>/.exec(svgCode.substring(textEndPos));
+                        if (nextTagMatch) {
+                            var directTextContent = svgCode.substring(textEndPos, textEndPos + nextTagMatch.index).trim();
+                            console.log('Direct text content found:', directTextContent);
+                            if (directTextContent) {
+                                // Decode entities and clean up
+                                directTextContent = directTextContent.replace(/&#10;/g, '');
+                                try { directTextContent = decodeEntitiesForName(directTextContent); } catch (eDec) {}
+                                // Add as first tspan with parent text's position
+                                if (directTextContent) {
+                                    node.tspans.push({
+                                        x: parseFloat(node.attrs.x || '0'),
+                                        y: parseFloat(node.attrs.y || '0'),
+                                        text: directTextContent
+                                    });
+                                    console.log('Added direct text as tspan');
+                                }
+                            }
+                        }
+                    } catch (eDirectText) {
+                        console.log('Error capturing direct text:', eDirectText);
+                    }
+                }
             } else if (tag === 'rect' || tag === 'circle' || tag === 'ellipse') {
                 var leaf = makeNode({ type: tag, name: decodeEntitiesForName(extractAttribute(opening, 'id') || tag), attrs: {}, opening: opening, children: [], transformChain: [] });
                 var keys = ['id','x','y','width','height','rx','ry','cx','cy','r','rx','ry','fill','fill-opacity','stroke','stroke-width','stroke-opacity','stroke-dasharray','stroke-dashoffset','stroke-linecap','stroke-linejoin','opacity','transform','mask','clip-path','filter'];
@@ -57,7 +90,24 @@ function parseSVGStructure(svgCode) {
                 }
                 var inlineI = mergeInlineStyleIntoAttrs(opening);
                 for (var kI in inlineI) inode.attrs[kI] = inlineI[kI];
+                // Re-index after ID attribute is extracted (for <use> element lookups)
+                if (inode.attrs.id) idIndex[inode.attrs.id] = inode;
                 stack[stack.length - 1].children.push(inode);
+            } else if (tag === 'use') {
+                // Handle <use> elements (Affinity SVG format for referencing images/symbols)
+                var unode = makeNode({ type: tag, name: decodeEntitiesForName(extractAttribute(opening, 'id') || tag), attrs: {}, opening: opening, children: [], transformChain: [] });
+                var href = extractAttribute(opening, 'href') || extractAttribute(opening, 'xlink:href');
+                if (href !== null) unode.attrs.href = href;
+                var ukeys = ['id','x','y','width','height','opacity','transform','mask','clip-path','filter'];
+                for (var uj = 0; uj < ukeys.length; uj++) {
+                    var ukk = ukeys[uj];
+                    var uvv = extractAttribute(opening, ukk);
+                    if (uvv !== null) unode.attrs[ukk] = uvv;
+                }
+                var inlineU = mergeInlineStyleIntoAttrs(opening);
+                for (var kU in inlineU) unode.attrs[kU] = inlineU[kU];
+                console.log('Parsed <use> element with href:', unode.attrs.href);
+                stack[stack.length - 1].children.push(unode);
             } else if (tag === 'pattern') {
                 var pnode = makeNode({ type: tag, name: decodeEntitiesForName(extractAttribute(opening, 'id') || tag), attrs: {}, opening: opening, children: [], transformChain: [] });
                 var pkeys = ['id','x','y','width','height','patternUnits','patternContentUnits','patternTransform'];

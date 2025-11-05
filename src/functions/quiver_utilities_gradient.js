@@ -53,8 +53,24 @@ function parseGradientStops(gradientElement) {
     while ((match = stopRegex.exec(gradientElement)) !== null) {
         var stopElement = match[0];
         var offset = _gradGetAttr(stopElement, "offset");
+        
+        // Try to get stop-color from direct attribute first
         var stopColor = _gradGetAttr(stopElement, "stop-color");
         var stopOpacity = _gradGetAttr(stopElement, "stop-opacity");
+        
+        // If not found as direct attribute, try extracting from style (Affinity SVG format)
+        if (!stopColor || !stopOpacity) {
+            var styleAttr = _gradGetAttr(stopElement, "style");
+            if (styleAttr) {
+                if (!stopColor) {
+                    stopColor = extractStyleProperty(styleAttr, 'stop-color');
+                }
+                if (!stopOpacity) {
+                    stopOpacity = extractStyleProperty(styleAttr, 'stop-opacity');
+                }
+            }
+        }
+        
         var offsetNum = 0;
         if (offset) {
             if (offset.indexOf('%') !== -1) offsetNum = parseFloat(offset) / 100; else offsetNum = parseFloat(offset);
