@@ -321,6 +321,7 @@ var renamerInput = new ui.LineEdit();
 renamerInput.setMinimumHeight(36);
 renamerInput.setContentsMargins(6,6,6,6);
 renamerInput.setCornerRounding(4);
+renamerInput.setBackgroundColor(ui.getThemeColor("Window"));
 renamerInput.setPlaceholder("Rename layers...");
 
 var renamerButton = new ui.ImageButton(ui.scriptLocation+"/quiver_assets/quiver_icon-apply.png");
@@ -571,8 +572,8 @@ settingsButton.onClick = function() {
 
 // Create main layout
 var mainLayout = new ui.VLayout();
-mainLayout.setSpaceBetween(4);
-mainLayout.setMargins(4, 4, 4, 4);
+mainLayout.setSpaceBetween(0);
+mainLayout.setMargins(0, 0, 0, 0);
 
 // Top row with settings button
 var headerLayout = new ui.HLayout();
@@ -605,49 +606,65 @@ if (api.getPreferenceObject(SCRIPT_KEY).newVersionAvailable == true) {
     mainLayout.add(newVersionAvailable);
 }
 
-var logo = new ui.ImageButton(ui.scriptLocation+"/quiver_assets/quiver_logo.png");
-logo.setImageSize(106, 35);
-logo.setDrawStroke(false);
-logo.setTransparentForMouseEvents(true);
-headerLayout.add(logo);
-headerLayout.addStretch();
-headerLayout.add(settingsButton);
-mainLayout.add(headerLayout);
 
 // Import Section
+var mainButtonsContainer = new ui.Container();
+mainButtonsContainer.setBackgroundColor(ui.getThemeColor("AlternateBase"));
+
 var mainButtons = new ui.HLayout();
 mainButtons.setSpaceBetween(6);
+mainButtons.setMargins(6,6,6,6);
+
+var logo = new ui.ImageButton(ui.scriptLocation+"/quiver_assets/quiver_icon.png");
+logo.setImageSize(28, 29);
+logo.setBackgroundColor(ui.getThemeColor("AlternateBase"));
+logo.setDrawStroke(false);
+logo.setTransparentForMouseEvents(true);
+logo.setSize(28, 29);
+
+mainButtons.add(logo);
 mainButtons.add(pasteButton);
 mainButtons.add(importFileButton);
-mainLayout.add(mainButtons);
+mainButtonsContainer.setLayout(mainButtons);
+mainLayout.add(mainButtonsContainer);
 
-mainLayout.addSpacing(8);
-
-// Tool buttons
-var toolsLabel = new ui.Label("Tools");
-toolsLabel.setTextColor("#969696");
-mainLayout.add(toolsLabel);
+// // Tool buttons
+// var toolsLabel = new ui.Label("Tools");
+// toolsLabel.setTextColor("#969696");
+// mainLayout.add(toolsLabel);
 
 // Main tool buttons
+var toolButtonsContainer = new ui.Container();
+var toolsVLayout = new ui.VLayout();
+toolsVLayout.setSpaceBetween(2);
+toolsVLayout.setMargins(6,6,6,6);
 var toolButtonsLayout = new ui.HLayout();
-toolButtonsLayout.setSpaceBetween(6);
 toolButtonsLayout.add(convertRectButton);
 toolButtonsLayout.add(dynamicAlignButton);
 toolButtonsLayout.add(flattenShapeButton);
 toolButtonsLayout.addStretch();
-mainLayout.add(toolButtonsLayout);
+toolButtonsLayout.add(settingsButton);
 
 // Rename section - more compact
 
 var renameLayout = new ui.HLayout();
 renameLayout.add(renamerInput);
 renameLayout.add(renamerButton);
-mainLayout.add(renameLayout);
+
+toolsVLayout.add(renameLayout);
+toolsVLayout.add(toolButtonsLayout);
+
+
+
+toolButtonsContainer.setLayout(toolsVLayout);
+mainLayout.add(toolButtonsContainer);
+
 
 mainLayout.addStretch();
 
 ui.add(mainLayout);
-ui.setMinimumWidth(200);
+ui.setMargins(0, 0, 0, 0);
+ui.setMinimumWidth(150);
 ui.show();
 
 // ----------------------------------------
