@@ -2948,14 +2948,11 @@ function parseSVGStructure(svgCode) {
                 
                 // For text elements, capture any direct text content before first tspan (Affinity SVG support)
                 if (tag === 'text') {
-                    console.log('=== PARSING TEXT ELEMENT ===');
-                    console.log('opening tag:', opening.substring(0, 200));
                     try {
                         var textEndPos = match.index + match[0].length;
                         var nextTagMatch = /<[^>]+>/.exec(svgCode.substring(textEndPos));
                         if (nextTagMatch) {
                             var directTextContent = svgCode.substring(textEndPos, textEndPos + nextTagMatch.index).trim();
-                            console.log('Direct text content found:', directTextContent);
                             if (directTextContent) {
                                 // Decode entities and clean up
                                 directTextContent = directTextContent.replace(/&#10;/g, '');
@@ -2967,12 +2964,11 @@ function parseSVGStructure(svgCode) {
                                         y: parseFloat(node.attrs.y || '0'),
                                         text: directTextContent
                                     });
-                                    console.log('Added direct text as tspan');
                                 }
                             }
                         }
                     } catch (eDirectText) {
-                        console.log('Error capturing direct text:', eDirectText);
+                        // Silent fail - direct text capture is optional
                     }
                 }
             } else if (tag === 'rect' || tag === 'circle' || tag === 'ellipse') {
@@ -3014,7 +3010,6 @@ function parseSVGStructure(svgCode) {
                 }
                 var inlineU = mergeInlineStyleIntoAttrs(opening);
                 for (var kU in inlineU) unode.attrs[kU] = inlineU[kU];
-                console.log('Parsed <use> element with href:', unode.attrs.href);
                 stack[stack.length - 1].children.push(unode);
             } else if (tag === 'pattern') {
                 var pnode = makeNode({ type: tag, name: decodeEntitiesForName(extractAttribute(opening, 'id') || tag), attrs: {}, opening: opening, children: [], transformChain: [] });
@@ -4187,10 +4182,6 @@ function createText(node, parentId, vb, inheritedScale) {
             return null;
         }
     
-    console.log('=== TSPAN COMBINATION ===');
-    console.log('Number of tspans:', node.tspans.length);
-    console.log('Tspans:', JSON.stringify(node.tspans, null, 2));
-    
     // Smart joining: check if tspans are on the same line (same Y position) or different lines
     // If Y positions are very close (within 1px), they're on the same line - no newline
     // If Y positions differ significantly, insert newline
@@ -4200,16 +4191,13 @@ function createText(node, parentId, vb, inheritedScale) {
             var prevY = node.tspans[ti - 1].y;
             var currY = node.tspans[ti].y;
             var yDiff = Math.abs(currY - prevY);
-            console.log('Y diff between tspan', ti-1, 'and', ti, ':', yDiff);
             // If Y difference is more than 1px, they're on different lines
             if (yDiff > 1) {
                 combined += '\n';
-                console.log('Adding newline between tspans');
             }
         }
         combined += node.tspans[ti].text;
     }
-    console.log('Combined text (smart joining):', JSON.stringify(combined));
     
     try { combined = decodeEntitiesForName(combined); } catch (eDecAll) {}
     var name = combined.split(/\s+/).slice(0,3).join(' ');
@@ -4219,9 +4207,7 @@ function createText(node, parentId, vb, inheritedScale) {
     if (parentId) api.parent(id, parentId);
 
     var first = node.tspans[0];
-    console.log('First tspan position (SVG coords):', first.x, first.y);
     var pos = svgToCavalryPosition(first.x, first.y, vb);
-    console.log('Converted to Cavalry position:', pos);
 
     var fill = node.attrs.fill || extractStyleProperty(node.attrs.style, 'fill') || '#000000';
     var fontSizeRaw = parseFloat((node.attrs['font-size'] || extractStyleProperty(node.attrs.style, 'font-size') || '16').toString().replace('px',''));
@@ -4230,23 +4216,12 @@ function createText(node, parentId, vb, inheritedScale) {
     var scaleAvg = (inheritedScale.x + inheritedScale.y) / 2;
     var fontSize = fontSizeRaw * scaleAvg;
     
-    // DEBUG: Log what we're working with
-    console.log('=== TEXT NODE DEBUG ===');
-    console.log('node.attrs:', JSON.stringify(node.attrs, null, 2));
-    console.log('node.attrs.style:', node.attrs.style);
-    console.log('fontSize raw:', fontSizeRaw);
-    console.log('inherited scale:', inheritedScale);
-    console.log('fontSize scaled:', fontSize);
-    
     // Enhanced font extraction: try Affinity format first, then fall back to Figma format
     var familyRaw = node.attrs['font-family'] || extractStyleProperty(node.attrs.style, 'font-family') || 'Arial';
-    console.log('familyRaw:', familyRaw);
     var familyFirst = familyRaw.split(',')[0].trim().replace(/["']/g,'');
-    console.log('familyFirst:', familyFirst);
     
     // Try to parse font variant from family name (Affinity SVG format)
     var parsed = parseFontFamilyVariant(familyFirst);
-    console.log('parsed variant result:', parsed);
     
     // Use parsed result if available, otherwise clean up familyFirst
     var family = familyFirst;
@@ -4258,15 +4233,12 @@ function createText(node, parentId, vb, inheritedScale) {
         // If no variant parsed but name ends with MT, strip it
         if (familyFirst.match(/MT$/)) {
             family = familyFirst.replace(/MT$/, '');
-            console.log('Stripped MT suffix, family is now:', family);
         }
     }
-    console.log('Final family:', family, 'variant:', variantFromName);
     
     // Get explicit weight and style attributes (Figma format)
     var weight = node.attrs['font-weight'] || extractStyleProperty(node.attrs.style, 'font-weight') || '400';
     var fontStyle = node.attrs['font-style'] || extractStyleProperty(node.attrs.style, 'font-style') || '';
-    console.log('weight:', weight, 'fontStyle:', fontStyle);
     
     // Simplified mapping like example
     function parseFontWeight(weightStr){
@@ -4296,8 +4268,6 @@ function createText(node, parentId, vb, inheritedScale) {
 
     // Use variant from font name if available (Affinity), otherwise parse from weight/style (Figma)
     var finalStyle = variantFromName || combineWeightAndItalic(parseFontWeight(weight), fontStyle);
-    console.log('finalStyle:', finalStyle);
-    console.log('======================');
 
     // Compute line spacing from explicit line-height or tspans (multi-line)
     var lineSpacingOffset = 0;
@@ -4320,29 +4290,21 @@ function createText(node, parentId, vb, inheritedScale) {
         }
         var defaultLineHeight = fontSize * 1.407; // Cavalry default approximation
         var lhPx = _lineHeightToPx(lineHeightRaw, fontSize);
-        console.log('Line height calculation - raw:', lineHeightRaw, 'parsed:', lhPx, 'default:', defaultLineHeight);
         if (lhPx !== null && isFinite(lhPx)) {
             lineSpacingOffset = lhPx - defaultLineHeight;
-            console.log('Using explicit line height, offset:', lineSpacingOffset);
         } else if (node.tspans && node.tspans.length > 1) {
             var diffs = []; 
             for (var li = 1; li < node.tspans.length; li++) { 
                 var dy = (node.tspans[li].y - node.tspans[li-1].y); 
-                console.log('Tspan', li-1, 'to', li, 'Y diff:', dy);
                 if (isFinite(dy)) diffs.push(dy); 
             }
-            console.log('All Y diffs:', diffs);
             if (diffs.length > 0) {
                 var sum = 0; for (var di = 0; di < diffs.length; di++) sum += diffs[di];
                 var avg = sum / diffs.length;
-                console.log('Average Y diff:', avg);
                 // Only apply line spacing if there are actual line breaks (Y diff > 1px)
                 // If all tspans are on same line (Y diff ~0), don't set line spacing
                 if (Math.abs(avg) > 1) {
                     lineSpacingOffset = avg - defaultLineHeight;
-                    console.log('Line spacing offset from tspans:', lineSpacingOffset);
-                } else {
-                    console.log('Tspans on same line (Y diff ~0), skipping line spacing');
                 }
             }
         }
@@ -4359,7 +4321,6 @@ function createText(node, parentId, vb, inheritedScale) {
         "position.y": pos.y,
         "verticalAlignment": 3
     };
-    console.log('textSettings to apply:', JSON.stringify(textSettings, null, 2));
     // letter spacing
     var letterSpacingRaw = node.attrs['letter-spacing'] || extractStyleProperty(node.attrs.style, 'letter-spacing');
     var letterSpacingRatio = null; // Track ratio for expression connection
@@ -4463,20 +4424,11 @@ function createText(node, parentId, vb, inheritedScale) {
     // Hook up fill gradient (if any) to the text shape
     try {
         var gradIdT = extractUrlRefId(attrsForTextStyle.fill || (attrsForTextStyle.style && extractStyleProperty(attrsForTextStyle.style, 'fill')));
-        console.log('Checking for gradient fill, gradIdT:', gradIdT);
         if (gradIdT) {
             var shaderT = getGradientShader(gradIdT);
-            console.log('getGradientShader returned:', shaderT);
-            if (shaderT) {
-                var connected = connectShaderToShape(shaderT, id);
-                console.log('Connected shader to text:', connected);
-            } else {
-                console.log('No shader found for gradient ID:', gradIdT);
-            }
+            if (shaderT) connectShaderToShape(shaderT, id);
         }
-    } catch (eGT) {
-        console.log('Error applying gradient to text:', eGT);
-    }
+    } catch (eGT) {}
 
     return id;
     } catch (e) {
@@ -4516,15 +4468,10 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
         var groupScale = {x: 1, y: 1};
         var groupMatrix = null;
         if (node.attrs && node.attrs.transform) {
-            console.log('=== GROUP WITH TRANSFORM ===');
-            console.log('Group name:', groupName);
-            console.log('Transform:', node.attrs.transform);
-            
             groupMatrix = parseTransformMatrixList(node.attrs.transform);
             var decomposed = decomposeMatrix(groupMatrix);
             groupScale.x = decomposed.scaleX;
             groupScale.y = decomposed.scaleY;
-            console.log('Extracted scale:', groupScale);
         }
         
         // Combine with inherited scale
@@ -4588,18 +4535,14 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
             var rotDeg = getRotationDegFromTransform(node.attrs && node.attrs.transform || '');
             if (Math.abs(rotDeg) > 0.0001 && gid != null) {
                 api.set(gid, {"rotation": -rotDeg});
-                console.log('Set group rotation:', -rotDeg);
             }
             
             // Apply position
             if ((nodeT.x !== 0 || nodeT.y !== 0) && node.type !== 'root') {
                 var zero = svgToCavalryPosition(0, 0, vb);
                 var moved = svgToCavalryPosition(nodeT.x, nodeT.y, vb);
-                console.log('Setting group position:', {x: moved.x - zero.x, y: moved.y - zero.y});
                 api.set(gid, {"position.x": moved.x - zero.x, "position.y": moved.y - zero.y});
             }
-        } else {
-            console.log('Skipping group position/rotation (using matrix transform on children instead)');
         }
         // If this group has a filter, only propagate to children that don't have their own filter AND are likely to be the target:
         // Heuristic: prefer geometry-bearing leaves (path/rect/circle/ellipse/text) and only the first such child if siblings exist.
@@ -4653,7 +4596,6 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
         if (parentMatrix && groupMatrix) {
             // Multiply parent matrix by this group's matrix
             composedMatrix = _matMultiply(parentMatrix, groupMatrix);
-            console.log('Composed nested matrix transforms');
         } else if (parentMatrix && !groupMatrix) {
             composedMatrix = parentMatrix;
         }
@@ -4836,20 +4778,11 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
         return eid;
     }
     if (node.type === 'text') {
-        console.log('=== IMPORTING TEXT NODE ===');
-        console.log('Parent transform chain (if any):', inheritedTranslate);
-        console.log('Inherited scale:', inheritedScale);
-        console.log('Has parent matrix:', !!parentMatrix);
-        console.log('Node transform:', node.attrs.transform);
-        
         // Shift tspans
         var cloneT = JSON.parse(JSON.stringify(node));
         
-        console.log('Original tspan 0 position:', cloneT.tspans[0].x, cloneT.tspans[0].y);
-        
         // Apply parent matrix transform if it exists
         if (parentMatrix) {
-            console.log('Applying parent matrix transform to text positions');
             for (var k = 0; k < cloneT.tspans.length; k++) {
                 var origX = cloneT.tspans[k].x;
                 var origY = cloneT.tspans[k].y;
@@ -4859,7 +4792,6 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
                 cloneT.tspans[k].x = newX;
                 cloneT.tspans[k].y = newY;
             }
-            console.log('After parent matrix, tspan 0 position:', cloneT.tspans[0].x, cloneT.tspans[0].y);
         }
         
         // Then apply node's own transform if it has one
@@ -4877,8 +4809,6 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
                 cloneT.tspans[k].y += nodeT.y + inheritedTranslate.y;
             }
         }
-        
-        console.log('Final tspan 0 position:', cloneT.tspans[0].x, cloneT.tspans[0].y);
         
         var tid = createText(cloneT, parentId, vb, inheritedScale);
         if (!tid) {
@@ -4973,20 +4903,13 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
     }
     if (node.type === 'use') {
         // Handle <use> elements - treat them like images if they reference an image
-        console.log('=== IMPORTING USE NODE ===');
-        console.log('href:', node.attrs.href);
-        console.log('Has parent matrix:', !!parentMatrix);
-        
         // Resolve the reference (e.g., #_Image3) to get the actual image data
         var refId = (node.attrs.href || '').replace('#', '');
-        console.log('Resolving reference ID:', refId);
         
         // Look up the referenced element in the model's ID index
         var referencedNode = model._idIndex && model._idIndex[refId];
-        console.log('Referenced node found:', !!referencedNode, 'type:', referencedNode && referencedNode.type);
         
         if (!referencedNode || referencedNode.type !== 'image') {
-            console.log('Referenced element is not an image, skipping');
             return null;
         }
         
@@ -4996,7 +4919,6 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
         
         // Get the actual image href from the referenced node
         var actualHref = referencedNode.attrs && (referencedNode.attrs.href || referencedNode.attrs['xlink:href']);
-        console.log('Actual image href:', actualHref ? actualHref.substring(0, 50) + '...' : 'null');
         cloneUse.attrs.href = actualHref;
         
         var x = parseFloat(cloneUse.attrs.x || '0');
@@ -5006,8 +4928,6 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
         
         // Apply parent matrix if it exists - use full matrix like we do for paths/text
         if (parentMatrix) {
-            console.log('Applying parent matrix to <use> element bounds');
-            
             // Transform all four corners to handle rotation correctly
             var tl = {x: parentMatrix.a * x + parentMatrix.c * y + parentMatrix.e,
                       y: parentMatrix.b * x + parentMatrix.d * y + parentMatrix.f};
@@ -5028,8 +4948,6 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
             cloneUse.attrs.y = minY.toString();
             cloneUse.attrs.width = (maxX - minX).toString();
             cloneUse.attrs.height = (maxY - minY).toString();
-            
-            console.log('Transformed bounds - x:', minX, 'y:', minY, 'w:', maxX - minX, 'h:', maxY - minY);
         }
         
         // Instead of trying to create an image layer (doesn't work in Cavalry API),
@@ -5053,7 +4971,6 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
                 'position.x': centre.x,
                 'position.y': centre.y
             });
-            console.log('Set rectangle position:', centre.x, centre.y, 'size:', w, h);
         } catch (eSet) {}
         
         // Create image shader and connect it
@@ -5097,22 +5014,20 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
                 try { if (_hasAttr(shaderNode, 'legacyGraph')) api.set(shaderNode, { 'legacyGraph': false }); } catch (eLG) {}
                 try { api.set(shaderNode, { 'scaleMode': 4 }); } catch (eSM) {}
                 try { api.set(shaderNode, { 'tilingX': 3, 'tilingY': 3 }); } catch (eT) {}
+                
+                // Set filter quality based on user setting (0=None, 1=Bilinear, 2=Mipmaps, 3=Bicubic)
+                var fqOk = false;
+                try { api.set(shaderNode, { 'filterQuality': imageFilterQuality }); fqOk = true; } catch (eFQ1) { fqOk = false; }
+                if (!fqOk) { try { api.set(shaderNode, { 'generator.filterQuality': imageFilterQuality }); } catch (eFQ2) {} }
+                
                 _setFirstSupported(shaderNode, ['offset','generator.offset'], [0,0]);
-                console.log('Connected image shader to rectangle');
-            } catch (eShader) {
-                console.log('Error connecting shader:', eShader);
-            }
+            } catch (eShader) {}
         }
         
         if (stats) stats.images = (stats.images || 0) + 1;
-        console.log('Created rectangle with image shader from <use> element');
         return rectId;
     }
     if (node.type === 'path' || node.type === 'polygon' || node.type === 'polyline') {
-        console.log('=== IMPORTING PATH NODE ===');
-        console.log('Has parent matrix:', !!parentMatrix);
-        console.log('Node transform:', node.attrs && node.attrs.transform);
-        
         var translateAll = {x: nodeT.x + inheritedTranslate.x, y: nodeT.y + inheritedTranslate.y};
         
         // Check if we have a matrix transform - if so, we need to transform all points
@@ -5147,11 +5062,8 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
         if (node.type === 'path') {
             segments = parsePathDataToAbsolute(node.attrs.d || '');
             
-            console.log('Path has', segments.length, 'segments');
-            
             // Apply parent matrix first if it exists
             if (hasParentMatrix) {
-                console.log('Applying parent matrix to path segments');
                 for (var si = 0; si < segments.length; si++) {
                     var seg = segments[si];
                     if (seg.x !== undefined && seg.y !== undefined) {
@@ -5186,7 +5098,6 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
             
             // Then apply node's own matrix transform if it has one
             if (hasMatrix) {
-                console.log('Applying node matrix to path segments');
                 for (var si = 0; si < segments.length; si++) {
                     var seg = segments[si];
                     if (seg.x !== undefined && seg.y !== undefined) {
@@ -5385,9 +5296,6 @@ function processAndImportSVG(svgCode) {
         var vb = extractViewBox(svgCode);
         if (!vb) vb = {x:0,y:0,width:1000,height:1000};
         
-        console.log('=== VIEWBOX INFO ===');
-        console.log('ViewBox:', JSON.stringify(vb));
-        
         // Reset image counter for consistent numbering per import
         __imageCounter = 0;
         __imageNamingContext = {};
@@ -5411,11 +5319,8 @@ function processAndImportSVG(svgCode) {
         // Use the proven gradient extractor logic pattern
         var gradientMap = {};
         var gradsArr = extractGradients(svgCode);
-        console.log('=== EXTRACTED GRADIENTS ===');
-        console.log('Found', gradsArr.length, 'gradients');
         for (var gi = 0; gi < gradsArr.length; gi++) {
             var gid = gradsArr[gi].id;
-            console.log('Gradient', gi, ':', JSON.stringify(gradsArr[gi], null, 2));
             if (gid) gradientMap[gid] = gradsArr[gi];
         }
         setGradientContext(gradientMap);

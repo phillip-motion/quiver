@@ -40,14 +40,11 @@ function parseSVGStructure(svgCode) {
                 
                 // For text elements, capture any direct text content before first tspan (Affinity SVG support)
                 if (tag === 'text') {
-                    console.log('=== PARSING TEXT ELEMENT ===');
-                    console.log('opening tag:', opening.substring(0, 200));
                     try {
                         var textEndPos = match.index + match[0].length;
                         var nextTagMatch = /<[^>]+>/.exec(svgCode.substring(textEndPos));
                         if (nextTagMatch) {
                             var directTextContent = svgCode.substring(textEndPos, textEndPos + nextTagMatch.index).trim();
-                            console.log('Direct text content found:', directTextContent);
                             if (directTextContent) {
                                 // Decode entities and clean up
                                 directTextContent = directTextContent.replace(/&#10;/g, '');
@@ -59,12 +56,11 @@ function parseSVGStructure(svgCode) {
                                         y: parseFloat(node.attrs.y || '0'),
                                         text: directTextContent
                                     });
-                                    console.log('Added direct text as tspan');
                                 }
                             }
                         }
                     } catch (eDirectText) {
-                        console.log('Error capturing direct text:', eDirectText);
+                        // Silent fail - direct text capture is optional
                     }
                 }
             } else if (tag === 'rect' || tag === 'circle' || tag === 'ellipse') {
@@ -106,7 +102,6 @@ function parseSVGStructure(svgCode) {
                 }
                 var inlineU = mergeInlineStyleIntoAttrs(opening);
                 for (var kU in inlineU) unode.attrs[kU] = inlineU[kU];
-                console.log('Parsed <use> element with href:', unode.attrs.href);
                 stack[stack.length - 1].children.push(unode);
             } else if (tag === 'pattern') {
                 var pnode = makeNode({ type: tag, name: decodeEntitiesForName(extractAttribute(opening, 'id') || tag), attrs: {}, opening: opening, children: [], transformChain: [] });
