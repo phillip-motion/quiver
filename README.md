@@ -111,26 +111,19 @@ Coming soon!
 | Text alignment  | ❌  |
 
 
-
-
-
-
-
-
-
-
-
-
 ## Roadmap
 We're actively working on:
 - Adding support for Canva and Affinity
+- One click transfer from Figma to Cavalry
 - Improving text alignment
 - Supporting more filter effects
 
 ## Credits
-Created by your friends in the [Canva Creative Team](https://canvacreative.team). 
+Created by your friends in the [Canva Creative Team](https://canvacreative.team).
 
-Idea and development by Jack Jaeschke using Cursor. UI & icons by Sam Mularczyk.
+Idea and main development by Jack Jaeschke. UI, icons and additional development assistance by Sam Mularczyk. Repo maintained by Phillip Tibballs, Jack Jaeschke and Sam Mularczyk. Made with the assistance of Cursor!
+
+Feel free to open pull requests, dig through the code and use this to build your own tools. We release these freely to help further the Cavalry community!
 
 ## License
 MIT
