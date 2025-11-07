@@ -8,12 +8,12 @@ This document explains how the Figma plugin integrates with Quiver and Cavalry.
 ┌─────────────┐         HTTP POST          ┌──────────────┐
 │   Figma     │ ────────────────────────→  │   Quiver     │
 │   Plugin    │   http://127.0.0.1:8765    │  Web Server  │
-└─────────────┘                             └──────────────┘
+└─────────────┘                            └──────────────┘
       │                                            │
       │ 1. Export as SVG                           │ 2. Import SVG
       │                                            ↓
       │                                     ┌──────────────┐
-      └─────────────────────────────────→  │   Cavalry    │
+      └───────────────────────────────────→ │   Cavalry    │
                                             │    Scene     │
                                             └──────────────┘
 ```

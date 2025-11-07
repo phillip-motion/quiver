@@ -500,8 +500,12 @@ newVersionAvailable.setBackgroundColor("#4a53fa");
 // newVersionAvailable.setRadius(3,3,3,3);
 newVersionAvailable.setLayout(newVersionAvailableLayout);
 
-if (api.getPreferenceObject(SCRIPT_KEY).newVersionAvailable == true) {
-    mainLayout.add(newVersionAvailable);
+// Check if there's a newer version available (version checker stores in scriptName + "_update_check")
+if (api.hasPreferenceObject(scriptName + "_update_check")) {
+    var updatePrefs = api.getPreferenceObject(scriptName + "_update_check");
+    if (updatePrefs.latestVersion && compareVersions(updatePrefs.latestVersion, currentVersion) > 0) {
+        mainLayout.add(newVersionAvailable);
+    }
 }
 
 
