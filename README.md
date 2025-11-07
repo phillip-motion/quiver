@@ -50,8 +50,7 @@ https://github.com/user-attachments/assets/feb4bcc6-242c-434c-b945-0d933e3607ae
 
 Transfer from Figma in one click. Select a frame and use the Figma plugin.
 
-<img width="544" height="268" alt="Figma plugin" src="https://github.com/user-attachments/assets/89fac727-cbeb-47e2-bf89-3084a366888d" />
-
+<img width="272" height="134" alt="Figma plugin" src="https://github.com/user-attachments/assets/89fac727-cbeb-47e2-bf89-3084a366888d" />
 
 #### Manual import
 
