@@ -37,7 +37,7 @@ https://github.com/user-attachments/assets/d99671f8-e279-4cd0-8b74-6c054f8c5147
 
 #### Figma Plugin (optional)
 1. In Figma, right click on any frame and go to `Plugins > Development > Import plugin from manifest...`
-2. Open the `Quiver for Figma` folder and select `manifest.json`
+2. Open your Cavalry Scripts folder, go to `quiver_assets/Quiver for Figma` and select `manifest.json`
 3. Done!
 
 https://github.com/user-attachments/assets/feb4bcc6-242c-434c-b945-0d933e3607ae
