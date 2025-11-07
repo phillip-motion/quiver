@@ -9,16 +9,19 @@
 </p>
 
 <p align="center" style="margin-top:0;margin-bottom:0;">
-  <img width="340" height="311" alt="Quiver UI Screenshot" src="https://github.com/user-attachments/assets/95384e89-26ba-45a9-84bf-74d0c18d57e7" />
+  <img width="430" height="311" alt="Quiver UI" src="https://github.com/user-attachments/assets/d60bbaeb-8cb6-401e-ac9c-afd9bce1e0bd" />
 </p>
 
 ### Making SVG import into Cavalry as smooth as drawing an arrow and letting it fly 🏹
 
 Quiver improves on Cavalry's native SVG import by adding support for gradients, images, editable text and more.
 
+## Demo
+https://github.com/user-attachments/assets/d99671f8-e279-4cd0-8b74-6c054f8c5147
 
 ## Features
-- Paste or import SVGs in one click
+- Send SVGs from Figma to Cavalry in one click
+- Import or paste SVGs from other software
 - Supports embedded images, gradients, shadows, blurs, editable text and more
 
 **Plus, additional features:**
@@ -29,12 +32,15 @@ Quiver improves on Cavalry's native SVG import by adding support for gradients, 
 
 
 ## Installation
-Copy Quiver.js and the `quiver_assets` folder into your Cavalry Scripts folder.
+1. Extract the ZIP file.
+2. Copy Quiver.js and the `quiver_assets` folder into your Cavalry Scripts folder.
 
-## Demo
-https://github.com/user-attachments/assets/1c0cfc9d-ce9f-459b-bc7d-59b72ef73f61
+#### Figma Plugin (optional)
+1. In Figma, right click on any frame and go to `Plugins > Development > Import plugin from manifest...`
+2. Open the `Quiver for Figma` folder and select `manifest.json`
+3. Done!
 
-
+https://github.com/user-attachments/assets/feb4bcc6-242c-434c-b945-0d933e3607ae
 
 
 ## Usage
@@ -42,7 +48,14 @@ https://github.com/user-attachments/assets/1c0cfc9d-ce9f-459b-bc7d-59b72ef73f61
 > [!IMPORTANT]
 > Make sure you have a [Cavalry project](https://docs.cavalry.scenegroup.co/user-interface/menus/window-menu/assets-window/project-settings/) selected.
 
-Simply click Paste to fire an SVG from your clipboard, or click Import to select a file. 
+Transfer from Figma in one click. Select a frame and use the Figma plugin.
+
+<img width="544" height="268" alt="Figma plugin" src="https://github.com/user-attachments/assets/89fac727-cbeb-47e2-bf89-3084a366888d" />
+
+
+#### Manual import
+
+Otherwise click Paste to fire an SVG from your clipboard, or click Import to select a file. 
 
 See [Preparing your SVGs](#preparing-your-svgs) to make sure your SVG files have the right settings.
 
@@ -114,7 +127,6 @@ Coming soon!
 ## Roadmap
 We're actively working on:
 - Adding support for Canva and Affinity
-- One click transfer from Figma to Cavalry
 - Improving text alignment
 - Supporting more filter effects
 
