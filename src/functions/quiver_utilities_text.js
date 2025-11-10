@@ -318,6 +318,7 @@ function createText(node, parentId, vb, inheritedScale) {
         }
     } catch (eRGBA) {}
     applyFillAndStroke(id, attrsForTextStyle);
+    applyBlendMode(id, attrsForTextStyle);
     if (forceHideFillAlpha) {
         try { api.set(id, {"material.materialColor.a": 0}); } catch (eHide) {}
     }

@@ -23,7 +23,7 @@ function parseSVGStructure(svgCode) {
                 var node = makeNode({ type: tag, name: decodeEntitiesForName(extractAttribute(opening, 'id') || tag), attrs: {}, opening: opening, children: [], tspans: [], transformChain: [] });
                 node.attrs.transform = extractAttribute(opening, 'transform');
                 // Store direct attributes commonly used
-                var directAttrs = ['id','fill','fill-opacity','stroke','stroke-width','stroke-opacity','stroke-dasharray','stroke-dashoffset','stroke-linecap','stroke-linejoin','opacity','font-family','font-size','font-weight','font-style','letter-spacing','x','y','mask','clip-path','filter'];
+                var directAttrs = ['id','fill','fill-opacity','stroke','stroke-width','stroke-opacity','stroke-dasharray','stroke-dashoffset','stroke-linecap','stroke-linejoin','opacity','font-family','font-size','font-weight','font-style','letter-spacing','x','y','mask','clip-path','filter','mix-blend-mode'];
                 for (var d = 0; d < directAttrs.length; d++) {
                     var key = directAttrs[d];
                     var val = extractAttribute(opening, key);
@@ -65,7 +65,7 @@ function parseSVGStructure(svgCode) {
                 }
             } else if (tag === 'rect' || tag === 'circle' || tag === 'ellipse') {
                 var leaf = makeNode({ type: tag, name: decodeEntitiesForName(extractAttribute(opening, 'id') || tag), attrs: {}, opening: opening, children: [], transformChain: [] });
-                var keys = ['id','x','y','width','height','rx','ry','cx','cy','r','rx','ry','fill','fill-opacity','stroke','stroke-width','stroke-opacity','stroke-dasharray','stroke-dashoffset','stroke-linecap','stroke-linejoin','opacity','transform','mask','clip-path','filter'];
+                var keys = ['id','x','y','width','height','rx','ry','cx','cy','r','rx','ry','fill','fill-opacity','stroke','stroke-width','stroke-opacity','stroke-dasharray','stroke-dashoffset','stroke-linecap','stroke-linejoin','opacity','transform','mask','clip-path','filter','mix-blend-mode'];
                 for (var j = 0; j < keys.length; j++) {
                     var kk = keys[j];
                     var vv = extractAttribute(opening, kk);
@@ -78,7 +78,7 @@ function parseSVGStructure(svgCode) {
                 var inode = makeNode({ type: tag, name: decodeEntitiesForName(extractAttribute(opening, 'id') || tag), attrs: {}, opening: opening, children: [], transformChain: [] });
                 var href = extractAttribute(opening, 'href') || extractAttribute(opening, 'xlink:href');
                 if (href !== null) inode.attrs.href = href;
-                var ikeys = ['id','x','y','width','height','opacity','transform','preserveAspectRatio','mask','clip-path','filter'];
+                var ikeys = ['id','x','y','width','height','opacity','transform','preserveAspectRatio','mask','clip-path','filter','mix-blend-mode'];
                 for (var ij = 0; ij < ikeys.length; ij++) {
                     var ikk = ikeys[ij];
                     var ivv = extractAttribute(opening, ikk);
@@ -94,7 +94,7 @@ function parseSVGStructure(svgCode) {
                 var unode = makeNode({ type: tag, name: decodeEntitiesForName(extractAttribute(opening, 'id') || tag), attrs: {}, opening: opening, children: [], transformChain: [] });
                 var href = extractAttribute(opening, 'href') || extractAttribute(opening, 'xlink:href');
                 if (href !== null) unode.attrs.href = href;
-                var ukeys = ['id','x','y','width','height','opacity','transform','mask','clip-path','filter'];
+                var ukeys = ['id','x','y','width','height','opacity','transform','mask','clip-path','filter','mix-blend-mode'];
                 for (var uj = 0; uj < ukeys.length; uj++) {
                     var ukk = ukeys[uj];
                     var uvv = extractAttribute(opening, ukk);
@@ -116,7 +116,7 @@ function parseSVGStructure(svgCode) {
             } else if (tag === 'path') {
                 // Record path as a node (M1: placeholder only)
                 var pnode = makeNode({ type: tag, name: decodeEntitiesForName(extractAttribute(opening, 'id') || tag), attrs: {}, opening: opening, children: [], transformChain: [] });
-                var pkeys = ['id','d','fill','fill-opacity','stroke','stroke-width','stroke-opacity','stroke-dasharray','stroke-dashoffset','stroke-linecap','stroke-linejoin','opacity','transform','fill-rule','clip-rule','mask','clip-path','filter'];
+                var pkeys = ['id','d','fill','fill-opacity','stroke','stroke-width','stroke-opacity','stroke-dasharray','stroke-dashoffset','stroke-linecap','stroke-linejoin','opacity','transform','fill-rule','clip-rule','mask','clip-path','filter','mix-blend-mode'];
                 for (var pj = 0; pj < pkeys.length; pj++) {
                     var pk = pkeys[pj];
                     var pv = extractAttribute(opening, pk);
@@ -127,7 +127,7 @@ function parseSVGStructure(svgCode) {
                 stack[stack.length - 1].children.push(pnode);
             } else if (tag === 'polygon' || tag === 'polyline') {
                 var vnode = makeNode({ type: tag, name: decodeEntitiesForName(extractAttribute(opening, 'id') || tag), attrs: {}, opening: opening, children: [], transformChain: [] });
-                var vkeys = ['id','points','fill','fill-opacity','stroke','stroke-width','stroke-opacity','stroke-dasharray','stroke-dashoffset','stroke-linecap','stroke-linejoin','opacity','transform','mask','clip-path','filter'];
+                var vkeys = ['id','points','fill','fill-opacity','stroke','stroke-width','stroke-opacity','stroke-dasharray','stroke-dashoffset','stroke-linecap','stroke-linejoin','opacity','transform','mask','clip-path','filter','mix-blend-mode'];
                 for (var vj = 0; vj < vkeys.length; vj++) {
                     var vk = vkeys[vj];
                     var vv2 = extractAttribute(opening, vk);
@@ -932,7 +932,10 @@ function createEditableFromPathSegments(segments, nodeName, parentId, vb, transl
     if (centre) {
         api.set(id, {"position.x": centre.x, "position.y": centre.y});
     }
-    if (attrs) applyFillAndStroke(id, attrs);
+    if (attrs) {
+        applyFillAndStroke(id, attrs);
+        applyBlendMode(id, attrs);
+    }
     try { __createdPathLayers.push({ id: id, parent: parentId }); } catch (eReg) {}
     return id;
 }

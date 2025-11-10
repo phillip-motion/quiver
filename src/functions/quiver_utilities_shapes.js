@@ -27,7 +27,7 @@ function createRect(node, parentId, vb) {
         ellipseNode.attrs.rx = halfW;
         ellipseNode.attrs.ry = halfH;
         // carry styles/transform, including our precomputed stroke alignment hint
-        var styleKeys = ['fill','fill-opacity','stroke','stroke-width','stroke-opacity','opacity','transform','_stroke_align'];
+        var styleKeys = ['fill','fill-opacity','stroke','stroke-width','stroke-opacity','opacity','transform','_stroke_align','mix-blend-mode'];
         for (var si = 0; si < styleKeys.length; si++) {
             var k = styleKeys[si];
             if (node.attrs[k] !== undefined) ellipseNode.attrs[k] = node.attrs[k];
@@ -46,6 +46,7 @@ function createRect(node, parentId, vb) {
     if (cr > 0) api.set(id, {"generator.cornerRadius": cr});
 
     applyFillAndStroke(id, node.attrs);
+    applyBlendMode(id, node.attrs);
     // Gradient hookup
     try {
         var gradId = extractUrlRefId(node.attrs.fill || (node.attrs.style && extractStyleProperty(node.attrs.style, 'fill')));
@@ -80,6 +81,7 @@ function createCircle(node, parentId, vb) {
     var pos = svgToCavalryPosition(cx, cy, vb);
     api.set(id, {"position.x": pos.x, "position.y": pos.y});
     applyFillAndStroke(id, node.attrs);
+    applyBlendMode(id, node.attrs);
     try {
         var gradId = extractUrlRefId(node.attrs.fill || (node.attrs.style && extractStyleProperty(node.attrs.style, 'fill')));
         if (gradId) {
@@ -114,6 +116,7 @@ function createEllipse(node, parentId, vb) {
     var pos = svgToCavalryPosition(cx, cy, vb);
     api.set(id, {"position.x": pos.x, "position.y": pos.y});
     applyFillAndStroke(id, node.attrs);
+    applyBlendMode(id, node.attrs);
     try {
         var gradId = extractUrlRefId(node.attrs.fill || (node.attrs.style && extractStyleProperty(node.attrs.style, 'fill')));
         if (gradId) {

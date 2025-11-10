@@ -80,6 +80,7 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
         if (node.type !== 'svg') {
             gid = createGroup(groupName, parentId);
             if (stats) stats.groups = (stats.groups || 0) + 1;
+            applyBlendMode(gid, node.attrs);
         }
         // Propagate filter from this group to children if present
         var inheritedFilterId = extractUrlRefId(node.attrs && node.attrs.filter);

@@ -387,5 +387,6 @@ function createImage(node, parentId, vb) {
         var oNum = parseOpacityValue(o); if (oNum === null) oNum = 1;
         api.set(id, { 'material.alpha': Math.round(oNum * 100) });
     } catch (eO) {}
+    applyBlendMode(id, node.attrs);
     return id;
 }
