@@ -205,6 +205,20 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
                 }
             }
         }
+        // Propagate mask from this group to children if present (similar to filters)
+        var inheritedMaskId = extractUrlRefId(node.attrs && node.attrs.mask);
+        if (!inheritedMaskId && node.attrs && node.attrs._inheritedMaskId) inheritedMaskId = node.attrs._inheritedMaskId;
+        if (inheritedMaskId) {
+            // Propagate mask to all direct children (they'll handle it individually)
+            for (var mi = 0; mi < childTargets.length; mi++) {
+                var chM = childTargets[mi];
+                if (!chM.attrs) chM.attrs = {};
+                var hasOwnMask = !!extractUrlRefId(chM.attrs.mask);
+                if (!hasOwnMask) {
+                    chM.attrs._inheritedMaskId = inheritedMaskId;
+                }
+            }
+        }
         // Compose parent matrix with this group's matrix for nested transforms
         var composedMatrix = groupMatrix;
         if (parentMatrix && groupMatrix) {
@@ -304,6 +318,14 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
                 }
             } else {  }
         } catch (eDs) {  }
+        // Mask: if this node has mask url(#id) create and attach mask shape
+        try {
+            var maskId = extractUrlRefId(node.attrs && node.attrs.mask);
+            if (!maskId && node.attrs && node.attrs._inheritedMaskId) maskId = node.attrs._inheritedMaskId;
+            if (maskId) {
+                createMaskShapeForTarget(maskId, rid, parentId, vb, model);
+            }
+        } catch (eMask) {  }
         var rotDegR = getRotationDegFromTransform(node.attrs && node.attrs.transform || '');
         if (Math.abs(rotDegR) > 0.0001) api.set(rid, {"rotation": -rotDegR});
         if (stats) stats.rects = (stats.rects || 0) + 1;
@@ -345,6 +367,14 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
                 }
             }
         } catch (eDsC) {  }
+        // Mask: if this node has mask url(#id) create and attach mask shape
+        try {
+            var maskIdC = extractUrlRefId(node.attrs && node.attrs.mask);
+            if (!maskIdC && node.attrs && node.attrs._inheritedMaskId) maskIdC = node.attrs._inheritedMaskId;
+            if (maskIdC) {
+                createMaskShapeForTarget(maskIdC, cid, parentId, vb, model);
+            }
+        } catch (eMaskC) {  }
         var rotDegC = getRotationDegFromTransform(node.attrs && node.attrs.transform || '');
         if (Math.abs(rotDegC) > 0.0001) api.set(cid, {"rotation": -rotDegC});
         if (stats) stats.circles = (stats.circles || 0) + 1;
@@ -386,6 +416,14 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
                 }
             }
         } catch (eDsE) {  }
+        // Mask: if this node has mask url(#id) create and attach mask shape
+        try {
+            var maskIdE = extractUrlRefId(node.attrs && node.attrs.mask);
+            if (!maskIdE && node.attrs && node.attrs._inheritedMaskId) maskIdE = node.attrs._inheritedMaskId;
+            if (maskIdE) {
+                createMaskShapeForTarget(maskIdE, eid, parentId, vb, model);
+            }
+        } catch (eMaskE) {  }
         var rotDegE = getRotationDegFromTransform(node.attrs && node.attrs.transform || '');
         if (Math.abs(rotDegE) > 0.0001) api.set(eid, {"rotation": -rotDegE});
         if (stats) stats.ellipses = (stats.ellipses || 0) + 1;
@@ -447,6 +485,14 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
                 }
             }
         } catch (eDsT) {  }
+        // Mask: if this node has mask url(#id) create and attach mask shape
+        try {
+            var maskIdT = extractUrlRefId(node.attrs && node.attrs.mask);
+            if (!maskIdT && node.attrs && node.attrs._inheritedMaskId) maskIdT = node.attrs._inheritedMaskId;
+            if (maskIdT) {
+                createMaskShapeForTarget(maskIdT, tid, parentId, vb, model);
+            }
+        } catch (eMaskT) {  }
         var rotDegT = getRotationDegFromTransform(node.attrs && node.attrs.transform || '');
         if (Math.abs(rotDegT) > 0.0001) api.set(tid, {"rotation": -rotDegT});
         if (stats) stats.texts = (stats.texts || 0) + 1;
@@ -512,6 +558,14 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
                 api.set(idImg, { 'position.x': newPosI.x, 'position.y': newPosI.y });
             }
         } catch (ePI) {}
+        // Mask: if this node has mask url(#id) create and attach mask shape
+        try {
+            var maskIdI = extractUrlRefId(node.attrs && node.attrs.mask);
+            if (!maskIdI && node.attrs && node.attrs._inheritedMaskId) maskIdI = node.attrs._inheritedMaskId;
+            if (maskIdI) {
+                createMaskShapeForTarget(maskIdI, idImg, parentId, vb, model);
+            }
+        } catch (eMaskI) {}
         if (stats) stats.images = (stats.images || 0) + 1;
         return idImg;
     }
@@ -799,6 +853,14 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
             var shader2 = getGradientShader(gradId2);
             if (shader2) connectShaderToShape(shader2, vecId);
         }
+        // Mask: if this node has mask url(#id) create and attach mask shape
+        try {
+            var maskIdP = extractUrlRefId(node.attrs && node.attrs.mask);
+            if (!maskIdP && node.attrs && node.attrs._inheritedMaskId) maskIdP = node.attrs._inheritedMaskId;
+            if (maskIdP) {
+                createMaskShapeForTarget(maskIdP, vecId, parentId, vb, model);
+            }
+        } catch (eMaskP) {}
         if (stats) stats.paths = (stats.paths || 0) + 1;
         return vecId;
     }
@@ -930,6 +992,11 @@ function processAndImportSVG(svgCode) {
             var patterns = extractPatterns(svgCode) || {};
             setPatternContext(patterns);
         } catch (ePatt) { setPatternContext({}); }
+        // Extract masks (clipping/masking)
+        try {
+            var masks = extractMasks(svgCode) || {};
+            setMaskContext(masks);
+        } catch (eMask) { setMaskContext({}); }
         // Use the proven gradient extractor logic pattern
         var gradientMap = {};
         var gradsArr = extractGradients(svgCode);

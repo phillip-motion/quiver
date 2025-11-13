@@ -172,6 +172,86 @@ function parseSVGStructure(svgCode) {
     return tree;
 }
 
+// --- Extract mask definitions from SVG ---
+function extractMasks(svgCode) {
+    var masks = {};
+    
+    // Find all <mask> elements with their content
+    var maskRegex = /<mask([^>]*)>([\s\S]*?)<\/mask>/g;
+    var match;
+    
+    while ((match = maskRegex.exec(svgCode)) !== null) {
+        var maskAttrs = match[1];
+        var maskContent = match[2];
+        
+        // Extract mask ID
+        var idMatch = /id\s*=\s*["']([^"']+)["']/.exec(maskAttrs);
+        if (!idMatch) continue;
+        var maskId = idMatch[1];
+        
+        // Determine mask type (alpha or luminance)
+        var maskType = 'alpha'; // default
+        
+        // Check style attribute for mask-type
+        var styleMatch = /style\s*=\s*["']([^"']+)["']/.exec(maskAttrs);
+        if (styleMatch) {
+            var styleContent = styleMatch[1];
+            if (/mask-type\s*:\s*luminance/i.test(styleContent)) {
+                maskType = 'luminance';
+            }
+        }
+        
+        // Parse child elements within the mask
+        var children = [];
+        
+        // Parse simple shapes within mask (circle, ellipse, rect, path)
+        var childRegex = /<(circle|ellipse|rect|path)([^>]*)\/?>(?:[\s\S]*?<\/\1>)?/g;
+        var childMatch;
+        
+        while ((childMatch = childRegex.exec(maskContent)) !== null) {
+            var childType = childMatch[1];
+            var childAttrsStr = childMatch[2];
+            var childOpening = '<' + childType + childAttrsStr + '>';
+            
+            var childNode = {
+                type: childType,
+                name: extractAttribute(childOpening, 'id') || childType,
+                attrs: {}
+            };
+            
+            // Extract relevant attributes based on shape type
+            var attrKeys = [];
+            if (childType === 'circle') {
+                attrKeys = ['id', 'cx', 'cy', 'r', 'fill', 'fill-opacity', 'stroke', 'stroke-width', 'opacity', 'transform'];
+            } else if (childType === 'ellipse') {
+                attrKeys = ['id', 'cx', 'cy', 'rx', 'ry', 'fill', 'fill-opacity', 'stroke', 'stroke-width', 'opacity', 'transform'];
+            } else if (childType === 'rect') {
+                attrKeys = ['id', 'x', 'y', 'width', 'height', 'rx', 'ry', 'fill', 'fill-opacity', 'stroke', 'stroke-width', 'opacity', 'transform'];
+            } else if (childType === 'path') {
+                attrKeys = ['id', 'd', 'fill', 'fill-opacity', 'stroke', 'stroke-width', 'opacity', 'transform', 'fill-rule'];
+            }
+            
+            for (var i = 0; i < attrKeys.length; i++) {
+                var key = attrKeys[i];
+                var val = extractAttribute(childOpening, key);
+                if (val !== null) {
+                    childNode.attrs[key] = val;
+                }
+            }
+            
+            children.push(childNode);
+        }
+        
+        masks[maskId] = {
+            type: maskType,
+            children: children,
+            attrs: {}
+        };
+    }
+    
+    return masks;
+}
+
 // --- Pre-import normalization: merge separate fill/stroke siblings with identical geometry ---
 function _geomKey(node) {
     if (!node || !node.type) return null;

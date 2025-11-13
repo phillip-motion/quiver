@@ -27,6 +27,7 @@ api.load(ui.scriptLocation+"/functions/quiver_utilities_gradient.js");
 api.load(ui.scriptLocation+"/functions/quiver_utilities_patterns.js");
 api.load(ui.scriptLocation+"/functions/quiver_utilities_images.js");
 api.load(ui.scriptLocation+"/functions/quiver_utilities_filters.js");
+api.load(ui.scriptLocation+"/functions/quiver_utilities_masks.js");
 api.load(ui.scriptLocation+"/functions/quiver_utilities_transform.js");
 api.load(ui.scriptLocation+"/functions/quiver_svgParser.js");
 api.load(ui.scriptLocation+"/functions/quiver_utilities_shapes.js");
