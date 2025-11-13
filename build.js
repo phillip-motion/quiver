@@ -6,12 +6,12 @@ const path = require('path');
 // Check for minify flag
 const shouldMinify = process.argv.includes('--minify');
 
-// Read version from package.json
-const packageJson = JSON.parse(fs.readFileSync(path.join(__dirname, 'package.json'), 'utf8'));
-const VERSION = packageJson.version;
+// Read version from versions.json (source of truth)
+const versionsJson = JSON.parse(fs.readFileSync(path.join(__dirname, 'versions.json'), 'utf8'));
+const VERSION = versionsJson.Quiver;
 
 console.log('🏹 Building Quiver...\n');
-console.log(`📌 Version: ${VERSION}\n`);
+console.log(`📌 Version: ${VERSION} (from versions.json)\n`);
 if (shouldMinify) {
     console.log('🗜️  Minification enabled\n');
 }
@@ -52,8 +52,21 @@ function copyDir(src, dest) {
  * Main build function
  */
 async function build() {
-    // Update version in source file first
-    console.log('📝 Updating version in source files...');
+    // Update package.json version from versions.json
+    console.log('📝 Syncing version to package.json...');
+    const packageJsonPath = path.join(__dirname, 'package.json');
+    const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
+    
+    if (packageJson.version !== VERSION) {
+        packageJson.version = VERSION;
+        fs.writeFileSync(packageJsonPath, JSON.stringify(packageJson, null, 2) + '\n', 'utf8');
+        console.log(`  ✓ Updated package.json to v${VERSION}`);
+    } else {
+        console.log(`  ✓ package.json already at v${VERSION}`);
+    }
+    
+    // Update version in source file
+    console.log('\n📝 Updating version in source files...');
     let devContent = fs.readFileSync(DEV_FILE, 'utf8');
     const updatedDevContent = devContent.replace(
         /const currentVersion = "[\d.]+";/,

@@ -5,3 +5,5 @@ Context03.svg
 gradient.svg
 gradient02.svg
 gradient06.svg
+testfiles/*
+.gitignore
