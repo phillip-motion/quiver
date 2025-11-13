@@ -23,7 +23,8 @@ var BLEND_MODE_MAP = [
     ['luminosity', 28],
     ['plus-lighter', 12],  // SVG 'plus-lighter' maps to Cavalry 'Plus'
     ['plus', 12],          // Alternative mapping
-    ['alpha-add', 30]      // Non-standard but supported by Cavalry
+    ['alpha-add', 30],     // Non-standard but supported by Cavalry
+    ['plus-darker', 32],   // SVG 'plus-darker' maps to Cavalry 'Plus'
 ];
 
 // Convert SVG blend mode name to Cavalry enum value

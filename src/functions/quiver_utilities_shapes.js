@@ -1,12 +1,25 @@
 function createRect(node, parentId, vb) {
-    var name = node.name || 'rect';
-    var id = api.primitive('rectangle', name);
-    if (parentId) api.parent(id, parentId);
-
     var x = parseFloat(node.attrs.x || '0');
     var y = parseFloat(node.attrs.y || '0');
     var w = parseFloat(node.attrs.width || '0');
     var h = parseFloat(node.attrs.height || '0');
+    
+    // Detect background rectangle: matches viewBox dimensions at origin with generic name
+    var isBackgroundRect = false;
+    if (vb && vb.width && vb.height) {
+        var matchesViewBox = (Math.abs(w - vb.width) < 0.1 && Math.abs(h - vb.height) < 0.1);
+        var atOrigin = (Math.abs(x) < 0.1 && Math.abs(y) < 0.1);
+        var hasGenericName = !node.name || node.name === 'rect' || node.name === 'rectangle';
+        isBackgroundRect = matchesViewBox && atOrigin && hasGenericName;
+    }
+    
+    var name = node.name || 'rectangle';
+    if (isBackgroundRect) {
+        name = 'Background';
+    }
+    
+    var id = api.primitive('rectangle', name);
+    if (parentId) api.parent(id, parentId);
     var rx = node.attrs.rx ? parseFloat(node.attrs.rx) : 0;
     var ry = node.attrs.ry ? parseFloat(node.attrs.ry) : 0;
     var rxv = isNaN(rx) ? 0 : rx;

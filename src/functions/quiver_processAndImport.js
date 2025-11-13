@@ -77,6 +77,62 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
                 return parentId;
             }
         }
+        
+        // Optimize blend mode application for single-child groups
+        // If a group has a blend mode and only one child, apply the blend mode directly to the child
+        // and skip creating the wrapper group
+        if (node.type === 'g' && node.children && node.children.length === 1) {
+            var hasBlendMode = false;
+            if (node.attrs) {
+                hasBlendMode = !!(node.attrs['mix-blend-mode'] || 
+                                 (node.attrs.style && extractStyleProperty(node.attrs.style, 'mix-blend-mode')));
+            }
+            
+            if (hasBlendMode) {
+                // Transfer blend mode attributes to the single child
+                var singleChild = node.children[0];
+                if (!singleChild.attrs) singleChild.attrs = {};
+                
+                // Copy blend mode attribute
+                if (node.attrs['mix-blend-mode']) {
+                    singleChild.attrs['mix-blend-mode'] = node.attrs['mix-blend-mode'];
+                }
+                
+                // Copy blend mode from style if present
+                if (node.attrs.style) {
+                    var blendModeFromStyle = extractStyleProperty(node.attrs.style, 'mix-blend-mode');
+                    if (blendModeFromStyle) {
+                        if (!singleChild.attrs.style) singleChild.attrs.style = '';
+                        // Add to child's style if not already present
+                        if (!singleChild.attrs['mix-blend-mode'] && !extractStyleProperty(singleChild.attrs.style, 'mix-blend-mode')) {
+                            singleChild.attrs.style = (singleChild.attrs.style ? singleChild.attrs.style + '; ' : '') + 'mix-blend-mode: ' + blendModeFromStyle;
+                        }
+                    }
+                }
+                
+                // Also transfer opacity if present on the group
+                if (node.attrs.opacity && !singleChild.attrs.opacity) {
+                    singleChild.attrs.opacity = node.attrs.opacity;
+                }
+                
+                // Transfer parent name if child has no meaningful name
+                var childName = (singleChild.name || '').toLowerCase();
+                var parentName = node.name || '';
+                var genericNames = ['rect', 'circle', 'ellipse', 'path', 'polygon', 'polyline', 'line', ''];
+                var hasGenericChildName = genericNames.indexOf(childName) !== -1;
+                var parentNameIsGeneric = parentName === 'g' || parentName === 'group' || parentName === '';
+                
+                if (hasGenericChildName && !parentNameIsGeneric) {
+                    // Transfer the parent's meaningful name to the child
+                    singleChild.name = parentName;
+                }
+                
+                // Import the child directly under the parent, skipping the group wrapper
+                importNode(singleChild, parentId, vb, inheritedTranslate, stats, model, inHiddenDefs, inheritedScale, parentMatrix);
+                return parentId;
+            }
+        }
+        
         if (node.type !== 'svg') {
             gid = createGroup(groupName, parentId);
             if (stats) stats.groups = (stats.groups || 0) + 1;
