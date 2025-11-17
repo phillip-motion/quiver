@@ -213,12 +213,18 @@ async function build() {
     // Update ui.html version number
     if (fs.existsSync(FIGMA_UI_FILE)) {
         let uiContent = fs.readFileSync(FIGMA_UI_FILE, 'utf8');
-        uiContent = uiContent.replace(
-            /<div id="versionNumber" class="version-number">v[\d.]+<\/div>/,
-            `<div id="versionNumber" class="version-number">v${VERSION}</div>`
-        );
-        fs.writeFileSync(FIGMA_UI_FILE, uiContent, 'utf8');
-        console.log('  ✓ Updated figma/ui.html version');
+        // Match the version number pattern (v followed by digits/dots, optionally followed by arrow)
+        const versionMatch = uiContent.match(/(v[\d.]+)/);
+        if (versionMatch) {
+            uiContent = uiContent.replace(
+                /v[\d.]+/,
+                `v${VERSION}`
+            );
+            fs.writeFileSync(FIGMA_UI_FILE, uiContent, 'utf8');
+            console.log('  ✓ Updated figma/ui.html version');
+        } else {
+            console.warn('  ⚠️  Could not find version number pattern in ui.html');
+        }
     }
     
     // Summary

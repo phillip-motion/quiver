@@ -90,6 +90,13 @@ async function sendSelectionToCavalry() {
     return;
   }
   
+  // Temporarily enable clip content for frames to get correct viewBox
+  let originalClipsContent = null;
+  if (node.type === 'FRAME') {
+    originalClipsContent = node.clipsContent;
+    node.clipsContent = true;
+  }
+  
   try {
     figma.ui.postMessage({ type: 'status', message: 'Exporting SVG...' });
     
@@ -118,6 +125,11 @@ async function sendSelectionToCavalry() {
       type: 'error', 
       message: 'Failed to export: ' + error.message 
     });
+  } finally {
+    // Restore original clip content setting
+    if (node.type === 'FRAME' && originalClipsContent !== null) {
+      node.clipsContent = originalClipsContent;
+    }
   }
 }
 
