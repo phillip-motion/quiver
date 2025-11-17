@@ -11,7 +11,7 @@ function parseSVGStructure(svgCode) {
     var stack = [tree];
 
     // Extract opening tags and self-closing blocks for supported types (including image/pattern/use)
-    var regex = /<(svg|g|rect|circle|ellipse|text|path|polygon|polyline|image|pattern|defs|clipPath|mask|use)([^>]*)>|<\/\s*(svg|g|text|defs|clipPath|mask|pattern)\s*>|<tspan([^>]*)>(.*?)<\/tspan>/g;
+    var regex = /<(svg|g|rect|circle|ellipse|text|path|polygon|polyline|line|image|pattern|defs|clipPath|mask|use)([^>]*)>|<\/\s*(svg|g|text|defs|clipPath|mask|pattern)\s*>|<tspan([^>]*)>(.*?)<\/tspan>/g;
     var match;
     var textBuffer = null;
     while ((match = regex.exec(svgCode)) !== null) {
@@ -136,6 +136,17 @@ function parseSVGStructure(svgCode) {
                 var inline4 = mergeInlineStyleIntoAttrs(opening);
                 for (var k4 in inline4) vnode.attrs[k4] = inline4[k4];
                 stack[stack.length - 1].children.push(vnode);
+            } else if (tag === 'line') {
+                var lnode = makeNode({ type: tag, name: decodeEntitiesForName(extractAttribute(opening, 'id') || tag), attrs: {}, opening: opening, children: [], transformChain: [] });
+                var lkeys = ['id','x1','y1','x2','y2','fill','fill-opacity','stroke','stroke-width','stroke-opacity','stroke-dasharray','stroke-dashoffset','stroke-linecap','stroke-linejoin','opacity','transform','mask','clip-path','filter','mix-blend-mode'];
+                for (var lj = 0; lj < lkeys.length; lj++) {
+                    var lk = lkeys[lj];
+                    var lv = extractAttribute(opening, lk);
+                    if (lv !== null) lnode.attrs[lk] = lv;
+                }
+                var inline5 = mergeInlineStyleIntoAttrs(opening);
+                for (var k5 in inline5) lnode.attrs[k5] = inline5[k5];
+                stack[stack.length - 1].children.push(lnode);
             }
         } else if (match[3]) {
             // closing tag (svg/g/text)
@@ -263,6 +274,7 @@ function _geomKey(node) {
     if (t === 'circle') return 'c:' + [a.cx||0,a.cy||0,a.r||0].join(',') + '|t:' + tr;
     if (t === 'ellipse') return 'e:' + [a.cx||0,a.cy||0,a.rx||0,a.ry||0].join(',') + '|t:' + tr;
     if (t === 'polygon' || t === 'polyline') return (t==='polygon'?'g:':'l:') + (a.points||'') + '|t:' + tr;
+    if (t === 'line') return 'line:' + [a.x1||0,a.y1||0,a.x2||0,a.y2||0].join(',') + '|t:' + tr;
     return null;
 }
 

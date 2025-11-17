@@ -60,7 +60,7 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
                     for (var ci = 0; ci < node.children.length; ci++) {
                         var ch = node.children[ci];
                         var tCh = ch.type;
-                        var isGeomCh = (tCh==='path'||tCh==='rect'||tCh==='circle'||tCh==='ellipse'||tCh==='text'||tCh==='polygon'||tCh==='polyline');
+                        var isGeomCh = (tCh==='path'||tCh==='rect'||tCh==='circle'||tCh==='ellipse'||tCh==='text'||tCh==='polygon'||tCh==='polyline'||tCh==='line');
                         if (isGeomCh) { chosenChildIndex = ci; break; }
                     }
                     if (chosenChildIndex === null) {
@@ -166,7 +166,7 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
             for (var gi2 = 0; gi2 < childTargets.length; gi2++) {
                 var ct = childTargets[gi2];
                 var t = ct.type;
-                var isGeom = (t==='path'||t==='rect'||t==='circle'||t==='ellipse'||t==='text'||t==='polygon'||t==='polyline'||t==='image');
+                var isGeom = (t==='path'||t==='rect'||t==='circle'||t==='ellipse'||t==='text'||t==='polygon'||t==='polyline'||t==='line'||t==='image');
                 if (isGeom) geomIdxs.push(gi2);
             }
             // Choose target among direct geometry children first (prefer a path named 'path' if present)
@@ -695,7 +695,7 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
         if (stats) stats.images = (stats.images || 0) + 1;
         return rectId;
     }
-    if (node.type === 'path' || node.type === 'polygon' || node.type === 'polyline') {
+    if (node.type === 'path' || node.type === 'polygon' || node.type === 'polyline' || node.type === 'line') {
         var translateAll = {x: nodeT.x + inheritedTranslate.x, y: nodeT.y + inheritedTranslate.y};
         
         // Check if we have a matrix transform - if so, we need to transform all points
@@ -703,6 +703,82 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
         
         // If we have a parent matrix, we need to apply it to the path data
         var hasParentMatrix = !!parentMatrix;
+        
+        if (node.type === 'line') {
+            // Convert line to path segments: M x1 y1 L x2 y2
+            var x1 = parseFloat(node.attrs.x1 || '0');
+            var y1 = parseFloat(node.attrs.y1 || '0');
+            var x2 = parseFloat(node.attrs.x2 || '0');
+            var y2 = parseFloat(node.attrs.y2 || '0');
+            
+            // Apply parent matrix first if it exists
+            if (hasParentMatrix) {
+                var p1 = {
+                    x: parentMatrix.a * x1 + parentMatrix.c * y1 + parentMatrix.e,
+                    y: parentMatrix.b * x1 + parentMatrix.d * y1 + parentMatrix.f
+                };
+                var p2 = {
+                    x: parentMatrix.a * x2 + parentMatrix.c * y2 + parentMatrix.e,
+                    y: parentMatrix.b * x2 + parentMatrix.d * y2 + parentMatrix.f
+                };
+                x1 = p1.x;
+                y1 = p1.y;
+                x2 = p2.x;
+                y2 = p2.y;
+                translateAll = {x: 0, y: 0};
+            }
+            
+            // Then apply node's own matrix transform if it has one
+            if (hasMatrix) {
+                var t1 = applyMatrixToPoint(node.attrs.transform, x1, y1);
+                var t2 = applyMatrixToPoint(node.attrs.transform, x2, y2);
+                x1 = t1.x;
+                y1 = t1.y;
+                x2 = t2.x;
+                y2 = t2.y;
+                if (!hasParentMatrix) {
+                    translateAll = {x: inheritedTranslate.x, y: inheritedTranslate.y};
+                }
+            }
+            
+            // Create path segments
+            var segments = [
+                {cmd:'M', x: x1, y: y1},
+                {cmd:'L', x: x2, y: y2}
+            ];
+            
+            var vecId = createEditableFromPathSegments(segments, node.name || 'Line', parentId, vb, translateAll, node.attrs);
+            _registerChild(parentId, vecId);
+            try {
+                var fIdL = extractUrlRefId(node.attrs && node.attrs.filter);
+                if (!fIdL && node.attrs && node.attrs._inheritedFilterId) fIdL = node.attrs._inheritedFilterId;
+                if (fIdL && __svgFilterMap && __svgFilterMap[fIdL]) {
+                    // Check for drop shadows
+                    var passesL = detectShadowPasses(__svgFilterMap[fIdL]);
+                    
+                    for (var pL = 0; pL < passesL.length; pL++) createAndAttachDropShadow(vecId, passesL[pL]);
+                    
+                    // Check for blur
+                    var blurAmountL = detectBlurAmount(__svgFilterMap[fIdL]);
+                    if (blurAmountL !== null) {
+                        
+                        createAndAttachBlur(vecId, blurAmountL);
+                    }
+                }
+            } catch (eDsL) {  }
+            var rotDegL = getRotationDegFromTransform(node.attrs && node.attrs.transform || '');
+            if (Math.abs(rotDegL) > 0.0001) api.set(vecId, {"rotation": -rotDegL});
+            // Mask: if this node has mask url(#id) create and attach mask shape
+            try {
+                var maskIdL = extractUrlRefId(node.attrs && node.attrs.mask);
+                if (!maskIdL && node.attrs && node.attrs._inheritedMaskId) maskIdL = node.attrs._inheritedMaskId;
+                if (maskIdL) {
+                    createMaskShapeForTarget(maskIdL, vecId, parentId, vb, model);
+                }
+            } catch (eMaskL) {}
+            if (stats) stats.paths = (stats.paths || 0) + 1;
+            return vecId;
+        }
         
         if (node.type === 'polygon' || node.type === 'polyline') {
             var polyPts = parsePoints(node.attrs.points || '');
