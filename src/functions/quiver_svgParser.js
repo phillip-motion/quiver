@@ -48,6 +48,8 @@ function parseSVGStructure(svgCode) {
                             if (directTextContent) {
                                 // Decode entities and clean up
                                 directTextContent = directTextContent.replace(/&#10;/g, '');
+                                // Strip HTML anchor tags (e.g., <a href="...">text</a> → text)
+                                directTextContent = directTextContent.replace(/<a[^>]*>/g, '').replace(/<\/a>/g, '');
                                 try { directTextContent = decodeEntitiesForName(directTextContent); } catch (eDec) {}
                                 // Add as first tspan with parent text's position
                                 if (directTextContent) {
@@ -163,7 +165,9 @@ function parseSVGStructure(svgCode) {
             var tspanAttrsRaw = match[4] || "";
             var tspanOpen = "<tspan" + tspanAttrsRaw + ">";
             var textContent = (match[5] || "").replace(/&#10;/g, '');
-            // Decode HTML entities (e.g., &#x2019; → ’)
+            // Strip HTML anchor tags (e.g., <a href="...">text</a> → text)
+            textContent = textContent.replace(/<a[^>]*>/g, '').replace(/<\/a>/g, '');
+            // Decode HTML entities (e.g., &#x2019; → ')
             try { textContent = decodeEntitiesForName(textContent); } catch (eDec) {}
             // find nearest text node on stack
             var target = null;
