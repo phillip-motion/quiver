@@ -101,7 +101,7 @@ Coming soon!
 | Ellipse `<ellipse>`  | ✅  |
 | Paths `<path>`  | ✅  |
 | Polygons `<polygon>`  | ✅  |
-| Lines `<line>`  | ✅  |
+| Lines `<line>`  | In beta  |
 | Polyline `<polyline>`  | ✅  |
 | Text `<text>`  | ✅  |
 | Tspan `<tspan>`  | ✅  |
@@ -117,9 +117,9 @@ Coming soon!
 | Blur  | ✅  |
 | Images  | ✅  |
 | Patterns  | ✅  |
-| Blend modes  | Basic support |
+| Blend modes  | In beta |
 | Background blur  | ❌  |
-| Masks and clip paths  | ❌  |
+| Masks and clip paths  | In beta  |
 | Text alignment  | ❌  |
 
 
@@ -130,7 +130,7 @@ We're actively working on:
 - Supporting more filter effects
 
 ## Credits
-Created by your friends in the [Canva Creative Team](https://canvacreative.team).
+Made possible by your friends in the [Canva Creative Team](https://canvacreative.team).
 
 Idea and main development by Jack Jaeschke. UI, icons and additional development assistance by Sam Mularczyk. Repo maintained by Phillip Tibballs, Jack Jaeschke and Sam Mularczyk. Made with the assistance of Cursor!
 
