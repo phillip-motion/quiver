@@ -151,6 +151,32 @@ function handlePing() {
     // Periodic connection checks don't need logging
 }
 
+/**
+ * Cleanup function to stop the web server and free resources
+ * Should be called when the UI window closes to prevent heap corruption
+ */
+function cleanupQuiverWebServer() {
+    try {
+        if (quiverServer && Quiver.serverRunning) {
+            // Try to stop the server if stop method is available
+            if (typeof quiverServer.stop === 'function') {
+                quiverServer.stop();
+            }
+            // Clear the server reference
+            quiverServer = null;
+            Quiver.serverRunning = false;
+            console.info("🏹 Quiver: Web server stopped");
+        }
+    } catch (e) {
+        // Silently handle cleanup errors - server may already be stopped
+        quiverServer = null;
+        Quiver.serverRunning = false;
+    }
+}
+
+// Export cleanup function globally
+Quiver.cleanup = cleanupQuiverWebServer;
+
 // Initialize the server
 initializeQuiverWebServer();
 

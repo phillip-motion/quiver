@@ -567,4 +567,27 @@ mainLayout.addStretch();
 ui.add(mainLayout);
 ui.setMargins(0, 0, 0, 0);
 ui.setMinimumWidth(150);
+
+// Register cleanup handler for window close to prevent heap corruption
+ui.onClose = function() {
+    try {
+        // Cleanup web server resources
+        if (typeof Quiver !== 'undefined' && typeof Quiver.cleanup === 'function') {
+            Quiver.cleanup();
+        }
+        
+        // Close settings window if it's open
+        if (settingsWindow) {
+            try {
+                settingsWindow.close();
+            } catch (e) {
+                // Settings window may already be closed
+            }
+            settingsWindow = null;
+        }
+    } catch (e) {
+        // Silently handle cleanup errors
+    }
+};
+
 ui.show();
