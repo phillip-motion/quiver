@@ -117,9 +117,9 @@ Coming soon!
 | Blur  | ✅  |
 | Images  | ✅  |
 | Patterns  | ✅  |
-| Blend modes  | In beta |
+| Blend modes  | ✅ |
+| Masks and clip paths  | ✅  |
 | Background blur  | ❌  |
-| Masks and clip paths  | In beta  |
 | Text alignment  | ❌  |
 
 
