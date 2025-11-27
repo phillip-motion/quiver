@@ -34,6 +34,7 @@ https://github.com/user-attachments/assets/d99671f8-e279-4cd0-8b74-6c054f8c5147
 ## Installation
 1. Extract the ZIP file.
 2. Copy Quiver.js and the `quiver_assets` folder into your Cavalry Scripts folder.
+3. In Cavalry, open the `Scripts` menu and select Quiver.
 
 #### Figma Plugin (optional)
 1. In Figma, right click on any frame and go to `Plugins > Development > Import plugin from manifest...`
@@ -44,6 +45,8 @@ https://github.com/user-attachments/assets/feb4bcc6-242c-434c-b945-0d933e3607ae
 
 
 ## Usage
+
+In Cavalry, open the `Scripts` menu and select Quiver.
 
 > [!IMPORTANT]
 > Make sure you have a [Cavalry project](https://docs.cavalry.scenegroup.co/user-interface/menus/window-menu/assets-window/project-settings/) selected.
