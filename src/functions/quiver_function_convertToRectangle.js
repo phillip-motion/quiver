@@ -80,6 +80,11 @@ function _mapAttributeToBasicShape(attrId) {
     if (attrId && attrId.indexOf('stroke.colorShaders') === 0 && attrId.indexOf('.shader') > 0) {
         return 'stroke.colorShaders';
     }
+    // Map masks.X to masks (for mask connections)
+    // Connect maskShape.id to masks directly (not indexed)
+    if (attrId && attrId.indexOf('masks.') === 0 && /^masks\.\d+$/.test(attrId)) {
+        return 'masks';
+    }
     // Return original if no mapping needed
     return attrId;
 }
@@ -102,21 +107,19 @@ function _transferConnections(fromId, toId) {
     // BUT shader connections (material.colorShaders.X.shader) MUST be reconnected
     try {
         var inAttrs = api.getInConnectedAttributes(fromId);
-        console.log('[Convert] Found ' + (inAttrs ? inAttrs.length : 0) + ' incoming connection(s)');
         if (inAttrs && inAttrs.length > 0) {
             for (var i = 0; i < inAttrs.length; i++) {
                 var attrId = inAttrs[i];
                 
-                // Skip filter indexed attributes (like "filters.0") - filters work by parenting
-                // But DON'T skip shader connections - they MUST be connected to work
-                if (attrId && attrId.indexOf('filters.') === 0 && /\.\d+$/.test(attrId)) {
-                    console.log('[Convert] Skipping filter indexed attr (children reparented): ' + attrId);
+                // Skip filter, mask, and materialBehaviours indexed attributes
+                // Filters work by parenting, masks are external shapes that need special handling,
+                // materialBehaviours are internal systems
+                if (attrId && (attrId.indexOf('filters.') === 0 || attrId.indexOf('masks.') === 0 || attrId.indexOf('materialBehaviours.') === 0) && /\.\d+$/.test(attrId)) {
                     continue;
                 }
                 
                 try {
                     var inConn = api.getInConnection(fromId, attrId);
-                    console.log('[Convert] Incoming: ' + attrId + ' <- ' + inConn);
                     if (inConn && inConn.length > 0) {
                         // inConn format is "layerId.attrId" - parse it
                         // Layer IDs are like "colorShader#123" (contain #, no dots)
@@ -128,47 +131,19 @@ function _transferConnections(fromId, toId) {
                             var sourceAttrId = inConn.substring(firstDotIndex + 1);
                             // Map the destination attribute to basicShape format
                             var mappedAttrId = _mapAttributeToBasicShape(attrId);
-                            console.log('[Convert] Parsed: sourceLayer=' + sourceLayerId + ', sourceAttr=' + sourceAttrId + ', destAttr=' + attrId + (mappedAttrId !== attrId ? ' -> mapped to: ' + mappedAttrId : ''));
                             // Connect the source to the new layer's mapped attribute
                             try {
                                 api.connect(sourceLayerId, sourceAttrId, toId, mappedAttrId, true);
-                                console.log('[Convert] ✓ Connected ' + sourceLayerId + '.' + sourceAttrId + ' -> ' + toId + '.' + mappedAttrId);
                                 transferred++;
-                                
-                                // VERIFY: Check if connection actually exists now
-                                try {
-                                    var verifyConn = api.getInConnection(toId, mappedAttrId);
-                                    console.log('[Convert] VERIFY: ' + toId + '.' + mappedAttrId + ' input = ' + (verifyConn || '(empty)'));
-                                } catch (eVerify) {
-                                    console.log('[Convert] VERIFY failed: ' + (eVerify.message || eVerify));
-                                }
-                                
-                                // Also check what material.colorShaders contains
-                                try {
-                                    var colorShaders = api.get(toId, 'material.colorShaders');
-                                    console.log('[Convert] material.colorShaders value: ' + JSON.stringify(colorShaders));
-                                } catch (eGetShaders) {
-                                    console.log('[Convert] Could not get material.colorShaders: ' + (eGetShaders.message || eGetShaders));
-                                }
-                                
-                                // Check if shape has fill enabled
-                                try {
-                                    var hasFill = api.hasFill(toId);
-                                    console.log('[Convert] Shape hasFill: ' + hasFill);
-                                } catch (eHasFill) {}
-                                
                             } catch (eConnect) {
-                                console.log('[Convert] ✗ Failed to connect: ' + (eConnect.message || eConnect));
                             }
                         }
                     }
                 } catch (eIn) {
-                    console.log('[Convert] Error getting incoming connection: ' + (eIn.message || eIn));
                 }
             }
         }
     } catch (eInAttrs) {
-        console.log('[Convert] Error getting incoming attrs: ' + (eInAttrs.message || eInAttrs));
     }
     
     // Transfer outgoing connections
@@ -177,7 +152,6 @@ function _transferConnections(fromId, toId) {
     // - basicShape may not have the same indexed structure
     try {
         var outAttrs = api.getOutConnectedAttributes(fromId);
-        console.log('[Convert] Found ' + (outAttrs ? outAttrs.length : 0) + ' outgoing connection(s)');
         if (outAttrs && outAttrs.length > 0) {
             for (var j = 0; j < outAttrs.length; j++) {
                 var outAttrId = outAttrs[j];
@@ -185,7 +159,6 @@ function _transferConnections(fromId, toId) {
                 // Skip indexed attributes (like "filters.0", "material.colorShaders.0")
                 // These are child layer references that were already reparented
                 if (outAttrId && /\.\d+$/.test(outAttrId)) {
-                    console.log('[Convert] Skipping indexed attr (children reparented): ' + outAttrId);
                     continue;
                 }
                 
@@ -194,7 +167,6 @@ function _transferConnections(fromId, toId) {
                     if (outConns && outConns.length > 0) {
                         for (var k = 0; k < outConns.length; k++) {
                             var outConn = outConns[k];
-                            console.log('[Convert] Outgoing: ' + outAttrId + ' -> ' + outConn);
                             // outConn format is "layerId.attrId"
                             // Layer IDs are like "basicShape#123" (contain #, no dots)
                             // Attr IDs can be like "id" or "material.alpha"
@@ -202,25 +174,20 @@ function _transferConnections(fromId, toId) {
                             if (outFirstDotIndex > 0) {
                                 var destLayerId = outConn.substring(0, outFirstDotIndex);
                                 var destAttrId = outConn.substring(outFirstDotIndex + 1);
-                                console.log('[Convert] Parsed: sourceAttr=' + outAttrId + ', destLayer=' + destLayerId + ', destAttr=' + destAttrId);
                                 // Connect the new layer's same attribute to the destination
                                 try {
                                     api.connect(toId, outAttrId, destLayerId, destAttrId, true);
-                                    console.log('[Convert] ✓ Connected ' + toId + '.' + outAttrId + ' -> ' + destLayerId + '.' + destAttrId);
                                     transferred++;
                                 } catch (eConnectOut) {
-                                    console.log('[Convert] ✗ Failed to connect outgoing: ' + (eConnectOut.message || eConnectOut));
                                 }
                             }
                         }
                     }
                 } catch (eOut) {
-                    console.log('[Convert] Error getting outgoing connection: ' + (eOut.message || eOut));
                 }
             }
         }
     } catch (eOutAttrs) {
-        console.log('[Convert] Error getting outgoing attrs: ' + (eOutAttrs.message || eOutAttrs));
     }
     
     return transferred;
@@ -266,7 +233,6 @@ function convertSelectionToRect(keepOriginalHidden) {
             // Cavalry API: api.parent(layerId, newParentId) assigns new parent
             try {
                 var children = api.getChildren(layerId);
-                console.log('[Convert] Found ' + (children ? children.length : 0) + ' children to reparent');
                 if (children && children.length > 0) {
                     for (var c = 0; c < children.length; c++) {
                         var childId = children[c];
@@ -276,25 +242,11 @@ function convertSelectionToRect(keepOriginalHidden) {
                         try { childType = api.getNodeType(childId); } catch (e) { childType = 'unknown'; }
                         try {
                             api.parent(childId, newId);
-                            console.log('[Convert] ✓ Reparented child: ' + childName + ' (type: ' + childType + ', id: ' + childId + ')');
                         } catch (eReparent) {
-                            console.log('[Convert] ✗ Failed to reparent: ' + childName + ' - ' + (eReparent.message || eReparent));
                         }
                     }
                 }
-                // Verify new shape's children after reparenting
-                try {
-                    var newChildren = api.getChildren(newId);
-                    console.log('[Convert] New shape now has ' + (newChildren ? newChildren.length : 0) + ' children');
-                    if (newChildren && newChildren.length > 0) {
-                        for (var nc = 0; nc < newChildren.length; nc++) {
-                            var ncName = ''; try { ncName = api.getNiceName(newChildren[nc]); } catch(e) { ncName = newChildren[nc]; }
-                            console.log('[Convert]   - Child: ' + ncName + ' (' + newChildren[nc] + ')');
-                        }
-                    }
-                } catch (eNewChildren) {}
             } catch (eChildren) {
-                console.log('[Convert] Error getting children: ' + (eChildren.message || eChildren));
             }
             
             // SECOND: Transfer all incoming and outgoing connections to the new shape
@@ -302,6 +254,32 @@ function convertSelectionToRect(keepOriginalHidden) {
             try {
                 connectionsTransferred += _transferConnections(layerId, newId);
             } catch (eTransfer) {}
+            
+            // THIRD: Transfer mask connections (masks are external shapes, need special handling)
+            // Get masks connected to original shape and reconnect them to new shape
+            try {
+                var inAttrs = api.getInConnectedAttributes(layerId);
+                if (inAttrs && inAttrs.length > 0) {
+                    for (var m = 0; m < inAttrs.length; m++) {
+                        var mAttr = inAttrs[m];
+                        if (mAttr && mAttr.indexOf('masks.') === 0 && /^masks\.\d+$/.test(mAttr)) {
+                            try {
+                                var maskConn = api.getInConnection(layerId, mAttr);
+                                if (maskConn && maskConn.length > 0) {
+                                    // maskConn format is "maskShape#123.id"
+                                    var dotIdx = maskConn.indexOf('.');
+                                    if (dotIdx > 0) {
+                                        var maskShapeId = maskConn.substring(0, dotIdx);
+                                        // Connect mask to new shape
+                                        api.connect(maskShapeId, 'id', newId, 'masks');
+                                        connectionsTransferred++;
+                                    }
+                                }
+                            } catch (eMaskConn) {}
+                        }
+                    }
+                }
+            } catch (eMasks) {}
             
             try {
                 if (keepOriginalHidden) { api.set(layerId, { 'hidden': true }); }

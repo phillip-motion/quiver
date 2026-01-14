@@ -88,22 +88,158 @@ function initializeQuiverWebServer() {
     }
 }
 
+// Track loading indicator layer IDs for cleanup
+var __loadingIndicatorLayers = [];
+
+/**
+ * Get the active composition dimensions
+ * Falls back to 1920x1080 if unable to determine
+ * @returns {Object} {width, height}
+ */
+function getCompDimensions() {
+    var defaultDims = { width: 1920, height: 1080 };
+    try {
+        var compId = api.getActiveComp();
+        if (!compId) return defaultDims;
+        
+        // Try to get resolution from composition
+        var resolution = api.get(compId, 'resolution');
+        if (resolution && resolution.length >= 2) {
+            return { width: resolution[0], height: resolution[1] };
+        }
+        
+        // Fallback: try individual properties
+        var w = api.get(compId, 'resolution.x');
+        var h = api.get(compId, 'resolution.y');
+        if (w && h) {
+            return { width: w, height: h };
+        }
+    } catch (e) {
+        // Couldn't get comp dimensions, use defaults
+    }
+    return defaultDims;
+}
+
+/**
+ * Show loading indicator by importing the Firing....svg file
+ * Uses Quiver's native SVG import pipeline (processAndImportSVG)
+ * Adjusts dimensions to match active composition bounds
+ * @returns {Array} Array of created layer IDs (the "Firing..." group)
+ */
+function showLoadingIndicator() {
+    try {
+        // Get composition dimensions for the overlay
+        var compDims = getCompDimensions();
+        var compWidth = compDims.width;
+        var compHeight = compDims.height;
+        
+        // Read the loading SVG file using api.readFromFile (same as quiver_createUI.js)
+        // Located in quiver_assets folder following the same pattern as other assets
+        var svgPath = ui.scriptLocation + '/quiver_assets/quiver_firing-loader.svg';
+        var svgContent = null;
+        
+        try {
+            svgContent = api.readFromFile(svgPath);
+        } catch (readError) {
+            return [];
+        }
+        
+        if (!svgContent || svgContent.trim() === '') {
+            return [];
+        }
+        
+        // Adjust SVG dimensions to match composition bounds
+        // Original SVG is 1920x1080, dialog box is centered at x=637, y=476
+        // Dialog dimensions: 646.505 x 127
+        var origWidth = 1920;
+        var origHeight = 1080;
+        var dialogWidth = 646.505;
+        var dialogHeight = 127;
+        
+        // Calculate new dialog position to center it in the composition
+        var newDialogX = Math.round((compWidth - dialogWidth) / 2);
+        var newDialogY = Math.round((compHeight - dialogHeight) / 2);
+        
+        // Calculate offset to adjust all elements inside Frame 2 group
+        var offsetX = newDialogX - 637;
+        var offsetY = newDialogY - 476;
+        
+        // Update SVG viewBox and dimensions
+        svgContent = svgContent.replace(
+            /width="1920"\s+height="1080"\s+viewBox="0 0 1920 1080"/,
+            'width="' + compWidth + '" height="' + compHeight + '" viewBox="0 0 ' + compWidth + ' ' + compHeight + '"'
+        );
+        
+        // Update the dark overlay rect (70% black) to match composition bounds
+        svgContent = svgContent.replace(
+            /<rect width="1920" height="1080" fill="black" fill-opacity="0.7"\/>/,
+            '<rect width="' + compWidth + '" height="' + compHeight + '" fill="black" fill-opacity="0.7"/>'
+        );
+        
+        // Adjust the entire Frame 2 group position using transform
+        // This moves the dialog box, logo, and text together as a unit
+        // Don't modify individual element positions - just transform the group
+        if (offsetX !== 0 || offsetY !== 0) {
+            svgContent = svgContent.replace(
+                /<g id="Frame 2">/,
+                '<g id="Frame 2" transform="translate(' + offsetX + ', ' + offsetY + ')">'
+            );
+        }
+        
+        // Import using Quiver's native SVG parser (same pipeline as regular imports)
+        // resetImportedGroupIds() is called at start of processAndImportSVG
+        processAndImportSVG(svgContent);
+        
+        // Get the group IDs that were created during import
+        // Uses getImportedGroupIds() from quiver_svgParser.js
+        var createdGroups = [];
+        try {
+            createdGroups = getImportedGroupIds();
+        } catch (e) {
+            // Fallback if function not available
+        }
+        
+        // Flush events to ensure the loading indicator renders immediately
+        if (typeof api.processEvents === 'function') {
+            api.processEvents();
+        }
+        
+        return createdGroups;
+        
+    } catch (e) {
+    }
+    return [];
+}
+
+/**
+ * Hide loading indicator by deleting its layers
+ * @param {Array} layerIds - Array of layer IDs to delete
+ */
+function hideLoadingIndicator(layerIds) {
+    try {
+        if (layerIds && layerIds.length > 0) {
+            for (var i = 0; i < layerIds.length; i++) {
+                api.deleteLayer(layerIds[i]);
+            }
+        }
+    } catch (e) {
+        // Cleanup failure is non-critical
+    }
+}
+
 /**
  * Handle SVG import request (with optional hybrid vector data for stroke gradients)
  */
 function handleImportSVG(request) {
+    // Show loading indicator before import starts
+    var loadingLayers = showLoadingIndicator();
+    
     try {
-        console.log('[Quiver Import] handleImportSVG called');
-        console.log('[Quiver Import] request.textData: ' + (request.textData ? request.textData.length + ' items' : 'none'));
-        console.log('[Quiver Import] request.vectorData: ' + (request.vectorData ? request.vectorData.length + ' items' : 'none'));
-        console.log('[Quiver Import] request.emojiData: ' + (request.emojiData ? request.emojiData.length + ' items' : 'none'));
         
         // HYBRID TEXT: Store Figma text data BEFORE SVG import so createText can access it
         if (request.textData && request.textData.length > 0) {
-            console.info("🏹 Quiver: Storing " + request.textData.length + " text node(s) alignment data...");
             setFigmaTextData(request.textData);
         } else {
-            console.log('[Quiver Import] No textData in request, clearing previous data');
             clearFigmaTextData(); // Clear any previous data
         }
         
@@ -118,7 +254,6 @@ function handleImportSVG(request) {
         // If hybrid vector data is present (nodes with stroke gradients),
         // process them to restore proper strokes with gradients
         if (request.vectorData && request.vectorData.length > 0) {
-            console.info("🏹 Quiver: Processing " + request.vectorData.length + " stroke gradient node(s)...");
             
             var viewBox = extractViewBox(request.svgCode);
             if (!viewBox) {
@@ -132,10 +267,7 @@ function handleImportSVG(request) {
         // These overlay the invisible emoji characters in text, preserving spacing
         // Only process if emoji import is enabled in settings
         if (request.emojiData && request.emojiData.length > 0) {
-            if (typeof importEmojisEnabled !== 'undefined' && !importEmojisEnabled) {
-                console.info("🏹 Quiver: Skipping " + request.emojiData.length + " emoji(s) - emoji import disabled");
-            } else {
-                console.info("🏹 Quiver: Processing " + request.emojiData.length + " emoji(s)...");
+            if (typeof importEmojisEnabled === 'undefined' || importEmojisEnabled) {
                 
                 var viewBox = extractViewBox(request.svgCode);
                 if (!viewBox) {
@@ -153,6 +285,9 @@ function handleImportSVG(request) {
             clearEmojiIndexMaps();
         }
         
+        // Hide loading indicator now that import is complete
+        hideLoadingIndicator(loadingLayers);
+        
         // Try to bring Cavalry to the foreground
         // Note: Window focusing may not be available in Cavalry's scripting API
         try {
@@ -165,6 +300,8 @@ function handleImportSVG(request) {
             // Window focusing not available
         }
     } catch (e) {
+        // Hide loading indicator even on error
+        hideLoadingIndicator(loadingLayers);
         console.error("🏹 Quiver: Import failed - " + e.message);
     }
 }
@@ -209,7 +346,6 @@ function setFigmaTextData(textDataArray) {
                 }
             }
             
-            console.log('[Quiver Text] Stored Figma text data: "' + td.name + '" (align: ' + td.textAlignHorizontal + ')');
         }
     }
 }
@@ -257,7 +393,6 @@ function getFigmaTextData(name, content, svgPosition) {
     
     // If base name was different from original name and we found candidates, log it
     if (baseName !== name && allCandidates.length > 0) {
-        console.log('[Quiver Text] Using base name "' + baseName + '" for SVG element "' + name + '" (' + allCandidates.length + ' candidates)');
     }
     
     // If no candidates found by base name, try exact name as-is (unique names)
@@ -272,7 +407,6 @@ function getFigmaTextData(name, content, svgPosition) {
         if (content) {
             var contentKey = content.substring(0, 50);
             if (__figmaTextDataByContent[contentKey]) {
-                console.log('[Quiver Text] Matched by content: "' + contentKey.substring(0, 20) + '..."');
                 return __figmaTextDataByContent[contentKey];
             }
         }
@@ -314,12 +448,6 @@ function getFigmaTextData(name, content, svgPosition) {
                 var dy = Math.abs((entryY || 0) - (svgPosition.y || 0));
                 var distance = dx + (dy * 0.3);
                 
-                console.log('[Quiver Text] Position check: "' + (entry.name || baseName) + '" (content: "' + 
-                            (entry.characters || '').substring(0, 15) + '...") ' +
-                            'Figma(' + (entryX || 0).toFixed(1) + ',' + (entryY || 0).toFixed(1) + ')' +
-                            ' vs SVG(' + (svgPosition.x || 0).toFixed(1) + ',' + (svgPosition.y || 0).toFixed(1) + ')' +
-                            ' distance=' + distance.toFixed(1));
-                
                 if (distance < bestDistance) {
                     bestDistance = distance;
                     bestMatch = entry;
@@ -328,8 +456,6 @@ function getFigmaTextData(name, content, svgPosition) {
         }
         
         if (bestMatch && bestDistance < 500) { // Within 500px is a reasonable match
-            console.log('[Quiver Text] Matched "' + name + '" to "' + (bestMatch.name || baseName) + 
-                        '" (content: "' + (bestMatch.characters || '').substring(0, 15) + '...") by position (distance=' + bestDistance.toFixed(1) + ')');
             return bestMatch;
         }
     }
@@ -338,7 +464,6 @@ function getFigmaTextData(name, content, svgPosition) {
     for (var p = 0; p < candidateEntries.length; p++) {
         if (!candidateEntries[p]._used) {
             candidateEntries[p]._used = true;
-            console.log('[Quiver Text] Using entry ' + (p + 1) + ' of ' + candidateEntries.length + ' for "' + name + '"');
             return candidateEntries[p];
         }
     }
@@ -369,7 +494,6 @@ function registerCreatedTextShape(figmaTextName, textShapeId) {
         __createdTextShapes[figmaTextName] = [];
     }
     __createdTextShapes[figmaTextName].push(textShapeId);
-    console.log('[Text Registry] Registered "' + figmaTextName + '" -> ' + textShapeId);
 }
 
 /**
@@ -393,7 +517,6 @@ function getCreatedTextShape(figmaTextName) {
         if (__createdTextShapes.hasOwnProperty(key)) {
             var cleanKey = key.replace(/[\u{1F000}-\u{1FFFF}]/gu, '').trim();
             if (cleanKey === cleanName || key.indexOf(cleanName) >= 0 || cleanName.indexOf(key) >= 0) {
-                console.log('[Text Registry] Matched "' + figmaTextName + '" to "' + key + '"');
                 return __createdTextShapes[key][0];
             }
         }
@@ -446,7 +569,6 @@ function processStrokeGradientNodes(vectorDataArray, viewBox) {
                 // if another layer has the same name
                 markLayerAsProcessed(existingLayerId);
                 
-                console.info("   Found existing layer '" + nodeData.name + "' - extracting gradient shader...");
                 
                 // Determine the layer to read position from
                 // If the existing layer is a group, the actual position is on its first child shape
@@ -462,7 +584,6 @@ function processStrokeGradientNodes(vectorDataArray, viewBox) {
                                 var childType = groupChildren[gc].split('#')[0];
                                 if (childType === 'editableShape' || childType === 'basicShape' || childType === 'path') {
                                     positionSourceLayerId = groupChildren[gc];
-                                    console.info("   Layer is a group - reading position from child: " + positionSourceLayerId);
                                     break;
                                 }
                             }
@@ -483,7 +604,6 @@ function processStrokeGradientNodes(vectorDataArray, viewBox) {
                     var rawRot = api.get(positionSourceLayerId, 'rotation');
                     existingRot = (typeof rawRot === 'number') ? rawRot : parseFloat(rawRot) || 0;
                     if (existingRot !== 0) {
-                        console.info("   Existing layer rotation: " + existingRot + "°");
                     }
                 } catch (eRot) {}
                 
@@ -500,7 +620,6 @@ function processStrokeGradientNodes(vectorDataArray, viewBox) {
                         for (var si = 0; si < siblings.length; si++) {
                             if (siblings[si] === existingLayerId) {
                                 originalIndex = si;
-                                console.info("   Layer is at index " + si + " of " + siblings.length + " siblings");
                                 break;
                             }
                         }
@@ -516,8 +635,6 @@ function processStrokeGradientNodes(vectorDataArray, viewBox) {
                 
                 // Get existing clipping masks connected to this layer
                 // Use our reverse lookup cache since Cavalry's masks array isn't directly readable
-                console.log('[DEBUG HYBRID MASK] Looking for masks on existing layer: ' + existingLayerId);
-                console.log('[DEBUG HYBRID MASK]   Layer name: ' + nodeData.name);
                 
                 // Helper: recursively collect masks from a layer and its children
                 // This is needed because when the found layer is a GROUP (e.g., "Vector 312"),
@@ -532,7 +649,6 @@ function processStrokeGradientNodes(vectorDataArray, viewBox) {
                             for (var mi = 0; mi < masks.length; mi++) {
                                 if (existingClippingMasks.indexOf(masks[mi]) === -1) {
                                     existingClippingMasks.push(masks[mi]);
-                                    console.log('[DEBUG HYBRID MASK]   Found mask on ' + layerId + ': ' + masks[mi]);
                                 }
                             }
                         }
@@ -550,16 +666,13 @@ function processStrokeGradientNodes(vectorDataArray, viewBox) {
                 // Method 1: Use our reverse lookup cache recursively (most reliable)
                 // This handles both direct layers AND groups containing paths with masks
                 collectMasksRecursively(existingLayerId, 0);
-                console.log('[DEBUG HYBRID MASK]   After recursive collection: ' + existingClippingMasks.length + ' mask(s)');
                 
                 // Method 2: Fallback - try Cavalry API methods (for completeness/debugging)
                 if (existingClippingMasks.length === 0) {
                     try {
                         var clipMaskChildren = api.getAttrChildren(existingLayerId, 'masks');
-                        console.log('[DEBUG HYBRID MASK]   getAttrChildren("masks") returned: ' + (clipMaskChildren ? JSON.stringify(clipMaskChildren) : 'null'));
                         
                         if (clipMaskChildren && clipMaskChildren.length > 0) {
-                            console.log('[DEBUG HYBRID MASK]   masks array has ' + clipMaskChildren.length + ' children but reverse lookup was empty');
                             // Try the API methods as fallback
                             for (var cmc = 0; cmc < clipMaskChildren.length; cmc++) {
                                 var childAttrId = clipMaskChildren[cmc];
@@ -586,16 +699,13 @@ function processStrokeGradientNodes(vectorDataArray, viewBox) {
                                 
                                 if (maskLayerId) {
                                     existingClippingMasks.push(maskLayerId);
-                                    console.log('[DEBUG HYBRID MASK]   Found via API fallback: ' + maskLayerId);
                                 }
                             }
                         }
                     } catch (eCM) {
-                        console.log('[DEBUG HYBRID MASK]   API fallback failed: ' + (eCM.message || eCM));
                     }
                 }
                 
-                console.log('[DEBUG HYBRID MASK] Clipping mask collection complete. Found: ' + existingClippingMasks.length);
                 
                 // Helper: extract layer type from layerId (e.g., "gradientShader#33" -> "gradientShader")
                 function getLayerType(layerId) {
@@ -615,18 +725,15 @@ function processStrokeGradientNodes(vectorDataArray, viewBox) {
                     
                     try {
                         var children = api.getChildren(layerId);
-                        console.info(indent + "Checking " + children.length + " children of " + layerId + "...");
                         
                         for (var c = 0; c < children.length; c++) {
                             var childId = children[c];
                             var childType = getLayerType(childId);
                             var childName = "";
                             try { childName = api.getNiceName(childId); } catch (eN) { childName = childId; }
-                            console.info(indent + "Child " + c + ": '" + childName + "' (id: " + childId + ", type: " + childType + ")");
                             
                             if (childType === 'gradientShader') {
                                 allShaders.push({id: childId, name: childName});
-                                console.info(indent + "  -> Found gradient shader!");
                             }
                             
                             // Check if this child is a filter effect
@@ -634,7 +741,6 @@ function processStrokeGradientNodes(vectorDataArray, viewBox) {
                             for (var ft = 0; ft < filterTypes.length; ft++) {
                                 if (childType === filterTypes[ft]) {
                                     allFilters.push({id: childId, name: childName, type: childType});
-                                    console.info(indent + "  -> Found filter: " + childType);
                                     isFilter = true;
                                     break;
                                 }
@@ -648,21 +754,16 @@ function processStrokeGradientNodes(vectorDataArray, viewBox) {
                             }
                         }
                     } catch (eFind) {
-                        console.error(indent + "Error checking children: " + eFind.message);
                     }
                 }
                 
                 // Start searching from the existing layer
                 collectShadersAndFilters(existingLayerId, 0);
                 
-                console.info("   Found " + allShaders.length + " gradient shaders");
-                console.info("   Found " + allFilters.length + " filter effects to transfer");
                 
                 // Assign shaders based on what the Figma data tells us about the shape
                 var hasFigmaFill = nodeData.fills && nodeData.fills.length > 0 && nodeData.fills[0].visible !== false;
                 var hasFigmaGradientFill = hasFigmaFill && nodeData.fills[0].gradientType;
-                console.info("   Figma data: hasFill=" + hasFigmaFill + ", hasGradientFill=" + hasFigmaGradientFill);
-                console.info("   Found " + allShaders.length + " gradient shaders");
                 
                 // Logic for shader assignment:
                 // - If shape had BOTH gradient fill and gradient stroke in Figma:
@@ -677,22 +778,17 @@ function processStrokeGradientNodes(vectorDataArray, viewBox) {
                     // So: Shader 0 = STROKE, Shader 1 = FILL
                     existingStrokeShader = allShaders[0].id;
                     existingFillShader = allShaders[1].id;
-                    console.info("   Shader 0 ('" + allShaders[0].name + "') → STROKE");
-                    console.info("   Shader 1 ('" + allShaders[1].name + "') → FILL");
                 } else if (allShaders.length >= 1) {
                     // Single shader (or no gradient fill) → shader is from outlined stroke
                     existingStrokeShader = allShaders[0].id;
-                    console.info("   Shader 0 ('" + allShaders[0].name + "') → STROKE (outlined)");
                     
                     // If there's a second shader and Figma had a fill, might be for fill
                     if (allShaders.length >= 2 && hasFigmaFill) {
                         existingFillShader = allShaders[1].id;
-                        console.info("   Shader 1 ('" + allShaders[1].name + "') → FILL");
                     }
                 }
                 
                 if (!existingStrokeShader) {
-                    console.info("   No existing gradient shader found - will create new one");
                 }
                 
                 // Create the replacement path with proper stroke (and fill if applicable)
@@ -706,14 +802,12 @@ function processStrokeGradientNodes(vectorDataArray, viewBox) {
                     if (parentId) {
                         try {
                             api.parent(newLayerId, parentId);
-                            console.info("   Parented new layer to: " + api.getNiceName(parentId));
                             
                             // Reorder: move new layer to the same position as the old one
                             api.select([newLayerId]);
                             
                             // First, bring all the way to front (index 0)
                             api.bringToFront();
-                            console.info("   Brought layer to front (index 0)");
                             
                             // Then move backward to reach originalIndex
                             // Since old layer is still at originalIndex, we need to go to originalIndex
@@ -722,7 +816,6 @@ function processStrokeGradientNodes(vectorDataArray, viewBox) {
                                 for (var m = 0; m < originalIndex; m++) {
                                     api.moveBackward();
                                 }
-                                console.info("   Moved backward " + originalIndex + " times to position " + originalIndex);
                             }
                         } catch (eParent) {
                             console.error("   Failed to parent/reorder: " + eParent.message);
@@ -731,7 +824,6 @@ function processStrokeGradientNodes(vectorDataArray, viewBox) {
                     
                     // Transfer filter effects (drop shadows, blurs) to the new layer
                     if (allFilters.length > 0) {
-                        console.info("   Transferring " + allFilters.length + " filter effects...");
                         for (var fi = 0; fi < allFilters.length; fi++) {
                             var filter = allFilters[fi];
                             
@@ -741,13 +833,10 @@ function processStrokeGradientNodes(vectorDataArray, viewBox) {
                                 continue;
                             }
                             
-                            console.info("     Processing filter: id=" + filter.id + ", name=" + filter.name + ", type=" + filter.type);
-                            console.info("     Target newLayerId: " + newLayerId);
                             
                             // Step 1: Re-parent the filter to the new layer
                             try {
                                 api.parent(filter.id, newLayerId);
-                                console.info("     Re-parented filter to new layer");
                             } catch (eParentFilter) {
                                 console.error("     Failed to re-parent filter: " + eParentFilter.message);
                             }
@@ -755,44 +844,32 @@ function processStrokeGradientNodes(vectorDataArray, viewBox) {
                             // Step 2: Connect the filter to the new layer's filters input
                             try {
                                 api.connect(filter.id, 'id', newLayerId, 'filters');
-                                console.info("     Connected filter to new layer's filters");
                             } catch (eConnFilter) {
                                 console.error("     Failed to connect filter: " + eConnFilter.message);
                                 // Try fallback to deformers
                                 try {
                                     api.connect(filter.id, 'id', newLayerId, 'deformers');
-                                    console.info("     Connected filter via deformers fallback");
                                 } catch (eConnDeform) {
                                     console.error("     Deformers fallback also failed: " + eConnDeform.message);
                                 }
                             }
                             
-                            console.info("     Transferred filter: " + filter.name);
                         }
                     }
                     
                     // Transfer clipping masks (clip-paths/masks) to the new layer
-                    console.log('[DEBUG HYBRID MASK] About to transfer clipping masks. Count: ' + existingClippingMasks.length);
-                    console.log('[DEBUG HYBRID MASK]   existingClippingMasks array: ' + JSON.stringify(existingClippingMasks));
-                    console.log('[DEBUG HYBRID MASK]   newLayerId: ' + newLayerId);
                     if (existingClippingMasks.length > 0) {
-                        console.info("   Transferring " + existingClippingMasks.length + " clipping mask(s)...");
                         for (var cmi = 0; cmi < existingClippingMasks.length; cmi++) {
                             var maskId = existingClippingMasks[cmi];
-                            console.log('[DEBUG HYBRID MASK]   Connecting maskId ' + maskId + ' to newLayerId ' + newLayerId);
                             try {
                                 api.connect(maskId, 'id', newLayerId, 'masks');
-                                console.info("     Connected clipping mask: " + maskId);
-                                console.log('[DEBUG HYBRID MASK]   SUCCESS: Connected clipping mask ' + maskId);
                                 
                                 // Ensure the mask stays visible (it might be a visible shape being reused)
                                 try {
                                     api.set(maskId, { 'hidden': false });
-                                    console.log('[DEBUG HYBRID MASK]   Ensured mask stays visible');
                                 } catch (eVis) {}
                             } catch (eConnMask) {
                                 console.error("     Failed to connect clipping mask: " + eConnMask.message);
-                                console.log('[DEBUG HYBRID MASK]   FAILED to connect clipping mask: ' + eConnMask.message);
                             }
                         }
                     }
@@ -800,24 +877,20 @@ function processStrokeGradientNodes(vectorDataArray, viewBox) {
                     // NOW delete the old layer (it's now at originalIndex + 1)
                     try { 
                         api.deleteLayer(existingLayerId); 
-                        console.info("   Deleted old outlined layer");
                     } catch (eDel) {
                         console.error("   Failed to delete old layer: " + eDel.message);
                     }
                     
                     // Path is positioned at existing layer's location (passed to createPathFromVectorDataWithExistingShaders)
                     // Gradient shader is already correctly positioned from the existing layer
-                    console.info("   Path created at existing layer's position");
                     
                     // Mark the new layer as processed too (in case there are multiple
                     // layers with the same name in the vectorData)
                     markLayerAsProcessed(newLayerId);
                     
-                    console.info("   Replaced '" + nodeData.name + "' with stroke gradient version");
                 }
             } else {
                 // Layer not found - create new one (without existing shader)
-                console.info("   Creating new layer '" + nodeData.name + "' with stroke gradient");
                 createPathFromVectorData(nodeData, viewBox, null);
             }
         } catch (eNode) {
@@ -832,22 +905,18 @@ function processStrokeGradientNodes(vectorDataArray, viewBox) {
  * Also tries suffixed names (e.g., "Polygon 5_2") if exact match not found
  */
 function findLayerByName(name) {
-    console.info("   findLayerByName: searching for '" + name + "'");
     
     try {
         // #region agent log
-        console.info("   [H2] About to call api.getCompLayers(false) - gets ALL layers");
         // #endregion
         
         // Get ALL layers in active comp (false = include nested, no compId needed)
         var allLayers = api.getCompLayers(false);
         
         // #region agent log
-        console.info("   [H2] getCompLayers returned: " + (allLayers ? allLayers.length : "null") + " total layers");
         // #endregion
         
         if (!allLayers || allLayers.length === 0) {
-            console.info("   findLayerByName: no layers in comp");
             return null;
         }
         
@@ -870,7 +939,6 @@ function findLayerByName(name) {
         // First pass: exact match
         for (var j = 0; j < candidates.length; j++) {
             if (candidates[j].name === name) {
-                console.info("   findLayerByName: FOUND '" + name + "' -> " + candidates[j].id);
                 return candidates[j].id;
             }
         }
@@ -881,13 +949,11 @@ function findLayerByName(name) {
             var suffixedName = name + '_' + suffix;
             for (var k = 0; k < candidates.length; k++) {
                 if (candidates[k].name === suffixedName) {
-                    console.info("   findLayerByName: FOUND '" + name + "' as '" + suffixedName + "' -> " + candidates[k].id);
                     return candidates[k].id;
                 }
             }
         }
         
-        console.info("   findLayerByName: '" + name + "' not found in " + allLayers.length + " layers");
         return null;
     } catch (e) {
         var errMsg = "unknown error";
@@ -989,15 +1055,8 @@ function createPathFromVectorDataWithExistingShaders(nodeData, viewBox, parentId
                 // If delta is large (>50px), the vectorData is for a different layer instance
                 // Use the existing layer's position to place it correctly
                 if (dist > 50) {
-                    console.info("   Position mismatch detected (delta: " + dist.toFixed(1) + "px)");
-                    console.info("   -> Using existing layer position instead of computed");
                     finalPosX = targetPosition.x;
                     finalPosY = targetPosition.y;
-                } else if (dist > 1) {
-                    // Small delta - just log it
-                    console.info("   Position: computed (" + centre.x.toFixed(1) + ", " + centre.y.toFixed(1) + 
-                                ") vs existing (" + targetPosition.x.toFixed(1) + ", " + targetPosition.y.toFixed(1) + 
-                                ") - delta: " + dist.toFixed(1) + "px");
                 }
             }
             
@@ -1012,7 +1071,6 @@ function createPathFromVectorDataWithExistingShaders(nodeData, viewBox, parentId
             if (rotValue !== 0) {
                 try {
                     api.set(layerId, {"rotation": rotValue});
-                    console.info("   Applied existing layer rotation: " + rotValue.toFixed(2) + "°");
                 } catch (eRot) {
                     console.error("   Failed to apply rotation: " + eRot.message);
                 }
@@ -1033,7 +1091,6 @@ function createPathFromVectorDataWithExistingShaders(nodeData, viewBox, parentId
             if (fillOpacity < 1) {
                 try {
                     api.set(layerId, {"material.alpha": fillOpacity * 100}); // Cavalry uses 0-100
-                    console.info("   Applied fill opacity: " + (fillOpacity * 100) + "%");
                 } catch (eAlpha) {
                     console.error("   Failed to set fill opacity: " + eAlpha.message);
                 }
@@ -1044,7 +1101,6 @@ function createPathFromVectorDataWithExistingShaders(nodeData, viewBox, parentId
                 try {
                     connectShaderToShape(existingFillShader, layerId);
                     api.parent(existingFillShader, layerId);
-                    console.info("   Reused existing gradient shader for fill");
                 } catch (eFillShader) {
                     console.error("   Failed to connect fill shader: " + eFillShader.message);
                 }
@@ -1057,7 +1113,6 @@ function createPathFromVectorDataWithExistingShaders(nodeData, viewBox, parentId
                     var fillShader = createGradientFromFigmaPaint(fill, nodeData.name + '_fill');
                     if (fillShader) {
                         connectShaderToShape(fillShader, layerId);
-                        console.info("   Created new gradient shader for fill");
                     }
                 }
             }
@@ -1093,7 +1148,6 @@ function createPathFromVectorDataWithExistingShaders(nodeData, viewBox, parentId
                     // Convert Figma array to Cavalry CSV string (e.g., "62.35, 62.35")
                     var dashCsv = nodeData.dashPattern.join(', ');
                     api.set(layerId, {'stroke.dashPattern': dashCsv});
-                    console.info("   Applied dash pattern: " + dashCsv);
                 } catch (eDash) {
                     console.error("   Failed to apply dash pattern: " + eDash.message);
                 }
@@ -1104,7 +1158,6 @@ function createPathFromVectorDataWithExistingShaders(nodeData, viewBox, parentId
                 try {
                     connectShaderToStroke(existingStrokeShader, layerId);
                     api.parent(existingStrokeShader, layerId);
-                    console.info("   Reused existing gradient shader for stroke");
                     
                     // Update the shader with correct Figma data (fixes radiusRatio)
                     // Figma's SVG export decomposes the matrix, losing shear information
@@ -1115,7 +1168,6 @@ function createPathFromVectorDataWithExistingShaders(nodeData, viewBox, parentId
                             // The shader was already configured correctly during SVG import
                             // with the proper settings for the outlined shape dimensions.
                             // Recalculating here would use wrong dimensions (non-outlined path).
-                            console.log('[RADIAL GRADIENT FIX] Keeping existing shader settings (already correct from SVG import)');
                         } catch (eRadialFix) {
                             console.warn('[RADIAL GRADIENT FIX] Error: ' + eRadialFix.message);
                         }
@@ -1132,7 +1184,6 @@ function createPathFromVectorDataWithExistingShaders(nodeData, viewBox, parentId
                     var strokeShader = createGradientFromFigmaPaint(stroke, nodeData.name + '_stroke');
                     if (strokeShader) {
                         connectShaderToStroke(strokeShader, layerId);
-                        console.info("   Created new gradient shader for stroke");
                     }
                 }
             }
@@ -1151,7 +1202,6 @@ function createPathFromVectorDataWithExistingShaders(nodeData, viewBox, parentId
                     api.connect(bevelId, 'id', layerId, 'deformers');
                     // Parent under the shape
                     api.parent(bevelId, layerId);
-                    console.info("   Applied Bevel deformer with radius " + nodeData.cornerRadius);
                 }
             } catch (eBevel) {
                 console.error("   Failed to apply Bevel deformer: " + eBevel.message);
@@ -1270,7 +1320,6 @@ function createPathFromVectorData(nodeData, viewBox, parentId) {
                     api.set(layerId, {'stroke.dashPatternMode': 0});
                     var dashCsv = nodeData.dashPattern.join(', ');
                     api.set(layerId, {'stroke.dashPattern': dashCsv});
-                    console.info("   Applied dash pattern: " + dashCsv);
                 } catch (eDash) {
                     console.error("   Failed to apply dash pattern: " + eDash.message);
                 }
@@ -1284,7 +1333,6 @@ function createPathFromVectorData(nodeData, viewBox, parentId) {
                 var strokeShader = createGradientFromFigmaPaint(stroke, nodeData.name + '_stroke');
                 if (strokeShader) {
                     connectShaderToStroke(strokeShader, layerId);
-                    console.info("   Applied " + stroke.gradientType + " gradient to stroke");
                 }
             }
         }
@@ -1369,9 +1417,6 @@ function createGradientFromFigmaPaint(paintData, name) {
                     var shapeWidth = paintData.shapeWidth || 1;
                     var shapeHeight = paintData.shapeHeight || 1;
                     
-                    console.log('[RADIAL GRADIENT FIGMA] Computing scale from transform:');
-                    console.log('  Matrix: a=' + t.a.toFixed(6) + ', b=' + t.b.toFixed(6) + ', c=' + t.c.toFixed(6) + ', d=' + t.d.toFixed(6));
-                    console.log('  Shape dimensions: ' + shapeWidth.toFixed(2) + ' x ' + shapeHeight.toFixed(2));
                     
                     // Compute handle positions to get ellipse semi-axes
                     var centerX = t.a * 0.5 + t.c * 0.5 + t.e;
@@ -1390,7 +1435,6 @@ function createGradientFromFigmaPaint(paintData, name) {
                     var dy2 = (handle2Y - centerY) * shapeHeight;
                     var dist2 = Math.sqrt(dx2 * dx2 + dy2 * dy2);
                     
-                    console.log('  Ellipse semi-axes: dist1=' + dist1.toFixed(2) + 'px, dist2=' + dist2.toFixed(2) + 'px');
                     
                     // Calculate scale based on shape's half-dimensions
                     var shapeRadiusX = shapeWidth / 2;
@@ -1398,16 +1442,12 @@ function createGradientFromFigmaPaint(paintData, name) {
                     var scaleX = (dist1 / shapeRadiusX) * 100;
                     var scaleY = (dist2 / shapeRadiusY) * 100;
                     
-                    console.log('  Shape half-dimensions: ' + shapeRadiusX.toFixed(2) + ' x ' + shapeRadiusY.toFixed(2));
-                    console.log('  Calculated scale: x=' + scaleX.toFixed(1) + '%, y=' + scaleY.toFixed(1) + '%');
                     
                     // Set radiusRatio=1 (ellipse shape comes from scale.x/y)
                     api.set(shaderId, {"generator.radiusRatio": 1});
-                    console.log('[RADIAL GRADIENT FIGMA] Set radiusRatio: 1 (using scale.x/y for ellipse)');
                     
                     // Set scale values
                     api.set(shaderId, {"generator.scale.x": scaleX, "generator.scale.y": scaleY});
-                    console.log('[RADIAL GRADIENT FIGMA] Set generator.scale: (' + scaleX.toFixed(1) + ', ' + scaleY.toFixed(1) + ')');
                     
                     // Calculate and apply rotation from the matrix
                     var rotationRad = Math.atan2(t.b, t.a);
@@ -1485,7 +1525,6 @@ function processEmojiData(emojiDataArray, viewBox) {
         return;
     }
     
-    console.log('[Emoji] Processing ' + emojiDataArray.length + ' emoji(s) using Get Sub-Mesh Transform');
     
     var createdCount = 0;
     
@@ -1525,7 +1564,6 @@ function processEmojiData(emojiDataArray, viewBox) {
             continue;
         }
         
-        console.log('[Emoji] Found text shape ' + textShapeId + ' for "' + textNodeName + '"');
         
         // Use Count Sub-Meshes to get the ACTUAL word count
         // Word-level indexing is more reliable than character-level because:
@@ -1538,7 +1576,6 @@ function processEmojiData(emojiDataArray, viewBox) {
             api.set(countSubMeshId, { 'levelMode': 2 });  // 2 = Words
             actualWordCount = api.get(countSubMeshId, 'count');
             api.deleteLayer(countSubMeshId);  // Clean up temporary node
-            console.log('[Emoji] Count Sub-Meshes reports ' + actualWordCount + ' words');
         } catch (eCount) {
             console.warn('[Emoji] Could not create Count Sub-Meshes: ' + (eCount.message || eCount));
         }
@@ -1588,7 +1625,6 @@ function processEmojiData(emojiDataArray, viewBox) {
             api.connect(applyMaterialId, 'id', textShapeId, 'materialBehaviours');
             api.parent(applyMaterialId, textShapeId);
             
-            console.log('[Emoji] Created applyTextMaterial with regex to hide "' + currentPlaceholder + '" placeholders');
         } catch (eApply) {
             console.warn('[Emoji] Could not create Apply Text Material: ' + (eApply.message || eApply));
         }
@@ -1602,8 +1638,6 @@ function processEmojiData(emojiDataArray, viewBox) {
             var emoji = emojisForNode[m];
             var emojiWord = emojiWordData[m];
             
-            console.log('[Emoji] Processing "' + emoji.emojiChar + '" at charIndex ' + emoji.charIndex + 
-                        ' -> wordIndex=' + emojiWord.wordIndex);
             
             try {
                 // Save the base64 PNG to the Quiver assets folder
@@ -1623,7 +1657,6 @@ function processEmojiData(emojiDataArray, viewBox) {
                     continue;
                 }
                 
-                console.log('[Emoji] Saved to: ' + savedPath);
                 
                 // Create name for the emoji layer (just the emoji character)
                 // Track duplicates to avoid naming conflicts
@@ -1670,7 +1703,6 @@ function processEmojiData(emojiDataArray, viewBox) {
                     // Connect the text shape to the Get Sub-Mesh Transform's input
                     api.connect(textShapeId, 'id', getSubMeshId, 'inputShape');
                     
-                    console.log('[Emoji] Created getSubMeshTransform: ' + getSubMeshId + ' for wordIndex ' + wordIndex);
                 } catch (eSubMesh) {
                     console.error('[Emoji] Failed to create Get Sub-Mesh Transform: ' + (eSubMesh.message || eSubMesh));
                     continue;
@@ -1705,7 +1737,6 @@ function processEmojiData(emojiDataArray, viewBox) {
                     api.connect(getSubMeshId, 'position', shapeId, 'position');
                     api.connect(getSubMeshId, 'rotation', shapeId, 'rotation');
                     api.connect(getSubMeshId, 'scale', shapeId, 'scale');
-                    console.log('[Emoji] Connected getSubMeshTransform position/rotation/scale -> ' + emojiName);
                 } catch (eConnect) {
                     console.error('[Emoji] Failed to connect transform: ' + (eConnect.message || eConnect));
                 }
@@ -1738,12 +1769,10 @@ function processEmojiData(emojiDataArray, viewBox) {
                             // There's a layer above the text - reorder emoji to be under that layer
                             var layerAboveText = siblings[textIndex - 1];
                             api.reorder(shapeId, layerAboveText);
-                            console.log('[Emoji] Positioned "' + emojiName + '" above text shape (under layer at index ' + (textIndex - 1) + ')');
                         } else {
                             // Text is at index 0 (top) - bring emoji to front
                             api.select([shapeId]);
                             api.bringToFront();
-                            console.log('[Emoji] Positioned "' + emojiName + '" at front (text was at index 0)');
                         }
                     }
                 } catch (eLayerOrder) {
@@ -1755,7 +1784,6 @@ function processEmojiData(emojiDataArray, viewBox) {
                 // Use the reverse lookup cache (getMaskShapesForTarget) which is the reliable way
                 try {
                     var textMasks = getMaskShapesForTarget(textShapeId);
-                    console.log('[Emoji] Text shape ' + textShapeId + ' has ' + (textMasks ? textMasks.length : 0) + ' mask(s) via reverse lookup: ' + JSON.stringify(textMasks));
                     
                     if (textMasks && textMasks.length > 0) {
                         var masksConnected = 0;
@@ -1767,7 +1795,6 @@ function processEmojiData(emojiDataArray, viewBox) {
                                 
                                 api.connect(maskLayerId, 'id', shapeId, 'masks');
                                 addMaskShapeForTarget(shapeId, maskLayerId);
-                                console.log('[Emoji] Connected mask "' + maskName + '" (' + maskLayerId + ') to emoji');
                                 
                                 // Only keep the mask visible if it's a visible shape being reused as matte
                                 // (tracked in __shapesUsedAsMattes), otherwise it's a dedicated mask shape
@@ -1782,7 +1809,6 @@ function processEmojiData(emojiDataArray, viewBox) {
                                 console.warn('[Emoji] Failed to connect mask ' + maskLayerId + ': ' + (eConnect.message || eConnect));
                             }
                         }
-                        console.log('[Emoji] Applied ' + masksConnected + ' clipping mask(s) from text shape');
                     }
                 } catch (eMask) {
                     console.warn('[Emoji] Could not get/apply masks: ' + (eMask.message || eMask));
@@ -1793,7 +1819,6 @@ function processEmojiData(emojiDataArray, viewBox) {
                 // Use reverse lookup (getFiltersForTarget) since api.getAttrChildren/api.get doesn't work for filter IDs
                 try {
                     var textFilters = getFiltersForTarget(textShapeId);
-                    console.log('[Emoji] Text shape ' + textShapeId + ' has ' + (textFilters ? textFilters.length : 0) + ' filter(s) via reverse lookup: ' + JSON.stringify(textFilters));
                     
                     if (textFilters && textFilters.length > 0) {
                         var filtersConnected = 0;
@@ -1805,13 +1830,11 @@ function processEmojiData(emojiDataArray, viewBox) {
                                 
                                 api.connect(filterLayerId, 'id', shapeId, 'filters');
                                 addFilterForTarget(shapeId, filterLayerId); // Track new connection
-                                console.log('[Emoji] Connected filter "' + filterName + '" (' + filterLayerId + ') to emoji');
                                 filtersConnected++;
                             } catch (eFilterConnect) {
                                 console.warn('[Emoji] Failed to connect filter ' + filterLayerId + ': ' + (eFilterConnect.message || eFilterConnect));
                             }
                         }
-                        console.log('[Emoji] Applied ' + filtersConnected + ' filter(s) from text shape');
                     }
                 } catch (eFilter) {
                     console.warn('[Emoji] Could not get/apply filters: ' + (eFilter.message || eFilter));
@@ -1888,7 +1911,6 @@ function processEmojiData(emojiDataArray, viewBox) {
                 }
                 
                 createdCount++;
-                console.log('[Emoji] ✓ Created "' + emoji.emojiChar + '" with Get Sub-Mesh Transform at wordIndex ' + wordIndex);
                 
                 // Track this shape for potential grouping
                 createdEmojiShapes.push({
@@ -1914,7 +1936,6 @@ function processEmojiData(emojiDataArray, viewBox) {
                 
                 // Create the group
                 var emojiGroupId = api.create('group', emojiGroupName);
-                console.log('[Emoji] Created group "' + emojiGroupName + '" for ' + createdEmojiShapes.length + ' emojis');
                 
                 // Get the parent of the first emoji shape (they should all share the same parent)
                 var emojiParentId = null;
@@ -1960,7 +1981,6 @@ function processEmojiData(emojiDataArray, viewBox) {
                     }
                 } catch (eReorder) {}
                 
-                console.log('[Emoji] ✓ Grouped ' + createdEmojiShapes.length + ' emojis under "' + emojiGroupName + '"');
                 
             } catch (eGroup) {
                 console.warn('[Emoji] Could not create emoji group: ' + (eGroup.message || eGroup));
@@ -1968,9 +1988,6 @@ function processEmojiData(emojiDataArray, viewBox) {
         }
     }
     
-    if (createdCount > 0) {
-        console.info('🏹 Quiver: Created ' + createdCount + ' emoji image(s) with precise positioning');
-    }
 }
 
 /**
@@ -2038,7 +2055,6 @@ function processEmojiWithFallback(emoji, viewBox) {
         api.setStroke(shapeId, false);
         api.set(shapeId, { 'material.materialColor.a': 0 });
         
-        console.log('[Emoji Fallback] Created "' + emoji.emojiChar + '" at (' + cavalryPos.x.toFixed(1) + ', ' + cavalryPos.y.toFixed(1) + ')');
         return 1;
         
     } catch (e) {
@@ -2051,15 +2067,24 @@ function processEmojiWithFallback(emoji, viewBox) {
  * Handle clipboard import request
  */
 function handleImportFromClipboard(request) {
+    // Show loading indicator before import starts
+    var loadingLayers = showLoadingIndicator();
+    
     try {
         var svg = api.getClipboardText();
         if (!svg || svg.trim() === '') {
+            hideLoadingIndicator(loadingLayers);
             console.error("🏹 Quiver: Clipboard is empty");
             return;
         }
         processAndImportSVG(svg);
         console.info("🏹 Quiver: Clipboard imported successfully");
+        
+        // Hide loading indicator after import
+        hideLoadingIndicator(loadingLayers);
     } catch (e) {
+        // Hide loading indicator even on error
+        hideLoadingIndicator(loadingLayers);
         console.error("🏹 Quiver: Clipboard import failed - " + e.message);
     }
 }
@@ -2069,8 +2094,6 @@ function handleImportFromClipboard(request) {
  */
 function handleImportFromFigma(request) {
     console.info("🏹 Quiver: Figma import received");
-    console.info("   Direct Figma import coming soon!");
-    console.info("   For now, export as SVG from Figma and use importSVG action");
     
     // TODO: Implement direct Figma data conversion
     // This would parse Figma's JSON format and create Cavalry layers directly

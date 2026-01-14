@@ -244,7 +244,6 @@ function detectShadowPasses(filterContent) {
         effectBlends.push({ idx: effectMatch.index, result: effectMatch[1] });
     }
     
-    console.info("[Shadow Debug] Found " + effectBlends.length + " effect_dropShadow blends, " + morphs.length + " morphology elements");
     
     if (effectBlends.length > 0) {
         // Parse each shadow pass by looking backwards from each feBlend
@@ -268,12 +267,10 @@ function detectShadowPasses(filterContent) {
             }
             
             var vals = parseValuesFromSegment(passSeg);
-            console.info("[Shadow Debug] Pass " + ei + ": dx=" + vals.dx + ", dy=" + vals.dy + ", blur=" + vals.blur + ", color=" + vals.color + ", alpha=" + vals.alpha + ", spread=" + spread);
             
             if (vals.color || vals.dx !== 0 || vals.dy !== 0 || vals.blur !== 8/3 || spread !== 0) {
                 var passObj = { dx: vals.dx, dy: vals.dy, blur: vals.blur, color: vals.color || '#000000', alpha: vals.alpha, spread: spread };
                 passes.push(passObj);
-                console.info("[Shadow Debug] Added pass " + ei);
             }
         }
     } else if (morphs.length > 0) {
@@ -283,7 +280,6 @@ function detectShadowPasses(filterContent) {
             var op = (_gradGetAttr(morphs[i].el, 'operator')||'').toLowerCase();
             // Skip erode morphology - those are inner shadows, not drop shadows
             if (op === 'erode') {
-                console.info("[Shadow Debug] Skipping erode morphology (inner shadow)");
                 continue;
             }
             var start = morphs[i].idx + morphs[i].el.length;
@@ -304,7 +300,6 @@ function detectShadowPasses(filterContent) {
             offsetMatches.push({ idx: offsetMatch.index, el: offsetMatch[0] });
         }
         
-        console.info("[Shadow Debug] Found " + offsetMatches.length + " feOffset elements");
 
         if (offsetMatches.length > 0) {
             // For each offset, look for blur and color matrix that follow it
@@ -322,15 +317,12 @@ function detectShadowPasses(filterContent) {
                 var seg = filterContent.slice(start, end);
                 var vals = parseValuesFromSegment(seg);
                 
-                console.info("[Shadow Debug] Pass " + oi + ": dx=" + vals.dx + ", dy=" + vals.dy + ", blur=" + vals.blur + ", color=" + vals.color + ", alpha=" + vals.alpha);
                 
                 // Include pass if it has any meaningful values (color, offset, blur, or alpha)
                 if (vals.color || vals.dx !== 0 || vals.dy !== 0 || vals.blur !== 8/3 || (vals.alpha && vals.alpha !== 0.5)) {
                     var passObj = { dx: vals.dx, dy: vals.dy, blur: vals.blur, color: vals.color || '#000000', alpha: vals.alpha, spread: 0 };
                     passes.push(passObj);
-                    console.info("[Shadow Debug] Added pass " + oi);
                 } else {
-                    console.info("[Shadow Debug] Skipped pass " + oi + " (no meaningful values)");
                 }
             }
         } else {
@@ -407,7 +399,6 @@ function detectInnerShadowPasses(filterContent) {
         innerBlends.push({ idx: innerMatch.index, result: innerMatch[1] });
     }
     
-    console.info("[Inner Shadow Debug] Found " + innerBlends.length + " innerShadow blends");
     
     if (innerBlends.length > 0) {
         for (var ei = 0; ei < innerBlends.length; ei++) {
@@ -469,11 +460,9 @@ function detectInnerShadowPasses(filterContent) {
                 }
             }
             
-            console.info("[Inner Shadow Debug] Pass " + ei + ": dx=" + dx + ", dy=" + dy + ", blur=" + blur + ", color=" + color + ", alpha=" + alpha + ", inset=" + inset);
             
             var passObj = { dx: dx, dy: dy, blur: blur, color: color, alpha: alpha, inset: inset };
             passes.push(passObj);
-            console.info("[Inner Shadow Debug] Added inner shadow pass " + ei);
         }
     }
     
@@ -721,7 +710,6 @@ function queueBackgroundBlur(overlayShapeId, amount, parentId) {
         amount: amount,
         parentId: parentId
     });
-    console.log('[Background Blur] Queued blur for overlay "' + api.getNiceName(overlayShapeId) + '" (amount=' + amount + ')');
 }
 
 /**
@@ -777,7 +765,6 @@ function processDeferredBackgroundBlurs() {
         return;
     }
     
-    console.log('[Background Blur] Processing ' + __deferredBackgroundBlurs.length + ' deferred blur(s)...');
     
     for (var i = 0; i < __deferredBackgroundBlurs.length; i++) {
         var blurRequest = __deferredBackgroundBlurs[i];
@@ -828,7 +815,6 @@ function processDeferredBackgroundBlurs() {
                             }
                         }
                         if (parentIndexInGrandparent > 0) {
-                            console.log('[Background Blur] Using grandparent siblings (overlay in wrapper group)');
                             siblings = grandparentChildren;
                             overlayIndex = parentIndexInGrandparent;
                         }
@@ -840,13 +826,11 @@ function processDeferredBackgroundBlurs() {
             
             if (overlayIndex <= 0) {
                 // No siblings before this shape (it's first or not found)
-                console.log('[Background Blur] No underlying siblings for "' + api.getNiceName(overlayShapeId) + '"');
                 continue;
             }
             
             // Get siblings that are BEFORE this shape (rendered underneath)
             var underlyingSiblings = siblings.slice(0, overlayIndex);
-            console.log('[Background Blur] Found ' + underlyingSiblings.length + ' potential underlying sibling(s)');
             
             var blurAmount = Math.max(0, (amount || 0) / 2); // Halve for Cavalry
             
@@ -857,7 +841,6 @@ function processDeferredBackgroundBlurs() {
                 
                 // Skip siblings that are themselves blur overlays
                 if (__blurOverlayShapes[siblingId]) {
-                    console.log('[Background Blur] Skipping sibling "' + api.getNiceName(siblingId) + '" (is a blur overlay)');
                     continue;
                 }
                 
@@ -867,7 +850,6 @@ function processDeferredBackgroundBlurs() {
                     
                     if (siblingBBox && overlaps) {
                         overlappingSiblings.push(siblingId);
-                        console.log('[Background Blur] Sibling "' + api.getNiceName(siblingId) + '" overlaps');
                     }
                 } catch (eSibling) {
                     // Skip this sibling
@@ -875,7 +857,6 @@ function processDeferredBackgroundBlurs() {
             }
             
             if (overlappingSiblings.length === 0) {
-                console.log('[Background Blur] No overlapping siblings found for "' + api.getNiceName(overlayShapeId) + '"');
                 continue;
             }
             
@@ -913,7 +894,6 @@ function processDeferredBackgroundBlurs() {
                     api.connect(blurFilterId, 'id', targetId, 'filters');
                     addFilterForTarget(targetId, blurFilterId); // Track for reverse lookup
                     connectedCount++;
-                    console.log('[Background Blur] Connected filter to "' + api.getNiceName(targetId) + '"');
                 } catch (eConnect) {
                     console.warn('[Background Blur] Could not connect filter to "' + api.getNiceName(targetId) + '": ' + eConnect.message);
                 }

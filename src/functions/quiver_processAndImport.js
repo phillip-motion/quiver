@@ -8,7 +8,6 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
     if (node.type === 'g' || node.type === 'svg' || node.type === 'root') {
         // Skip empty groups (no children)
         if (node.type === 'g' && (!node.children || node.children.length === 0)) {
-            console.log('Skipping empty group:', node.name);
             return null;
         }
         
@@ -16,7 +15,6 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
         // These groups contain foreignObject elements used to render angular/diamond gradients
         // Since we parse data-figma-gradient-fill directly, we don't need these simulation groups
         if (node.type === 'g' && node.attrs && node.attrs['data-figma-skip-parse'] === 'true') {
-            console.log('[Figma Skip] Skipping gradient simulation group:', node.name || 'unnamed');
             return null;
         }
         
@@ -126,7 +124,6 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
                 // Transfer background blur attribute if present on the group
                 if (node.attrs['data-figma-bg-blur-radius'] && !singleChild.attrs['data-figma-bg-blur-radius']) {
                     singleChild.attrs['data-figma-bg-blur-radius'] = node.attrs['data-figma-bg-blur-radius'];
-                    console.log('[Background Blur] Propagated blur radius ' + node.attrs['data-figma-bg-blur-radius'] + ' from group to child');
                 }
                 
                 // Transfer filter attribute if present on the group (for layer blur, etc.)
@@ -158,7 +155,6 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
                             singleChild.attrs._inheritedMaskIds.push(allMasks[mIdx]);
                         }
                     }
-                    console.log('[DEBUG MASK] Blend mode optimization: transferred masks [' + allMasks.join(', ') + '] from group "' + (node.name || 'unnamed') + '" to single child');
                 }
                 
                 // Transfer parent name if child has no meaningful name
@@ -198,8 +194,6 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
                 var figmaTextForGroup = getFigmaTextData(rawGroupName);
                 
                 if (figmaTextForGroup && figmaTextForGroup.characters) {
-                    console.log('[Styled Text] Found Figma data for group "' + rawGroupName + '" with ' + node.children.length + ' text children');
-                    console.log('[Styled Text] Creating single text shape from Figma data: "' + figmaTextForGroup.characters.substring(0, 50) + '..."');
                     
                     // Extract fills from the SVG text children for multi-fill support
                     // Figma exports multiple <text> elements with the same geometry but different fills
@@ -215,7 +209,6 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
                         if (childFill && childFill !== 'none' && !seenFills[childFill]) {
                             seenFills[childFill] = true;
                             textFills.push({color: childFill, opacity: childOpacity});
-                            console.log('[Styled Text] Extracted fill from child ' + fci + ': ' + childFill + ' (opacity: ' + childOpacity + ')');
                         }
                         
                         // Check for additional fills from multi-fill optimization
@@ -227,7 +220,6 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
                                 if (addFill && addFill !== 'none' && !seenFills[addFill]) {
                                     seenFills[addFill] = true;
                                     textFills.push({color: addFill, opacity: addOpacity});
-                                    console.log('[Styled Text] Extracted additional fill from child ' + fci + ': ' + addFill + ' (opacity: ' + addOpacity + ')');
                                 }
                             }
                         }
@@ -274,27 +266,22 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
                                         if (!childFilterId) childFilterId = filterChild.attrs._inheritedFilterId;
                                         if (childFilterId) {
                                             fIdStyled = childFilterId;
-                                            console.log('[Styled Text] Found filter "' + fIdStyled + '" on text child ' + fcIdx);
                                         }
                                     }
                                 }
                             }
                             
-                            console.log('[Styled Text] Filter check: fIdStyled=' + fIdStyled + ', node.attrs.filter=' + (node.attrs && node.attrs.filter) + ', _inheritedFilterId=' + (node.attrs && node.attrs._inheritedFilterId));
                             
                             if (fIdStyled && __svgFilterMap && __svgFilterMap[fIdStyled]) {
-                                console.log('[Styled Text] Found filter "' + fIdStyled + '" for styled text, filter content length: ' + __svgFilterMap[fIdStyled].length);
                                 
                                 // Check for drop shadows
                                 var passesStyled = detectShadowPasses(__svgFilterMap[fIdStyled]);
-                                console.log('[Styled Text] Drop shadow passes: ' + passesStyled.length);
                                 for (var pStyled = 0; pStyled < passesStyled.length; pStyled++) {
                                     createAndAttachDropShadow(styledTextId, passesStyled[pStyled]);
                                 }
                                 
                                 // Check for inner shadows
                                 var innerPassesStyled = detectInnerShadowPasses(__svgFilterMap[fIdStyled]);
-                                console.log('[Styled Text] Inner shadow passes: ' + innerPassesStyled.length);
                                 for (var inpStyled = 0; inpStyled < innerPassesStyled.length; inpStyled++) {
                                     createAndAttachInnerShadow(styledTextId, innerPassesStyled[inpStyled]);
                                 }
@@ -302,14 +289,10 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
                                 // Check for blur
                                 var blurAmtStyled = detectBlurAmount(__svgFilterMap[fIdStyled]);
                                 if (blurAmtStyled !== null) {
-                                    console.log('[Styled Text] Blur amount: ' + blurAmtStyled);
                                     createAndAttachBlur(styledTextId, blurAmtStyled);
                                 }
                             } else if (fIdStyled) {
-                                console.log('[Styled Text] Filter ID "' + fIdStyled + '" not found in __svgFilterMap');
-                                console.log('[Styled Text] Available filters: ' + Object.keys(__svgFilterMap || {}).join(', '));
                             } else {
-                                console.log('[Styled Text] No filter found for styled text "' + rawGroupName + '"');
                             }
                         } catch (eStyledFilter) {
                             console.warn('[Styled Text] Error applying filters: ' + (eStyledFilter.message || eStyledFilter));
@@ -403,7 +386,6 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
         // Propagate background blur attribute from group to geometry children
         var groupBgBlur = node.attrs && node.attrs['data-figma-bg-blur-radius'];
         if (groupBgBlur) {
-            console.log('[Background Blur] Group "' + (node.name || 'unnamed') + '" has blur radius: ' + groupBgBlur);
             // Find the first geometry child to apply blur to
             for (var blurIdx = 0; blurIdx < childTargets.length; blurIdx++) {
                 var blurChild = childTargets[blurIdx];
@@ -412,7 +394,6 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
                 if (isBlurGeom && !blurChild.attrs['data-figma-bg-blur-radius']) {
                     if (!blurChild.attrs) blurChild.attrs = {};
                     blurChild.attrs['data-figma-bg-blur-radius'] = groupBgBlur;
-                    console.log('[Background Blur] Propagated blur radius ' + groupBgBlur + ' to child "' + (blurChild.name || blurType) + '"');
                     break; // Only apply to first geometry child
                 }
             }
@@ -421,29 +402,22 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
         // NESTED CLIPS: Use _inheritedMaskIds array to accumulate multiple masks
         var groupName = node.attrs && node.attrs.id || node.name || 'unnamed';
         var ownMaskId = extractUrlRefId(node.attrs && node.attrs.mask) || extractUrlRefId(node.attrs && node.attrs['clip-path']);
-        console.log('[DEBUG MASK] Group "' + groupName + '" clip-path attr: ' + (node.attrs && node.attrs['clip-path']));
-        console.log('[DEBUG MASK]   mask attr: ' + (node.attrs && node.attrs.mask) + ', extracted ownMaskId: ' + ownMaskId);
         
         // Build array of all masks to propagate (parent masks + this group's mask)
         var parentMaskIds = (node.attrs && node.attrs._inheritedMaskIds) || [];
-        console.log('[DEBUG MASK]   _inheritedMaskIds from parent: [' + parentMaskIds.join(', ') + ']');
         
         // Combine: parent masks first, then this group's mask (order matters for intersection)
         var masksToPropagate = parentMaskIds.slice(); // clone array
         if (ownMaskId) {
             masksToPropagate.push(ownMaskId);
         }
-        console.log('[DEBUG MASK]   Final masksToPropagate: [' + masksToPropagate.join(', ') + ']');
-        console.log('[DEBUG MASK]   Children count: ' + childTargets.length);
         
         // Log all children for debugging
         for (var dbgC = 0; dbgC < childTargets.length; dbgC++) {
             var dbgChild = childTargets[dbgC];
-            console.log('[DEBUG MASK]   Child ' + dbgC + ': type=' + dbgChild.type + ', name="' + (dbgChild.attrs && dbgChild.attrs.id || dbgChild.name || 'unnamed') + '"');
         }
         
         if (masksToPropagate.length > 0) {
-            console.log('[DEBUG MASK]   Propagating ' + masksToPropagate.length + ' mask(s) to ' + childTargets.length + ' children');
             // Propagate ALL masks to all direct children
             for (var mi = 0; mi < childTargets.length; mi++) {
                 var chM = childTargets[mi];
@@ -456,13 +430,10 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
                 chM.attrs._inheritedMaskIds = masksToPropagate.slice(); // clone array
                 
                 if (childOwnMask) {
-                    console.log('[DEBUG MASK]     -> Child "' + (chM.attrs && chM.attrs.id || chM.name || 'child-' + mi) + '" has own mask "' + childOwnMask + '", will add to inherited masks');
                 } else {
-                    console.log('[DEBUG MASK]     -> Set _inheritedMaskIds on child "' + (chM.attrs && chM.attrs.id || chM.name || 'child-' + mi) + '" (type: ' + chM.type + '): [' + masksToPropagate.join(', ') + ']');
                 }
             }
         } else {
-            console.log('[DEBUG MASK]   No mask to propagate for group "' + groupName + '"');
         }
         
         // Propagate group opacity to children (Figma applies opacity to groups, not children)
@@ -475,13 +446,11 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
         
         // Only propagate if opacity is less than 1 (something to inherit)
         if (effectiveGroupOpacity < 0.999) {
-            console.log('[DEBUG OPACITY] Group "' + groupName + '" has opacity=' + groupOpacity + ', inherited=' + inheritedOpacity + ', effective=' + effectiveGroupOpacity);
             for (var oi = 0; oi < childTargets.length; oi++) {
                 var chO = childTargets[oi];
                 if (!chO.attrs) chO.attrs = {};
                 // Store inherited opacity for children to use
                 chO.attrs._inheritedOpacity = effectiveGroupOpacity;
-                console.log('[DEBUG OPACITY]   -> Set _inheritedOpacity=' + effectiveGroupOpacity + ' on child "' + (chO.attrs && chO.attrs.id || chO.name || 'child-' + oi) + '"');
             }
         }
         
@@ -523,7 +492,6 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
             if (fillIdMatch) {
                 var fillId = fillIdMatch[1].toLowerCase();
                 if (fillId.indexOf('_diamond_') !== -1 || fillId.indexOf('_angular_') !== -1) {
-                    console.log('[GRADIENT HELPER] Skipping gradient simulation rect: fill=' + rectFill);
                     return null;
                 }
             }
@@ -538,12 +506,6 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
         
         // Debug logging for rect positioning
         var rectName = node.name || 'unnamed rect';
-        console.log('[DEBUG RECT] Processing rect: ' + rectName);
-        console.log('[DEBUG RECT]   Original: x=' + x + ', y=' + y + ', w=' + w + ', h=' + h);
-        console.log('[DEBUG RECT]   nodeT (translate): x=' + nodeT.x + ', y=' + nodeT.y);
-        console.log('[DEBUG RECT]   inheritedTranslate: x=' + inheritedTranslate.x + ', y=' + inheritedTranslate.y);
-        console.log('[DEBUG RECT]   parentMatrix: ' + (parentMatrix ? 'a=' + parentMatrix.a + ',b=' + parentMatrix.b + ',c=' + parentMatrix.c + ',d=' + parentMatrix.d + ',e=' + parentMatrix.e + ',f=' + parentMatrix.f : 'null'));
-        console.log('[DEBUG RECT]   node.attrs.transform: ' + (node.attrs && node.attrs.transform || 'none'));
         
         // Apply parent matrix if it exists (inherited from parent group transform)
         if (parentMatrix) {
@@ -569,7 +531,6 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
             clone.attrs.height = (maxYP - minYP).toString();
             // Clear transform to prevent double-application in createRect
             delete clone.attrs.transform;
-            console.log('[DEBUG RECT]   -> parentMatrix applied: new x=' + minXP + ', y=' + minYP);
         } else if (node.attrs && node.attrs.transform) {
             // Check if transform contains non-trivial operations (rotation, scale, skew, or matrix)
             // If so, use full matrix approach to compute the correct center position
@@ -586,7 +547,6 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
                 var decomposed = decomposeMatrix(fullMatrix);
                 var rotationDeg = decomposed.rotationDeg || 0;
                 
-                console.log('[DEBUG RECT]   -> Full transform detected: rotation=' + rotationDeg.toFixed(2) + '° scaleX=' + decomposed.scaleX.toFixed(4) + ' scaleY=' + decomposed.scaleY.toFixed(4));
                 
                 // Calculate the center of the original rect
                 var centerX = x + w / 2;
@@ -622,7 +582,6 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
                 
                 // Clear transform to prevent double-application in createRect
                 delete clone.attrs.transform;
-                console.log('[DEBUG RECT]   -> Full transform applied: center=(' + transformedCenterX.toFixed(2) + ',' + transformedCenterY.toFixed(2) + ') rotation=' + rotationDeg.toFixed(2) + '°');
             } else {
                 // Pure translation only - use simple translation
                 clone.attrs.x = (x + nodeT.x + inheritedTranslate.x).toString();
@@ -636,7 +595,6 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
                     clone.attrs.transform = clone.attrs.transform.replace(/translate\([^)]*\)\s*/g, '').trim();
                     if (clone.attrs.transform === '') delete clone.attrs.transform;
                 }
-                console.log('[DEBUG RECT]   -> Simple translation applied');
             }
         } else {
             // No transform at all
@@ -645,10 +603,8 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
             // Store the LOCAL center for gradient offset calculation
             clone.attrs._localCenterX = x + w / 2;
             clone.attrs._localCenterY = y + h / 2;
-            console.log('[DEBUG RECT]   -> No transform, position unchanged');
         }
         
-        console.log('[DEBUG RECT]   Final clone: x=' + clone.attrs.x + ', y=' + clone.attrs.y + ', w=' + clone.attrs.width + ', h=' + clone.attrs.height);
         
         var rid = createRect(clone, parentId, vb);
         _registerChild(parentId, rid);
@@ -734,7 +690,6 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
                     createMaskShapeForTarget(allMaskIds[mri], rid, parentId, vb, model, svgGeometry);
                 }
                 if (allMaskIds.length > 1) {
-                    console.log('[NESTED CLIP] Applied ' + allMaskIds.length + ' masks to rect: [' + allMaskIds.join(', ') + ']');
                 }
             }
         } catch (eMask) {  }
@@ -850,7 +805,6 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
                     createMaskShapeForTarget(allMaskIdsC[mci], cid, parentId, vb, model, svgGeometryC);
                 }
                 if (allMaskIdsC.length > 1) {
-                    console.log('[NESTED CLIP] Applied ' + allMaskIdsC.length + ' masks to circle: [' + allMaskIdsC.join(', ') + ']');
                 }
             }
         } catch (eMaskC) {  }
@@ -894,7 +848,6 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
             // Clear transform to prevent double-application in createEllipse
             delete cloneE.attrs.transform;
             
-            console.log('[DEBUG ELLIPSE] Matrix transform applied: local center (' + cx.toFixed(2) + ', ' + cy.toFixed(2) + ') -> world center (' + transformed.x.toFixed(2) + ', ' + transformed.y.toFixed(2) + ') scaleY=' + decomposedE.scaleY.toFixed(4));
         } else {
             // Use simple translation
             cloneE.attrs.cx = (cx + nodeT.x + inheritedTranslate.x).toString();
@@ -971,7 +924,6 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
                     createMaskShapeForTarget(allMaskIdsE[mei], eid, parentId, vb, model, svgGeometryE);
                 }
                 if (allMaskIdsE.length > 1) {
-                    console.log('[NESTED CLIP] Applied ' + allMaskIdsE.length + ' masks to ellipse: [' + allMaskIdsE.join(', ') + ']');
                 }
             }
         } catch (eMaskE) {  }
@@ -1014,7 +966,6 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
             var fullMatrixT = parseTransformMatrixList(node.attrs.transform);
             var decomposedT = decomposeMatrix(fullMatrixT);
             cloneT.attrs._scaleY = decomposedT.scaleY;
-            console.log('[DEBUG TEXT] Matrix transform applied: scaleY=' + decomposedT.scaleY.toFixed(2));
         } else if (!parentMatrix) {
             // Only apply simple translation if we didn't already apply parent matrix
             for (var k = 0; k < cloneT.tspans.length; k++) {
@@ -1291,7 +1242,6 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
             if (pathFillIdMatch) {
                 var pathFillId = pathFillIdMatch[1].toLowerCase();
                 if (pathFillId.indexOf('_diamond_') !== -1 || pathFillId.indexOf('_angular_') !== -1) {
-                    console.log('[GRADIENT HELPER] Skipping gradient simulation path: fill=' + pathFill);
                     return null;
                 }
             }
@@ -1574,10 +1524,6 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
         
         // Mask/Clip: apply ALL masks (nested clip intersection)
         try {
-            console.log('[DEBUG MASK PATH] Processing path "' + (node.attrs && node.attrs.id || node.name || 'unnamed') + '" (Cavalry ID: ' + vecId + ')');
-            console.log('[DEBUG MASK PATH]   node.attrs.mask: ' + (node.attrs && node.attrs.mask));
-            console.log('[DEBUG MASK PATH]   node.attrs.clip-path: ' + (node.attrs && node.attrs['clip-path']));
-            console.log('[DEBUG MASK PATH]   node.attrs._inheritedMaskIds: [' + ((node.attrs && node.attrs._inheritedMaskIds) || []).join(', ') + ']');
             
             // Build list of all masks to apply: inherited masks + own mask
             var allMaskIdsP = (node.attrs && node.attrs._inheritedMaskIds) ? node.attrs._inheritedMaskIds.slice() : [];
@@ -1593,20 +1539,16 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
             }
             
             // Apply all inherited masks - Clipping Masks naturally intersect
-            console.log('[DEBUG MASK PATH]   Masks to apply: [' + allMaskIdsP.join(', ') + ']');
             
             if (allMaskIdsP.length > 0) {
                 
                 for (var mpi = 0; mpi < allMaskIdsP.length; mpi++) {
-                    console.log('[DEBUG MASK PATH]   CALLING createMaskShapeForTarget for path with maskId: ' + allMaskIdsP[mpi]);
                     createMaskShapeForTarget(allMaskIdsP[mpi], vecId, parentId, vb, model, svgGeometryP);
                 }
                 
                 if (allMaskIdsP.length > 1) {
-                    console.log('[NESTED CLIP] Applied ' + allMaskIdsP.length + ' masks to path: [' + allMaskIdsP.join(', ') + ']');
             }
             } else {
-                console.log('[DEBUG MASK PATH]   No mask to apply for this path');
             }
         } catch (eMaskP) {
             console.error('[DEBUG MASK PATH] Error applying mask: ' + (eMaskP.message || eMaskP));

@@ -241,12 +241,10 @@ function replaceEmojisWithPlaceholder(text) {
     
     // Log what happened
     if (emojisDisabled && matches.length > 0) {
-        console.log('[Emoji Replace] Emojis disabled - removed ' + matches.length + ' emoji(s) from text');
     } else if (matches.length > 0) {
         var spacesBefore = matches.filter(function(m) { return m.needsSpaceBefore; }).length;
         var spacesAfter = matches.filter(function(m) { return m.needsSpaceAfter; }).length;
         if (spacesBefore > 0 || spacesAfter > 0) {
-            console.log('[Emoji Replace] Inserted ' + spacesBefore + ' space(s) before and ' + spacesAfter + ' space(s) after emojis to ensure standalone words');
         }
     }
     
@@ -408,7 +406,6 @@ function countVisualChars(text) {
 function getWordIndexForEmoji(textNodeName, originalIndex) {
     var data = __emojiIndexMaps[textNodeName];
     if (!data || !data.indexMap || !data.modifiedText) {
-        console.log('[Emoji Word] No data for "' + textNodeName + '"');
         return { wordIndex: -1 };
     }
     
@@ -416,7 +413,6 @@ function getWordIndexForEmoji(textNodeName, originalIndex) {
     var text = data.modifiedText;
     
     if (stringIndex === undefined) {
-        console.log('[Emoji Word] No mapping for original index ' + originalIndex);
         return { wordIndex: -1 };
     }
     
@@ -442,7 +438,6 @@ function getWordIndexForEmoji(textNodeName, originalIndex) {
             
             // Check if this is our target position
             if (i === stringIndex) {
-                console.log('[Emoji Word] Found emoji at wordIndex=' + wordIndex);
                 return { wordIndex: wordIndex };
             }
         }
@@ -461,7 +456,6 @@ function getWordIndexForEmoji(textNodeName, originalIndex) {
         }
     }
     
-    console.log('[Emoji Word] Position ' + stringIndex + ' not found in text');
     return { wordIndex: -1 };
 }
 
@@ -491,9 +485,6 @@ function setActualGlyphCount(textNodeName, actualGlyphCount) {
         // This accounts for ligatures automatically - no pattern matching needed!
         if (data.totalVisualChars > 0) {
             data.glyphScaleFactor = actualGlyphCount / data.totalVisualChars;
-            console.log('[Emoji Index] Calibration for "' + textNodeName.substring(0, 40) + '...": ' +
-                        'actualGlyphs=' + actualGlyphCount + ', totalVisualChars=' + data.totalVisualChars + 
-                        ', scaleFactor=' + data.glyphScaleFactor.toFixed(6));
         }
     }
 }
@@ -520,7 +511,6 @@ function setActualGlyphCount(textNodeName, actualGlyphCount) {
 function getAdjustedEmojiIndex(textNodeName, originalIndex) {
     var data = __emojiIndexMaps[textNodeName];
     if (!data) {
-        console.log('[Emoji Index] No data for "' + textNodeName + '", returning original: ' + originalIndex);
         return originalIndex;
     }
     
@@ -528,7 +518,6 @@ function getAdjustedEmojiIndex(textNodeName, originalIndex) {
     var modifiedText = data.modifiedText;
     
     if (!indexMap || !indexMap.hasOwnProperty(originalIndex)) {
-        console.log('[Emoji Index] No mapping for index ' + originalIndex + ', returning original');
         return originalIndex;
     }
     
@@ -536,7 +525,6 @@ function getAdjustedEmojiIndex(textNodeName, originalIndex) {
     var stringIndex = indexMap[originalIndex];
     
     if (!modifiedText) {
-        console.log('[Emoji Index] No modified text available, returning string index: ' + stringIndex);
         return stringIndex;
     }
     
@@ -586,20 +574,8 @@ function getAdjustedEmojiIndex(textNodeName, originalIndex) {
         // Scale proportionally based on actual glyph count
         // Round to nearest integer for the index
         glyphIndex = Math.round(visualIndex * data.glyphScaleFactor);
-        
-        // Debug output showing the calibrated calculation
-        console.log('[Emoji Index] Stats: stringLen=' + stringIndex + ', visualChars=' + visualIndex + 
-                    ', skipped=' + (stringIndex - visualIndex) + ' (spaces=' + spaceCount + ', newlines=' + newlineCount + ', zeroWidth=' + zeroWidthCount + ')' +
-                    ', scaleFactor=' + data.glyphScaleFactor.toFixed(4) + ', glyphIndex=' + glyphIndex);
-    } else {
-        // No calibration data - fall back to visual index
-        console.log('[Emoji Index] Stats: stringLen=' + stringIndex + ', visualChars=' + visualIndex + 
-                    ', skipped=' + (stringIndex - visualIndex) + ' (spaces=' + spaceCount + ', newlines=' + newlineCount + ', zeroWidth=' + zeroWidthCount + ')' +
-                    ' (no calibration, using visualIndex as glyphIndex)');
     }
     
-    console.log('[Emoji Index] Adjusted for "' + textNodeName.substring(0, 50) + '...": original=' + originalIndex + 
-                ', stringIndex=' + stringIndex + ', visualIndex=' + visualIndex + ', glyphIndex=' + glyphIndex);
     return glyphIndex;
 }
 
@@ -626,8 +602,6 @@ function createText(node, parentId, vb, inheritedScale) {
     var figmaTextData = null;
     try {
         var textNodeName = node.name || '';
-        console.log('[Quiver Text] createText called for: "' + textNodeName + '"');
-        console.log('[Quiver Text] getFigmaTextData function exists: ' + (typeof getFigmaTextData === 'function'));
         
         // Extract text content preview for disambiguation when multiple nodes have same name
         var textContentPreview = '';
@@ -645,22 +619,16 @@ function createText(node, parentId, vb, inheritedScale) {
                 x: node.tspans[0].x || 0,
                 y: node.tspans[0].y || 0
             };
-            console.log('[Quiver Text] SVG tspan position: (' + svgPosition.x.toFixed(1) + ', ' + svgPosition.y.toFixed(1) + ')');
         }
         
         if (typeof getFigmaTextData === 'function') {
             figmaTextData = getFigmaTextData(textNodeName, textContentPreview, svgPosition);
-            console.log('[Quiver Text] getFigmaTextData returned: ' + (figmaTextData ? 'found' : 'null'));
             if (figmaTextData) {
-                console.log('[Quiver Text] Found Figma data for "' + textNodeName + '": align=' + figmaTextData.textAlignHorizontal);
             } else {
-                console.log('[Quiver Text] No Figma data found for "' + textNodeName + '"');
             }
         } else {
-            console.log('[Quiver Text] getFigmaTextData function not available');
         }
     } catch (eFTD) {
-        console.log('[Quiver Text] Error looking up Figma data: ' + eFTD.message);
     }
     
     // ALWAYS use SVG tspan joining for text content - this preserves visual line breaks
@@ -700,7 +668,6 @@ function createText(node, parentId, vb, inheritedScale) {
     // Since we position based on the first VISIBLE tspan, leading empty lines shift text incorrectly
     combined = combined.replace(/^(\n)+/, '');
     
-    console.log('[Quiver Text] Combined text from tspans: ' + node.tspans.length + ' tspans, result has ' + combined.split('\n').length + ' lines');
     
     try { combined = decodeEntitiesForName(combined); } catch (eDecAll) {}
     var name = combined.split(/\s+/).slice(0,3).join(' ');
@@ -798,7 +765,6 @@ function createText(node, parentId, vb, inheritedScale) {
                 var sum = 0; 
                 for (var di = 0; di < diffs.length; di++) sum += diffs[di];
                 actualLineHeight = sum / diffs.length;
-                console.log('[Quiver Text] SVG tspan Y analysis: ' + diffs.length + ' line break(s), avg baseline-to-baseline = ' + actualLineHeight.toFixed(2) + 'px');
             }
         }
         
@@ -830,22 +796,18 @@ function createText(node, parentId, vb, inheritedScale) {
                     figmaLhInfo = ' (Figma: AUTO)';
                 }
             }
-            console.log('[Quiver Text] Line height: actual=' + actualLineHeight.toFixed(2) + 'px' + figmaLhInfo + ', Cavalry default ~' + cavalryDefaultLH.toFixed(2) + 'px (x' + cavalryDefaultMultiplier + ') -> offset ' + lineSpacingOffset.toFixed(2));
         } else if (figmaTextData && figmaTextData.lineHeight) {
             // Single line text or no measurable line breaks - use Figma data if available
             var lh = figmaTextData.lineHeight;
             if (lh.unit === 'AUTO') {
                 lineSpacingOffset = 0;
-                console.log('[Quiver Text] Line height: Figma AUTO (single line, using Cavalry default)');
             } else if (lh.unit === 'PIXELS' && typeof lh.value === 'number') {
                 var cavalryDefaultLH = fontSize * 1.29;
                 lineSpacingOffset = lh.value - cavalryDefaultLH;
-                console.log('[Quiver Text] Line height: Figma ' + lh.value + 'px, Cavalry default ~' + cavalryDefaultLH.toFixed(2) + 'px -> offset ' + lineSpacingOffset.toFixed(2));
             } else if (lh.unit === 'PERCENT' && typeof lh.value === 'number') {
                 var figmaLH = fontSize * (lh.value / 100);
                 var cavalryDefaultLH = fontSize * 1.29;
                 lineSpacingOffset = figmaLH - cavalryDefaultLH;
-                console.log('[Quiver Text] Line height: Figma ' + lh.value + '% = ' + figmaLH.toFixed(2) + 'px, Cavalry default ~' + cavalryDefaultLH.toFixed(2) + 'px -> offset ' + lineSpacingOffset.toFixed(2));
             }
         }
     } catch (eLS) { lineSpacingOffset = 0; }
@@ -899,8 +861,6 @@ function createText(node, parentId, vb, inheritedScale) {
         }
         // For left alignment (0), keep the SVG's X position (pos.x)
         
-        console.log('[Quiver Text] Position: SVG tspan(' + first.x.toFixed(1) + ',' + first.y.toFixed(1) + ') -> Cavalry(' + finalPosX.toFixed(1) + ',' + finalPosY.toFixed(1) + ')');
-        console.log('[Quiver Text] Alignment: H=' + horizontalAlignment + ' (0=Left,1=Center,2=Right) V=' + verticalAlignment + ' (3=Baseline)');
     }
     
     // Replace emoji characters with em-dash placeholders for Get Sub-Mesh Transform positioning
@@ -924,9 +884,7 @@ function createText(node, parentId, vb, inheritedScale) {
         }
         if (!emojisStrippedSimple) {
             var currentPlaceholder = (typeof emojiPlaceholder !== 'undefined' && emojiPlaceholder.length === 3) ? emojiPlaceholder : '[e]';
-            console.log('[Quiver Text] Replaced emojis with ' + currentPlaceholder + ' placeholders, index map: ' + JSON.stringify(emojiReplacement.indexMap));
         } else {
-            console.log('[Quiver Text] Stripped ' + emojiMatchesSimple.length + ' emoji(s) from text');
         }
     }
     
@@ -943,11 +901,6 @@ function createText(node, parentId, vb, inheritedScale) {
         "verticalAlignment": verticalAlignment
     };
     
-    console.log('[Quiver Text] Setting textSettings:');
-    console.log('  horizontalAlignment: ' + horizontalAlignment + ' (0=Left, 1=Center, 2=Right)');
-    console.log('  verticalAlignment: ' + verticalAlignment + ' (3=Baseline)');
-    console.log('  position: (' + finalPosX.toFixed(1) + ', ' + finalPosY.toFixed(1) + ')');
-    console.log('  fontSize: ' + fontSize);
     // Letter spacing - prefer Figma's letterSpacing data when available
     var letterSpacingRatio = null; // Track ratio for expression connection
     var lsNum = 0;
@@ -961,13 +914,11 @@ function createText(node, parentId, vb, inheritedScale) {
             lsNum = ls.value;
             letterSpacingRatio = lsNum / fontSize;
             figmaLetterSpacingUsed = true;
-            console.log('[Quiver Text] Letter spacing: Figma ' + ls.value + 'px -> ratio ' + letterSpacingRatio.toFixed(6));
         } else if (ls.unit === 'PERCENT') {
             // Percentage of font size (e.g., -3% = -0.03 * fontSize)
             letterSpacingRatio = ls.value / 100;
             lsNum = letterSpacingRatio * fontSize;
             figmaLetterSpacingUsed = true;
-            console.log('[Quiver Text] Letter spacing: Figma ' + ls.value + '% -> ' + lsNum.toFixed(2) + 'px, ratio ' + letterSpacingRatio.toFixed(6));
         }
     }
     
@@ -1013,9 +964,7 @@ function createText(node, parentId, vb, inheritedScale) {
     try {
         var appliedHAlign = api.get(id, 'horizontalAlignment');
         var appliedVAlign = api.get(id, 'verticalAlignment');
-        console.log('[Quiver Text] AFTER api.set - horizontalAlignment: ' + appliedHAlign + ', verticalAlignment: ' + appliedVAlign);
     } catch (eVerify) {
-        console.log('[Quiver Text] Could not verify alignment: ' + eVerify.message);
     }
 
     // Letter spacing is now set as a simple static value (not an expression)
@@ -1107,13 +1056,11 @@ function createTextFromFigmaData(figmaData, parentId, vb, inheritedScale, fills,
         inheritedScale = inheritedScale || {x: 1, y: 1};
         
         if (!figmaData || !figmaData.characters) {
-            console.log('[Styled Text] No characters in Figma data');
             return null;
         }
         
         // Skip if text import is disabled
         if (!importLiveTextEnabled) {
-            console.log('[Styled Text] Text import disabled');
             return null;
         }
         
@@ -1144,13 +1091,10 @@ function createTextFromFigmaData(figmaData, parentId, vb, inheritedScale, fills,
             };
             if (!emojisStripped) {
                 var currentPlaceholder = (typeof emojiPlaceholder !== 'undefined' && emojiPlaceholder.length === 3) ? emojiPlaceholder : '[e]';
-                console.log('[Styled Text] Replaced emojis with ' + currentPlaceholder + ' placeholders, index map: ' + JSON.stringify(emojiReplacement.indexMap));
             } else {
-                console.log('[Styled Text] Stripped ' + emojiMatches.length + ' emoji(s) from text');
             }
         }
         
-        console.log('[Styled Text] Creating text from Figma data: "' + characters.substring(0, 50) + '..."');
         
         // Create the text shape
         var id = api.create('textShape', name);
@@ -1241,9 +1185,7 @@ function createTextFromFigmaData(figmaData, parentId, vb, inheritedScale, fills,
                 var bY = (b.tspans && b.tspans.length > 0) ? b.tspans[0].y : 0;
                 return aY - bY; // Sort ascending (topmost Y = smallest value first)
             });
-            console.log('[Styled Text] Sorted ' + textChildrenArray.length + ' text children by Y position');
             if (textChildrenArray[0].tspans && textChildrenArray[0].tspans.length > 0) {
-                console.log('[Styled Text] Topmost line Y: ' + textChildrenArray[0].tspans[0].y);
             }
         }
         
@@ -1317,7 +1259,6 @@ function createTextFromFigmaData(figmaData, parentId, vb, inheritedScale, fills,
             if (dominantFont) {
                 fontFamily = dominantFont.fontFamily;
                 fontStyle = dominantFont.fontStyle;
-                console.log('[Styled Text] Dominant font: "' + fontFamily + ' ' + fontStyle + '" (' + maxCoverage + ' chars) - using as base to minimize Apply Typeface nodes');
             }
         }
         
@@ -1349,7 +1290,6 @@ function createTextFromFigmaData(figmaData, parentId, vb, inheritedScale, fills,
             autoHeight = true;
         }
         
-        console.log('[Styled Text] textAutoResize: ' + textAutoResize + ' -> autoWidth: ' + autoWidth + ', autoHeight: ' + autoHeight);
         
         // Set text properties
         var textSettings = {
@@ -1411,7 +1351,6 @@ function createTextFromFigmaData(figmaData, parentId, vb, inheritedScale, fills,
                     if (figmaData.lineHeight.unit === 'PERCENT') figmaLhInfo = ' (Figma: ' + figmaData.lineHeight.value + '%)';
                     else if (figmaData.lineHeight.unit === 'PIXELS') figmaLhInfo = ' (Figma: ' + figmaData.lineHeight.value + 'px)';
                 }
-                console.log('[Styled Text] lineHeight: SVG tspan=' + actualLineHeight.toFixed(2) + 'px' + figmaLhInfo + ', Cavalry default=' + cavalryDefaultLH.toFixed(2) + 'px -> lineSpacing: ' + lineSpacingOffset.toFixed(2));
             }
         }
         
@@ -1457,7 +1396,6 @@ function createTextFromFigmaData(figmaData, parentId, vb, inheritedScale, fills,
                         if (figmaData.lineHeight.unit === 'PERCENT') figmaLhInfo = ' (Figma: ' + figmaData.lineHeight.value + '%)';
                         else if (figmaData.lineHeight.unit === 'PIXELS') figmaLhInfo = ' (Figma: ' + figmaData.lineHeight.value + 'px)';
                     }
-                    console.log('[Styled Text] lineHeight: SVG text Y=' + actualLineHeight.toFixed(2) + 'px' + figmaLhInfo + ' (from ' + yPositions.length + ' text elements), Cavalry default=' + cavalryDefaultLH.toFixed(2) + 'px -> lineSpacing: ' + lineSpacingOffset.toFixed(2));
                 }
             }
         }
@@ -1468,14 +1406,11 @@ function createTextFromFigmaData(figmaData, parentId, vb, inheritedScale, fills,
                 var lineHeightPx = figmaData.lineHeight.value * scaleAvg;
                 var defaultLineHeight = fontSize * 1.29;
                 lineSpacingOffset = lineHeightPx - defaultLineHeight;
-                console.log('[Styled Text] lineHeight: ' + figmaData.lineHeight.value + 'px -> lineSpacing: ' + lineSpacingOffset.toFixed(2));
             } else if (figmaData.lineHeight.unit === 'PERCENT' && figmaData.lineHeight.value) {
                 var lineHeightPx = fontSize * (figmaData.lineHeight.value / 100);
                 var defaultLineHeight = fontSize * 1.29;
                 lineSpacingOffset = lineHeightPx - defaultLineHeight;
-                console.log('[Styled Text] lineHeight: ' + figmaData.lineHeight.value + '% (fallback) -> lineSpacing: ' + lineSpacingOffset.toFixed(2));
             } else {
-                console.log('[Styled Text] lineHeight: AUTO (using default)');
             }
         }
         
@@ -1489,24 +1424,13 @@ function createTextFromFigmaData(figmaData, parentId, vb, inheritedScale, fills,
         if (figmaData.letterSpacing) {
             if (figmaData.letterSpacing.unit === 'PIXELS' && figmaData.letterSpacing.value !== undefined) {
                 textSettings["letterSpacing"] = figmaData.letterSpacing.value * scaleAvg;
-                console.log('[Styled Text] letterSpacing: ' + figmaData.letterSpacing.value + 'px -> ' + textSettings["letterSpacing"].toFixed(2));
             } else if (figmaData.letterSpacing.unit === 'PERCENT' && figmaData.letterSpacing.value !== undefined) {
                 // Percent is relative to font size (e.g., 10% of 16px = 1.6px)
                 textSettings["letterSpacing"] = (fontSize * figmaData.letterSpacing.value / 100) * scaleAvg;
-                console.log('[Styled Text] letterSpacing: ' + figmaData.letterSpacing.value + '% -> ' + textSettings["letterSpacing"].toFixed(2));
             }
         }
         
-        console.log('[Styled Text] Setting textSettings:');
-        console.log('  Figma box: topLeft=(' + figmaX.toFixed(1) + ', ' + figmaY.toFixed(1) + ') size=' + figmaWidth.toFixed(1) + 'x' + figmaHeight.toFixed(1));
-        console.log('  Figma anchor: leftEdge X=' + figmaAnchorX.toFixed(1) + ', baseline Y=' + figmaBaselineY.toFixed(1) + ' (' + baselineSource + ')');
-        console.log('  Cavalry position: (' + cavalryX.toFixed(1) + ', ' + cavalryY.toFixed(1) + ')');
-        console.log('  fontSize: ' + fontSize);
-        console.log('  font: ' + fontFamily + ' / ' + fontStyle);
-        console.log('  alignment: h=' + horizontalAlignment + ' (text flow within box), v=3 (Baseline)');
-        console.log('  sizing: autoWidth=' + autoWidth + ', autoHeight=' + autoHeight);
         if (!autoWidth) {
-            console.log('  textBoxSize.x: ' + textBoxWidth.toFixed(1));
         }
         
         api.set(id, textSettings);
@@ -1517,7 +1441,6 @@ function createTextFromFigmaData(figmaData, parentId, vb, inheritedScale, fills,
         // Instead of creating one node per segment, we combine indices for segments with the same font
         // e.g., segments 0:40 and 773:821 with same font become one node with indices "0:40, 773:821"
         if (figmaData.styledSegments && figmaData.styledSegments.length > 1) {
-            console.log('[Styled Text] Processing ' + figmaData.styledSegments.length + ' styled segment(s)');
             
             // Build base font string for comparison
             var baseFontFull = fontFamily + ' ' + fontStyle;
@@ -1536,7 +1459,6 @@ function createTextFromFigmaData(figmaData, parentId, vb, inheritedScale, fills,
                 
                 // Skip segments that match the base font (no styling needed)
                 if (segFontFull === baseFontFull) {
-                    console.log('[Styled Text]   Segment ' + si + ': "' + segFontFull + '" matches base font, skipping');
                     continue;
                 }
                 
@@ -1550,7 +1472,6 @@ function createTextFromFigmaData(figmaData, parentId, vb, inheritedScale, fills,
                 var rangeStr = adjustedStart + ':' + (adjustedEnd - 1);
                 
                 if (emojiMatches.length > 0) {
-                    console.log('[Styled Text]   Segment ' + si + ' index adjustment: ' + seg.start + ':' + (seg.end - 1) + ' -> ' + rangeStr);
                 }
                 
                 // Add to font group
@@ -1562,12 +1483,10 @@ function createTextFromFigmaData(figmaData, parentId, vb, inheritedScale, fills,
                     };
                 }
                 fontGroups[segFontFull].ranges.push(rangeStr);
-                console.log('[Styled Text]   Segment ' + si + ': "' + segFontFull + '" range ' + rangeStr);
             }
             
             // Create one Apply Typeface node per unique font
             var fontKeys = Object.keys(fontGroups);
-            console.log('[Styled Text] Consolidated into ' + fontKeys.length + ' unique font style(s)');
             
             for (var fi = 0; fi < fontKeys.length; fi++) {
                 var fontKey = fontKeys[fi];
@@ -1577,7 +1496,6 @@ function createTextFromFigmaData(figmaData, parentId, vb, inheritedScale, fills,
                     // Create Apply Typeface node with a descriptive name
                     var styleName = group.fontStyle || 'Style';
                     var applyTypefaceId = api.create('applyTypeface', styleName);
-                    console.log('[Styled Text]   Created applyTypeface: ' + applyTypefaceId + ' for "' + fontKey + '"');
                     
                     // Combine all ranges with comma separator
                     // Cavalry API supports: "0:40, 773:821" for multiple ranges
@@ -1592,14 +1510,12 @@ function createTextFromFigmaData(figmaData, parentId, vb, inheritedScale, fills,
                         "indexMode": 2,  // Character level
                         "indices": indicesStr
                     });
-                    console.log('[Styled Text]   Set indices: "' + indicesStr + '"');
                     
                     // Set font separately (font.font and font.style)
                     api.set(applyTypefaceId, {
                         "font.font": group.fontFamily,
                         "font.style": group.fontStyle
                     });
-                    console.log('[Styled Text]   Set font: ' + group.fontFamily + ' ' + group.fontStyle);
                     
                     // Connect Apply Typeface to the text shape's styleBehaviours
                     api.connect(applyTypefaceId, 'id', id, 'styleBehaviours');
@@ -1607,9 +1523,7 @@ function createTextFromFigmaData(figmaData, parentId, vb, inheritedScale, fills,
                     // Parent Apply Typeface under the text shape for clean hierarchy
                     api.parent(applyTypefaceId, id);
                     
-                    console.log('[Styled Text]   ✓ ' + fontKey + ': indices="' + indicesStr + '" (' + group.ranges.length + ' range(s))');
                 } catch (eApply) {
-                    console.log('[Styled Text]   Failed to apply typeface for "' + fontKey + '": ' + String(eApply));
                 }
             }
         }
@@ -1620,7 +1534,6 @@ function createTextFromFigmaData(figmaData, parentId, vb, inheritedScale, fills,
         // SVG rendering order: first element is at BOTTOM, later elements are on TOP
         fills = fills || [];
         if (fills.length > 0) {
-            console.log('[Styled Text] Applying ' + fills.length + ' fill(s) from SVG');
             
             // Extract _scaleY from svgTextChildren for gradient flip detection
             // Text nodes can have matrix transforms with Y-flips that affect gradient direction
@@ -1665,15 +1578,11 @@ function createTextFromFigmaData(figmaData, parentId, vb, inheritedScale, fills,
                                 // For text, we need to pass fill opacity to shader and scaleY for flip detection
                                 var connectedOk = connectShaderToShape(gradShader, id, null, fillOpacity, textScaleY);
                                 if (connectedOk) {
-                                    console.log('[Styled Text]   Fill ' + fi + ': ' + fillColor + ' (gradient shader connected, scaleY=' + textScaleY + ')');
                                 } else {
-                                    console.log('[Styled Text]   Fill ' + fi + ': ' + fillColor + ' (gradient shader failed to connect)');
                                 }
                             } else {
-                                console.log('[Styled Text]   Fill ' + fi + ': ' + fillColor + ' (gradient not found: ' + gradientId + ')');
                             }
                         } catch (eGrad) {
-                            console.log('[Styled Text]   Failed to connect gradient ' + gradientId + ': ' + String(eGrad));
                         }
                     } else {
                         // Parse hex color to RGB components
@@ -1706,18 +1615,15 @@ function createTextFromFigmaData(figmaData, parentId, vb, inheritedScale, fills,
                             // Parent under the text shape
                             api.parent(shaderId, id);
                             
-                            console.log('[Styled Text]   Fill ' + fi + ': ' + fillColor + ' (colorShader - stacking mode)');
                         } else {
                             // Single fill: set on material directly
                             api.set(id, {"material.materialColor": fillColor});
                             if (fillOpacity < 1) {
                                 api.set(id, {"material.alpha": fillOpacity * 100});
                             }
-                            console.log('[Styled Text]   Fill ' + fi + ': ' + fillColor + ' (material)');
                         }
                     }
                 } catch (eFillShader) {
-                    console.log('[Styled Text]   Failed to apply fill ' + fi + ': ' + String(eFillShader));
                 }
             }
         } else {
@@ -1744,7 +1650,6 @@ function createTextFromFigmaData(figmaData, parentId, vb, inheritedScale, fills,
         return id;
         
     } catch (e) {
-        console.log('[Styled Text] Error creating text from Figma data: ' + e.message);
         return null;
     }
 }

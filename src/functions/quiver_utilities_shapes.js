@@ -84,9 +84,7 @@ function createRect(node, parentId, vb) {
         var cavalryRotation = -node.attrs._rotationDeg;
         try {
             api.set(id, { "rotation": cavalryRotation });
-            console.log('[Quiver] Applied rotation ' + cavalryRotation.toFixed(2) + '° to rect "' + name + '"');
         } catch (eRot) {
-            console.log('[Quiver] Could not apply rotation: ' + eRot.message);
         }
     }
 
@@ -165,7 +163,6 @@ function createEllipse(node, parentId, vb) {
     try {
         if (node.attrs._rotationDeg !== undefined && Math.abs(node.attrs._rotationDeg) > 0.0001) {
             api.set(id, {"rotation": -node.attrs._rotationDeg});
-            console.log('[Quiver] Applied rotation ' + Math.abs(node.attrs._rotationDeg).toFixed(2) + '° to ellipse "' + name + '"');
         }
     } catch (eRotE) {}
     

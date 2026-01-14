@@ -136,11 +136,9 @@ function checkForUpdate(githubRepo, scriptName, currentVersion, callback) {
                 if (callback) callback(false);
             }
         } else {
-            console.log("Version check: Unable to fetch versions.json (HTTP " + client.status() + ")");
             if (callback) callback(false);
         }
     } catch (e) {
-        console.log("Version check: Error - " + e.message);
         if (callback) callback(false);
     }
 }
@@ -1123,6 +1121,11 @@ function _mapAttributeToBasicShape(attrId) {
     if (attrId && attrId.indexOf('stroke.colorShaders') === 0 && attrId.indexOf('.shader') > 0) {
         return 'stroke.colorShaders';
     }
+    // Map masks.X to masks (for mask connections)
+    // Connect maskShape.id to masks directly (not indexed)
+    if (attrId && attrId.indexOf('masks.') === 0 && /^masks\.\d+$/.test(attrId)) {
+        return 'masks';
+    }
     // Return original if no mapping needed
     return attrId;
 }
@@ -1145,21 +1148,19 @@ function _transferConnections(fromId, toId) {
     // BUT shader connections (material.colorShaders.X.shader) MUST be reconnected
     try {
         var inAttrs = api.getInConnectedAttributes(fromId);
-        console.log('[Convert] Found ' + (inAttrs ? inAttrs.length : 0) + ' incoming connection(s)');
         if (inAttrs && inAttrs.length > 0) {
             for (var i = 0; i < inAttrs.length; i++) {
                 var attrId = inAttrs[i];
                 
-                // Skip filter indexed attributes (like "filters.0") - filters work by parenting
-                // But DON'T skip shader connections - they MUST be connected to work
-                if (attrId && attrId.indexOf('filters.') === 0 && /\.\d+$/.test(attrId)) {
-                    console.log('[Convert] Skipping filter indexed attr (children reparented): ' + attrId);
+                // Skip filter, mask, and materialBehaviours indexed attributes
+                // Filters work by parenting, masks are external shapes that need special handling,
+                // materialBehaviours are internal systems
+                if (attrId && (attrId.indexOf('filters.') === 0 || attrId.indexOf('masks.') === 0 || attrId.indexOf('materialBehaviours.') === 0) && /\.\d+$/.test(attrId)) {
                     continue;
                 }
                 
                 try {
                     var inConn = api.getInConnection(fromId, attrId);
-                    console.log('[Convert] Incoming: ' + attrId + ' <- ' + inConn);
                     if (inConn && inConn.length > 0) {
                         // inConn format is "layerId.attrId" - parse it
                         // Layer IDs are like "colorShader#123" (contain #, no dots)
@@ -1171,47 +1172,19 @@ function _transferConnections(fromId, toId) {
                             var sourceAttrId = inConn.substring(firstDotIndex + 1);
                             // Map the destination attribute to basicShape format
                             var mappedAttrId = _mapAttributeToBasicShape(attrId);
-                            console.log('[Convert] Parsed: sourceLayer=' + sourceLayerId + ', sourceAttr=' + sourceAttrId + ', destAttr=' + attrId + (mappedAttrId !== attrId ? ' -> mapped to: ' + mappedAttrId : ''));
                             // Connect the source to the new layer's mapped attribute
                             try {
                                 api.connect(sourceLayerId, sourceAttrId, toId, mappedAttrId, true);
-                                console.log('[Convert] ✓ Connected ' + sourceLayerId + '.' + sourceAttrId + ' -> ' + toId + '.' + mappedAttrId);
                                 transferred++;
-                                
-                                // VERIFY: Check if connection actually exists now
-                                try {
-                                    var verifyConn = api.getInConnection(toId, mappedAttrId);
-                                    console.log('[Convert] VERIFY: ' + toId + '.' + mappedAttrId + ' input = ' + (verifyConn || '(empty)'));
-                                } catch (eVerify) {
-                                    console.log('[Convert] VERIFY failed: ' + (eVerify.message || eVerify));
-                                }
-                                
-                                // Also check what material.colorShaders contains
-                                try {
-                                    var colorShaders = api.get(toId, 'material.colorShaders');
-                                    console.log('[Convert] material.colorShaders value: ' + JSON.stringify(colorShaders));
-                                } catch (eGetShaders) {
-                                    console.log('[Convert] Could not get material.colorShaders: ' + (eGetShaders.message || eGetShaders));
-                                }
-                                
-                                // Check if shape has fill enabled
-                                try {
-                                    var hasFill = api.hasFill(toId);
-                                    console.log('[Convert] Shape hasFill: ' + hasFill);
-                                } catch (eHasFill) {}
-                                
                             } catch (eConnect) {
-                                console.log('[Convert] ✗ Failed to connect: ' + (eConnect.message || eConnect));
                             }
                         }
                     }
                 } catch (eIn) {
-                    console.log('[Convert] Error getting incoming connection: ' + (eIn.message || eIn));
                 }
             }
         }
     } catch (eInAttrs) {
-        console.log('[Convert] Error getting incoming attrs: ' + (eInAttrs.message || eInAttrs));
     }
     
     // Transfer outgoing connections
@@ -1220,7 +1193,6 @@ function _transferConnections(fromId, toId) {
     // - basicShape may not have the same indexed structure
     try {
         var outAttrs = api.getOutConnectedAttributes(fromId);
-        console.log('[Convert] Found ' + (outAttrs ? outAttrs.length : 0) + ' outgoing connection(s)');
         if (outAttrs && outAttrs.length > 0) {
             for (var j = 0; j < outAttrs.length; j++) {
                 var outAttrId = outAttrs[j];
@@ -1228,7 +1200,6 @@ function _transferConnections(fromId, toId) {
                 // Skip indexed attributes (like "filters.0", "material.colorShaders.0")
                 // These are child layer references that were already reparented
                 if (outAttrId && /\.\d+$/.test(outAttrId)) {
-                    console.log('[Convert] Skipping indexed attr (children reparented): ' + outAttrId);
                     continue;
                 }
                 
@@ -1237,7 +1208,6 @@ function _transferConnections(fromId, toId) {
                     if (outConns && outConns.length > 0) {
                         for (var k = 0; k < outConns.length; k++) {
                             var outConn = outConns[k];
-                            console.log('[Convert] Outgoing: ' + outAttrId + ' -> ' + outConn);
                             // outConn format is "layerId.attrId"
                             // Layer IDs are like "basicShape#123" (contain #, no dots)
                             // Attr IDs can be like "id" or "material.alpha"
@@ -1245,25 +1215,20 @@ function _transferConnections(fromId, toId) {
                             if (outFirstDotIndex > 0) {
                                 var destLayerId = outConn.substring(0, outFirstDotIndex);
                                 var destAttrId = outConn.substring(outFirstDotIndex + 1);
-                                console.log('[Convert] Parsed: sourceAttr=' + outAttrId + ', destLayer=' + destLayerId + ', destAttr=' + destAttrId);
                                 // Connect the new layer's same attribute to the destination
                                 try {
                                     api.connect(toId, outAttrId, destLayerId, destAttrId, true);
-                                    console.log('[Convert] ✓ Connected ' + toId + '.' + outAttrId + ' -> ' + destLayerId + '.' + destAttrId);
                                     transferred++;
                                 } catch (eConnectOut) {
-                                    console.log('[Convert] ✗ Failed to connect outgoing: ' + (eConnectOut.message || eConnectOut));
                                 }
                             }
                         }
                     }
                 } catch (eOut) {
-                    console.log('[Convert] Error getting outgoing connection: ' + (eOut.message || eOut));
                 }
             }
         }
     } catch (eOutAttrs) {
-        console.log('[Convert] Error getting outgoing attrs: ' + (eOutAttrs.message || eOutAttrs));
     }
     
     return transferred;
@@ -1309,7 +1274,6 @@ function convertSelectionToRect(keepOriginalHidden) {
             // Cavalry API: api.parent(layerId, newParentId) assigns new parent
             try {
                 var children = api.getChildren(layerId);
-                console.log('[Convert] Found ' + (children ? children.length : 0) + ' children to reparent');
                 if (children && children.length > 0) {
                     for (var c = 0; c < children.length; c++) {
                         var childId = children[c];
@@ -1319,25 +1283,11 @@ function convertSelectionToRect(keepOriginalHidden) {
                         try { childType = api.getNodeType(childId); } catch (e) { childType = 'unknown'; }
                         try {
                             api.parent(childId, newId);
-                            console.log('[Convert] ✓ Reparented child: ' + childName + ' (type: ' + childType + ', id: ' + childId + ')');
                         } catch (eReparent) {
-                            console.log('[Convert] ✗ Failed to reparent: ' + childName + ' - ' + (eReparent.message || eReparent));
                         }
                     }
                 }
-                // Verify new shape's children after reparenting
-                try {
-                    var newChildren = api.getChildren(newId);
-                    console.log('[Convert] New shape now has ' + (newChildren ? newChildren.length : 0) + ' children');
-                    if (newChildren && newChildren.length > 0) {
-                        for (var nc = 0; nc < newChildren.length; nc++) {
-                            var ncName = ''; try { ncName = api.getNiceName(newChildren[nc]); } catch(e) { ncName = newChildren[nc]; }
-                            console.log('[Convert]   - Child: ' + ncName + ' (' + newChildren[nc] + ')');
-                        }
-                    }
-                } catch (eNewChildren) {}
             } catch (eChildren) {
-                console.log('[Convert] Error getting children: ' + (eChildren.message || eChildren));
             }
             
             // SECOND: Transfer all incoming and outgoing connections to the new shape
@@ -1345,6 +1295,32 @@ function convertSelectionToRect(keepOriginalHidden) {
             try {
                 connectionsTransferred += _transferConnections(layerId, newId);
             } catch (eTransfer) {}
+            
+            // THIRD: Transfer mask connections (masks are external shapes, need special handling)
+            // Get masks connected to original shape and reconnect them to new shape
+            try {
+                var inAttrs = api.getInConnectedAttributes(layerId);
+                if (inAttrs && inAttrs.length > 0) {
+                    for (var m = 0; m < inAttrs.length; m++) {
+                        var mAttr = inAttrs[m];
+                        if (mAttr && mAttr.indexOf('masks.') === 0 && /^masks\.\d+$/.test(mAttr)) {
+                            try {
+                                var maskConn = api.getInConnection(layerId, mAttr);
+                                if (maskConn && maskConn.length > 0) {
+                                    // maskConn format is "maskShape#123.id"
+                                    var dotIdx = maskConn.indexOf('.');
+                                    if (dotIdx > 0) {
+                                        var maskShapeId = maskConn.substring(0, dotIdx);
+                                        // Connect mask to new shape
+                                        api.connect(maskShapeId, 'id', newId, 'masks');
+                                        connectionsTransferred++;
+                                    }
+                                }
+                            } catch (eMaskConn) {}
+                        }
+                    }
+                }
+            } catch (eMasks) {}
             
             try {
                 if (keepOriginalHidden) { api.set(layerId, { 'hidden': true }); }
@@ -1824,9 +1800,7 @@ function connectShaderToShape(shaderId, shapeId, svgShapeCenter, fillAlpha, shap
             var shaderAlphaPct = Math.round(fillAlpha * 100);
             try {
                 api.set(shaderId, {'alpha': shaderAlphaPct});
-                console.log('[GRADIENT] Set shader alpha to ' + shaderAlphaPct + '% (from fill-opacity)');
             } catch (eShaderAlpha) {
-                console.log('[GRADIENT] Could not set shader alpha: ' + eShaderAlpha.message);
             }
         }
 
@@ -1868,11 +1842,9 @@ function connectShaderToShape(shaderId, shapeId, svgShapeCenter, fillAlpha, shap
                         // Use provided SVG center (preferred - accurate)
                         shapeSvgCenterX = svgShapeCenter.x;
                         shapeSvgCenterY = svgShapeCenter.y;
-                        console.log('[RADIAL GRADIENT] Using provided SVG center: (' + shapeSvgCenterX + ', ' + shapeSvgCenterY + ')');
                     } else {
                         // Fallback for paths: use Cavalry bounding box and reverse-convert to SVG
                         // We need the viewBox to do proper conversion, so just log and skip offset
-                        console.log('[RADIAL GRADIENT] No SVG center provided (likely a path) - skipping offset calculation');
                     }
                     
                     // Only calculate offset if we have a valid SVG center
@@ -1886,17 +1858,12 @@ function connectShaderToShape(shaderId, shapeId, svgShapeCenter, fillAlpha, shap
                         var relativeOffsetX = offsetSvgX;
                         var relativeOffsetY = -offsetSvgY; // Invert Y for SVG->Cavalry conversion
                         
-                        console.log('[RADIAL GRADIENT] Gradient SVG center: (' + absX + ', ' + absY + ')');
-                        console.log('[RADIAL GRADIENT] Shape SVG center: (' + shapeSvgCenterX + ', ' + shapeSvgCenterY + ')');
-                        console.log('[RADIAL GRADIENT] Offset SVG: (' + offsetSvgX + ', ' + offsetSvgY + ')');
-                        console.log('[RADIAL GRADIENT] Offset Cavalry: (' + relativeOffsetX + ', ' + relativeOffsetY + ')');
                         
                         // Update the gradient's offset
                         try {
                             // Validate the offset values before setting
                             if (!isNaN(relativeOffsetX) && !isNaN(relativeOffsetY)) {
                                 api.set(shaderId, {"generator.offset.x": relativeOffsetX, "generator.offset.y": relativeOffsetY});
-                                console.log('[RADIAL GRADIENT] Set generator.offset: (' + relativeOffsetX + ', ' + relativeOffsetY + ')');
                             }
                         } catch (eOffset) {
                             console.warn('[RADIAL GRADIENT] Could not set offset: ' + eOffset.message);
@@ -1939,10 +1906,6 @@ function connectShaderToShape(shaderId, shapeId, svgShapeCenter, fillAlpha, shap
                     var isAbsoluteCoords = (Math.abs(a) > 2 || Math.abs(b) > 2 || Math.abs(c) > 2 || Math.abs(d) > 2 ||
                                             Math.abs(e) > 2 || Math.abs(f) > 2);
                     
-                    console.log('[RADIAL GRADIENT] Computing scale from transform:');
-                    console.log('  Matrix: a=' + a.toFixed(2) + ', b=' + b.toFixed(2) + ', c=' + c.toFixed(2) + ', d=' + d.toFixed(2));
-                    console.log('  Shape dimensions: ' + shapeWidth.toFixed(2) + ' x ' + shapeHeight.toFixed(2));
-                    console.log('  Coordinate space: ' + (isAbsoluteCoords ? 'userSpaceOnUse' : 'objectBoundingBox'));
                     
                     if (isAbsoluteCoords && gradientDataRR.gradientUnits === 'userSpaceOnUse') {
                         // For userSpaceOnUse: use matrix column lengths for x/y scale
@@ -1951,7 +1914,6 @@ function connectShaderToShape(shaderId, shapeId, svgShapeCenter, fillAlpha, shap
                         var colXLength = Math.sqrt(a * a + b * b);  // Length of column 1
                         var colYLength = Math.sqrt(c * c + d * d);  // Length of column 2
                         
-                        console.log('  Matrix column lengths: colX=' + colXLength.toFixed(2) + 'px, colY=' + colYLength.toFixed(2) + 'px');
                         
                         // Calculate scale based on shape's half-dimensions
                         // In Cavalry, 100% scale means the gradient fills the bounding box
@@ -1964,19 +1926,15 @@ function connectShaderToShape(shaderId, shapeId, svgShapeCenter, fillAlpha, shap
                         var scaleX = (colXLength / shapeRadiusX) * 100;
                         var scaleY = (colYLength / shapeRadiusY) * 100;
                         
-                        console.log('  Shape half-dimensions: ' + shapeRadiusX.toFixed(2) + ' x ' + shapeRadiusY.toFixed(2));
-                        console.log('  Calculated scale: x=' + scaleX.toFixed(1) + '%, y=' + scaleY.toFixed(1) + '%');
                         
                         // Set radiusRatio to 1 (ellipse shape comes from scale.x/y)
                         try {
                             api.set(shaderId, {"generator.radiusRatio": 1});
-                            console.log('[RADIAL GRADIENT] Set radiusRatio: 1 (using scale.x/y for ellipse)');
                         } catch (eRR) {}
                         
                         // Set scale values
                         try {
                             api.set(shaderId, {"generator.scale.x": scaleX, "generator.scale.y": scaleY});
-                            console.log('[RADIAL GRADIENT] Set generator.scale: (' + scaleX.toFixed(1) + ', ' + scaleY.toFixed(1) + ')');
                         } catch (eScale) {
                             console.warn('[RADIAL GRADIENT] Could not set scale: ' + eScale.message);
                         }
@@ -1988,7 +1946,6 @@ function connectShaderToShape(shaderId, shapeId, svgShapeCenter, fillAlpha, shap
                             var rotationRad = Math.atan2(b, a);
                             var rotationDeg = -rotationRad * 180 / Math.PI;
                             api.set(shaderId, {"generator.rotation": rotationDeg});
-                            console.log('[RADIAL GRADIENT] Set generator.rotation: ' + rotationDeg.toFixed(1) + '°');
                         } catch (eRot) {
                             console.warn('[RADIAL GRADIENT] Could not set rotation: ' + eRot.message);
                         }
@@ -2009,7 +1966,6 @@ function connectShaderToShape(shaderId, shapeId, svgShapeCenter, fillAlpha, shap
                         var dist1 = Math.sqrt(dx1 * dx1 + dy1 * dy1);
                         var dist2 = Math.sqrt(dx2 * dx2 + dy2 * dy2);
                         
-                        console.log('  Handle distances: dist1=' + dist1.toFixed(2) + 'px, dist2=' + dist2.toFixed(2) + 'px');
                         
                         var radiusRatioNew = 1;
                         if (dist1 > 0.0001 && dist2 > 0.0001) {
@@ -2018,7 +1974,6 @@ function connectShaderToShape(shaderId, shapeId, svgShapeCenter, fillAlpha, shap
                         radiusRatioNew = Math.max(0.01, Math.min(100, radiusRatioNew));
                         
                         api.set(shaderId, {"generator.radiusRatio": radiusRatioNew});
-                        console.log('[RADIAL GRADIENT] Set radiusRatio: ' + radiusRatioNew.toFixed(4) + ' (objectBoundingBox)');
                     }
                 }
             }
@@ -2061,12 +2016,6 @@ function connectShaderToShape(shaderId, shapeId, svgShapeCenter, fillAlpha, shap
                     var gradCenterX = (x1 + x2) / 2;
                     var gradCenterY = (y1 + y2) / 2;
                     
-                    console.log('[LINEAR GRADIENT] Computing properties:');
-                    console.log('  Start: (' + x1.toFixed(2) + ', ' + y1.toFixed(2) + ')');
-                    console.log('  End: (' + x2.toFixed(2) + ', ' + y2.toFixed(2) + ')');
-                    console.log('  Gradient length: ' + gradientLength.toFixed(2) + 'px');
-                    console.log('  Gradient center: (' + gradCenterX.toFixed(2) + ', ' + gradCenterY.toFixed(2) + ')');
-                    console.log('  Shape dimensions: ' + shapeWidthL.toFixed(2) + ' x ' + shapeHeightL.toFixed(2));
                     
                     // Calculate offset - try to get shape SVG center, or estimate from gradient center
                     var shapeSvgCenterXL = null;
@@ -2076,7 +2025,6 @@ function connectShaderToShape(shaderId, shapeId, svgShapeCenter, fillAlpha, shap
                         // Use provided SVG center
                         shapeSvgCenterXL = svgShapeCenter.x;
                         shapeSvgCenterYL = svgShapeCenter.y;
-                        console.log('  Shape SVG center (provided): (' + shapeSvgCenterXL.toFixed(2) + ', ' + shapeSvgCenterYL.toFixed(2) + ')');
                     } else {
                         // Use world-space bounding box to get actual geometric center
                         // This works for text (baseline anchor) and any other non-centered pivots
@@ -2103,14 +2051,9 @@ function connectShaderToShape(shaderId, shapeId, svgShapeCenter, fillAlpha, shap
                                 shapeSvgCenterXL = (viewBoxWidth / 2) + worldCenterX;
                                 shapeSvgCenterYL = (viewBoxHeight / 2) - worldCenterY;
                                 
-                                console.log('  Shape world bbox: x=' + shapeBboxWorld.x.toFixed(1) + ', y=' + shapeBboxWorld.y.toFixed(1) + ', w=' + shapeBboxWorld.width.toFixed(1) + ', h=' + shapeBboxWorld.height.toFixed(1));
-                                console.log('  Shape world center: (' + worldCenterX.toFixed(2) + ', ' + worldCenterY.toFixed(2) + ')');
-                                console.log('  Shape SVG center (from world bbox): (' + shapeSvgCenterXL.toFixed(2) + ', ' + shapeSvgCenterYL.toFixed(2) + ')');
                             } else {
-                                console.log('  Could not get valid world bounding box');
                             }
                         } catch (eEstimate) {
-                            console.log('  Could not estimate shape SVG center: ' + eEstimate.message);
                         }
                     }
                     
@@ -2126,12 +2069,9 @@ function connectShaderToShape(shaderId, shapeId, svgShapeCenter, fillAlpha, shap
                         var offsetCavXL = offsetSvgXL;
                         var offsetCavYL = isFlippedY ? offsetSvgYL : -offsetSvgYL;
                         
-                        console.log('  Offset (SVG): (' + offsetSvgXL.toFixed(2) + ', ' + offsetSvgYL.toFixed(2) + ')');
-                        console.log('  Offset (Cavalry): (' + offsetCavXL.toFixed(2) + ', ' + offsetCavYL.toFixed(2) + ')' + (isFlippedY ? ' [Y-flip adjusted]' : ''));
                         
                         try {
                             api.set(shaderId, {"generator.offset.x": offsetCavXL, "generator.offset.y": offsetCavYL});
-                            console.log('[LINEAR GRADIENT] Set generator.offset: (' + offsetCavXL.toFixed(1) + ', ' + offsetCavYL.toFixed(1) + ')');
                         } catch (eOffL) {
                             console.warn('[LINEAR GRADIENT] Could not set offset: ' + eOffL.message);
                         }
@@ -2150,13 +2090,9 @@ function connectShaderToShape(shaderId, shapeId, svgShapeCenter, fillAlpha, shap
                     
                     var angleDeg = angleRad * 180 / Math.PI;
                     
-                    console.log('  Gradient angle: ' + angleDeg.toFixed(2) + '°');
-                    console.log('  Shape reference dimension: ' + shapeReference.toFixed(2) + 'px');
-                    console.log('  Calculated scale: ' + scaleL.toFixed(4));
                     
                     try {
                         api.set(shaderId, {"generator.scale": scaleL});
-                        console.log('[LINEAR GRADIENT] Set generator.scale: ' + scaleL.toFixed(4));
                     } catch (eScaleL) {
                         console.warn('[LINEAR GRADIENT] Could not set scale: ' + eScaleL.message);
                     }
@@ -2192,8 +2128,6 @@ function connectShaderToShape(shaderId, shapeId, svgShapeCenter, fillAlpha, shap
                             
                             if (Math.abs(newRotation - currentRotation) > 0.01) {
                                 api.set(shaderId, {"generator.rotation": newRotation});
-                                console.log('[LINEAR GRADIENT] Y-flip compensation: rotation ' + 
-                                            currentRotation.toFixed(1) + '° → ' + newRotation.toFixed(1) + '° (negated)');
                             }
                         } catch (eRotL) {
                             console.warn('[LINEAR GRADIENT] Could not set rotation: ' + eRotL.message);
@@ -2261,10 +2195,6 @@ function connectShaderToStroke(shaderId, shapeId, svgShapeCenter) {
                     var gradCenterX = (x1 + x2) / 2;
                     var gradCenterY = (y1 + y2) / 2;
                     
-                    console.log('[LINEAR GRADIENT STROKE] Computing properties:');
-                    console.log('  Gradient: (' + x1.toFixed(1) + ',' + y1.toFixed(1) + ') to (' + x2.toFixed(1) + ',' + y2.toFixed(1) + ')');
-                    console.log('  Gradient length: ' + gradientLength.toFixed(2) + 'px');
-                    console.log('  Shape dimensions: ' + shapeWidthL.toFixed(2) + ' x ' + shapeHeightL.toFixed(2));
                     
                     // Calculate offset
                     var shapeSvgCenterXL = null;
@@ -2284,7 +2214,6 @@ function connectShaderToStroke(shaderId, shapeId, svgShapeCenter) {
                                 var worldCenterYS = shapeBboxWorldS.y + shapeBboxWorldS.height / 2;
                                 shapeSvgCenterXL = (viewBoxWidth / 2) + worldCenterXS;
                                 shapeSvgCenterYL = (viewBoxHeight / 2) - worldCenterYS;
-                                console.log('  Shape SVG center (from world bbox): (' + shapeSvgCenterXL.toFixed(2) + ', ' + shapeSvgCenterYL.toFixed(2) + ')');
                             }
                         } catch (eEstimate) {}
                     }
@@ -2297,7 +2226,6 @@ function connectShaderToStroke(shaderId, shapeId, svgShapeCenter) {
                         
                         try {
                             api.set(shaderId, {"generator.offset.x": offsetCavXL, "generator.offset.y": offsetCavYL});
-                            console.log('[LINEAR GRADIENT STROKE] Set offset: (' + offsetCavXL.toFixed(1) + ', ' + offsetCavYL.toFixed(1) + ')');
                         } catch (eOffL) {}
                     }
                     
@@ -2306,12 +2234,9 @@ function connectShaderToStroke(shaderId, shapeId, svgShapeCenter) {
                     var shapeReference = Math.max(shapeWidthL, shapeHeightL);
                     var scaleL = (gradientLength / shapeReference);
                     
-                    console.log('  Shape reference dimension: ' + shapeReference.toFixed(2) + 'px');
-                    console.log('  Calculated scale: ' + scaleL.toFixed(4));
                     
                     try {
                         api.set(shaderId, {"generator.scale": scaleL});
-                        console.log('[LINEAR GRADIENT STROKE] Set scale: ' + scaleL.toFixed(4));
                     } catch (eScaleL) {}
                 }
             }
@@ -2334,7 +2259,6 @@ function connectShaderToStroke(shaderId, shapeId, svgShapeCenter) {
             }
             
             if (gradientDataR && gradientDataR.type === 'radial' && gradientDataR.transform) {
-                console.log('[RADIAL GRADIENT STROKE] Computing properties for ' + foundGidR);
                 
                 var shapeBboxR = api.getBoundingBox(shapeId, false);
                 if (shapeBboxR && shapeBboxR.width > 0 && shapeBboxR.height > 0) {
@@ -2350,16 +2274,12 @@ function connectShaderToStroke(shaderId, shapeId, svgShapeCenter) {
                     var isAbsoluteCoordsR = (Math.abs(aR) > 2 || Math.abs(bR) > 2 || Math.abs(cR) > 2 || Math.abs(dR) > 2 ||
                                             Math.abs(eR) > 2 || Math.abs(fR) > 2);
                     
-                    console.log('[RADIAL GRADIENT STROKE] Computing scale from transform:');
-                    console.log('  Matrix: a=' + aR.toFixed(2) + ', b=' + bR.toFixed(2) + ', c=' + cR.toFixed(2) + ', d=' + dR.toFixed(2));
-                    console.log('  Shape dimensions: ' + shapeWidthR.toFixed(2) + ' x ' + shapeHeightR.toFixed(2));
                     
                     if (isAbsoluteCoordsR && gradientDataR.gradientUnits === 'userSpaceOnUse') {
                         // Calculate column lengths (these represent the radii in the transformed space)
                         var colXLengthR = Math.sqrt(aR * aR + bR * bR);
                         var colYLengthR = Math.sqrt(cR * cR + dR * dR);
                         
-                        console.log('  Matrix column lengths: colX=' + colXLengthR.toFixed(2) + 'px, colY=' + colYLengthR.toFixed(2) + 'px');
                         
                         // For Bounding Box radiusMode: scale is relative to shape's half-dimensions
                         var shapeRadiusXR = shapeWidthR / 2;
@@ -2368,19 +2288,15 @@ function connectShaderToStroke(shaderId, shapeId, svgShapeCenter) {
                         var scaleXR = (colXLengthR / shapeRadiusXR) * 100;
                         var scaleYR = (colYLengthR / shapeRadiusYR) * 100;
                         
-                        console.log('  Shape half-dimensions: ' + shapeRadiusXR.toFixed(2) + ' x ' + shapeRadiusYR.toFixed(2));
-                        console.log('  Calculated scale: x=' + scaleXR.toFixed(1) + '%, y=' + scaleYR.toFixed(1) + '%');
                         
                         // Set radiusRatio to 1 (ellipse shape comes from scale.x/y)
                         try {
                             api.set(shaderId, {"generator.radiusRatio": 1});
-                            console.log('[RADIAL GRADIENT STROKE] Set radiusRatio: 1');
                         } catch (eRRR) {}
                         
                         // Set scale values
                         try {
                             api.set(shaderId, {"generator.scale.x": scaleXR, "generator.scale.y": scaleYR});
-                            console.log('[RADIAL GRADIENT STROKE] Set generator.scale: (' + scaleXR.toFixed(1) + ', ' + scaleYR.toFixed(1) + ')');
                         } catch (eScaleR) {}
                         
                         // Set rotation from the gradient transform matrix
@@ -2390,7 +2306,6 @@ function connectShaderToStroke(shaderId, shapeId, svgShapeCenter) {
                         var rotationDegR = -rotationRadR * (180 / Math.PI);
                         try {
                             api.set(shaderId, {"generator.rotation": rotationDegR});
-                            console.log('[RADIAL GRADIENT STROKE] Set generator.rotation: ' + rotationDegR.toFixed(1) + '°');
                         } catch (eRotR) {}
                         
                         // Calculate offset
@@ -2426,7 +2341,6 @@ function connectShaderToStroke(shaderId, shapeId, svgShapeCenter) {
                             
                             try {
                                 api.set(shaderId, {"generator.offset.x": offsetCavXR, "generator.offset.y": offsetCavYR});
-                                console.log('[RADIAL GRADIENT STROKE] Set generator.offset: (' + offsetCavXR.toFixed(1) + ', ' + offsetCavYR.toFixed(1) + ')');
                             } catch (eOffR) {}
                         }
                     }
@@ -2600,18 +2514,15 @@ function parseGradientStops(gradientElement) {
     var match;
     while ((match = stopRegex.exec(gradientElement)) !== null) {
         var stopElement = match[0];
-        console.log('[GRADIENT STOP RAW] Element: ' + stopElement);
         var offset = _gradGetAttr(stopElement, "offset");
         
         // Try to get stop-color from direct attribute first
         var stopColor = _gradGetAttr(stopElement, "stop-color");
         var stopOpacity = _gradGetAttr(stopElement, "stop-opacity");
-        console.log('[GRADIENT STOP RAW] Direct attrs: stop-color=' + stopColor + ', stop-opacity=' + stopOpacity);
         
         // If not found as direct attribute, try extracting from style (Affinity SVG format)
         if (!stopColor || !stopOpacity) {
             var styleAttr = _gradGetAttr(stopElement, "style");
-            console.log('[GRADIENT STOP RAW] Style attr: ' + styleAttr);
             if (styleAttr) {
                 if (!stopColor) {
                     stopColor = extractStyleProperty(styleAttr, 'stop-color');
@@ -2619,7 +2530,6 @@ function parseGradientStops(gradientElement) {
                 if (!stopOpacity) {
                     stopOpacity = extractStyleProperty(styleAttr, 'stop-opacity');
                 }
-                console.log('[GRADIENT STOP RAW] From style: stop-color=' + stopColor + ', stop-opacity=' + stopOpacity);
             }
         }
         
@@ -2630,7 +2540,6 @@ function parseGradientStops(gradientElement) {
         }
         var opacity = stopOpacity ? parseFloat(stopOpacity) : 1.0;
         if (isNaN(opacity)) opacity = 1.0;
-        console.log('[GRADIENT PARSE] Stop: offset=' + offsetNum + ', color=' + stopColor + ', stop-opacity=' + stopOpacity + ' -> opacity=' + opacity);
         stops.push({
             offset: Math.max(0, Math.min(1, offsetNum)),
             color: parseColor(stopColor),
@@ -2665,7 +2574,6 @@ function extractGradients(svgCode) {
                 grad._absoluteCenterX = (x1 + x2) / 2;
                 grad._absoluteCenterY = (y1 + y2) / 2;
                 grad._isAbsoluteCoords = true;
-                console.log('[LINEAR GRADIENT] Parsed userSpaceOnUse: center=(' + grad._absoluteCenterX.toFixed(2) + ', ' + grad._absoluteCenterY.toFixed(2) + ')');
             }
             
             gradients.push(grad);
@@ -2739,7 +2647,6 @@ function createGradientShader(gradientData) {
             // radiusMode: 0 = Fixed, 1 = Bounding Box
             try {
                 api.set(shaderId, {"generator.radiusMode": 1}); // Bounding Box
-                console.log('[RADIAL GRADIENT] Set radiusMode to Bounding Box (1)');
             } catch (eRM) {
                 console.warn('[RADIAL GRADIENT] Could not set radiusMode: ' + eRM.message);
             }
@@ -2777,8 +2684,6 @@ function createGradientShader(gradientData) {
                     if (isAbsoluteCoords && gradientData.gradientUnits === 'userSpaceOnUse') {
                         // Set radiusRatio to 1 - ellipse shape will come from scale.x/y
                         api.set(shaderId, {"generator.radiusRatio": 1});
-                        console.log('[RADIAL GRADIENT] Set radiusRatio: 1 (using scale.x/y for ellipse shape)');
-                        console.log('[RADIAL GRADIENT] SVD axes: sigma1=' + sigma1.toFixed(2) + ', sigma2=' + sigma2.toFixed(2));
                     } else {
                         // For objectBoundingBox or small matrices, use radiusRatio for aspect
                         var radiusRatio = 1;
@@ -2787,7 +2692,6 @@ function createGradientShader(gradientData) {
                         }
                         radiusRatio = Math.max(0.01, Math.min(100, radiusRatio));
                         api.set(shaderId, {"generator.radiusRatio": radiusRatio});
-                        console.log('[RADIAL GRADIENT] Set radiusRatio: ' + radiusRatio.toFixed(4) + ' (objectBoundingBox mode)');
                     }
                     
                     // Store SVD values for scale calculation when connecting to shape
@@ -2795,7 +2699,6 @@ function createGradientShader(gradientData) {
                         __svgGradientMap[gradientData.id]._svdSigma1 = sigma1;
                         __svgGradientMap[gradientData.id]._svdSigma2 = sigma2;
                         __svgGradientMap[gradientData.id]._isAbsoluteCoords = isAbsoluteCoords;
-                        console.log('[RADIAL GRADIENT] Stored SVD values for scale: sigma1=' + sigma1.toFixed(2) + ', sigma2=' + sigma2.toFixed(2));
                     }
                 } catch (eRR) {
                     console.warn('[RADIAL GRADIENT] Could not process transform: ' + eRR.message);
@@ -3116,12 +3019,10 @@ function createGradientShader(gradientData) {
             try {
                 // Set color with opacity
                 var colorWithAlpha = colorWithOpacity(stop.color, stop.opacity);
-                console.log('[GRADIENT STOP] Stop ' + i + ': color=' + stop.color + ', opacity=' + stop.opacity + ' -> ' + colorWithAlpha);
                 var colAttr = {}; 
                 colAttr['generator.gradient.' + i + '.color'] = colorWithAlpha; 
                 api.set(shaderId, colAttr);
             } catch (eCol) {
-                console.log('[GRADIENT STOP] Error setting stop ' + i + ': ' + eCol.message);
             }
         }
         
@@ -3153,7 +3054,6 @@ function createSweepGradientFromFigma(figmaGradData, layerId, attrs) {
     try {
         // Skip gradient creation if disabled in settings
         if (typeof importGradientsEnabled !== 'undefined' && !importGradientsEnabled) {
-            console.log('[SWEEP GRADIENT] Gradients disabled in settings, skipping');
             return null;
         }
         
@@ -3164,7 +3064,6 @@ function createSweepGradientFromFigma(figmaGradData, layerId, attrs) {
             return null;
         }
         
-        console.log('[SWEEP GRADIENT] Creating sweep gradient with ' + stops.length + ' stops');
         
         // Create descriptive name from first and last colors
         var firstStop = stops[0];
@@ -3175,12 +3074,10 @@ function createSweepGradientFromFigma(figmaGradData, layerId, attrs) {
         
         // Create the gradient shader
         var shaderId = api.create('gradientShader', gradientName);
-        console.log('[SWEEP GRADIENT] Created shader: ' + shaderId);
         
         // Set gradient type to sweep (angular) gradient
         try {
             api.setGenerator(shaderId, 'generator', 'sweepGradientShader');
-            console.log('[SWEEP GRADIENT] Set generator to sweepGradientShader');
         } catch (eGen) {
             console.warn('[SWEEP GRADIENT] Could not set sweepGradientShader: ' + eGen.message);
             // If sweepGradientShader isn't available, the gradient may default to linear
@@ -3191,7 +3088,6 @@ function createSweepGradientFromFigma(figmaGradData, layerId, attrs) {
         // Cavalry API: generator.wrapUVs (boolean)
         try {
             api.set(shaderId, {"generator.wrapUVs": true});
-            console.log('[SWEEP GRADIENT] Enabled wrapUVs for seamless gradient wrapping');
         } catch (eWrap) {
             console.warn('[SWEEP GRADIENT] Could not set wrapUVs: ' + eWrap.message);
         }
@@ -3225,7 +3121,6 @@ function createSweepGradientFromFigma(figmaGradData, layerId, attrs) {
             color: startColor
         });
         
-        console.log('[SWEEP GRADIENT] Inverted stop positions for counter-clockwise Cavalry gradient');
         
         // Build colors array for setGradientFromColors
         var colors = [];
@@ -3250,19 +3145,16 @@ function createSweepGradientFromFigma(figmaGradData, layerId, attrs) {
                 posAttr['generator.gradient.' + si + '.position'] = stopData.position;
                 api.set(shaderId, posAttr);
             } catch (ePos) {
-                console.log('[SWEEP GRADIENT] Error setting stop ' + si + ' position: ' + ePos.message);
             }
             
             try {
                 // Set color with opacity
                 var colorWithAlphaValue = figmaRgbaToHexWithAlpha(stopData.color);
                 var logSuffix = isClosing ? ' (closing loop)' : '';
-                console.log('[SWEEP GRADIENT] Stop ' + si + ': position=' + stopData.position.toFixed(3) + ', color=' + colorWithAlphaValue + logSuffix);
                 var colAttr = {};
                 colAttr['generator.gradient.' + si + '.color'] = colorWithAlphaValue;
                 api.set(shaderId, colAttr);
             } catch (eCol) {
-                console.log('[SWEEP GRADIENT] Error setting stop ' + si + ' color: ' + eCol.message);
             }
         }
         
@@ -3313,9 +3205,6 @@ function createSweepGradientFromFigma(figmaGradData, layerId, attrs) {
                 // Calculate the gradient-relative rotation (gradient rotation minus shape rotation)
                 var relativeGradientRotation = gradientRotationDeg - shapeRotationDeg;
                 
-                console.log('[SWEEP GRADIENT] Gradient transform rotation: ' + gradientRotationDeg.toFixed(1) + '°');
-                console.log('[SWEEP GRADIENT] Shape rotation: ' + shapeRotationDeg.toFixed(1) + '°');
-                console.log('[SWEEP GRADIENT] Relative gradient rotation: ' + relativeGradientRotation.toFixed(1) + '°');
                 
                 // Convert from Figma (TOP start, CW) to Cavalry (RIGHT start, CCW):
                 // The negation accounts for direction flip, -90 shifts from TOP to RIGHT
@@ -3325,7 +3214,6 @@ function createSweepGradientFromFigma(figmaGradData, layerId, attrs) {
                 // Normalize to 0-360 range
                 cavalryRotation = ((cavalryRotation % 360) + 360) % 360;
                 
-                console.log('[SWEEP GRADIENT] Final Cavalry rotation: ' + cavalryRotation.toFixed(1) + '°');
                 
                 api.set(shaderId, {"generator.rotation": cavalryRotation});
             } catch (eRot) {
@@ -3338,7 +3226,6 @@ function createSweepGradientFromFigma(figmaGradData, layerId, attrs) {
             var alphaPercent = Math.round(figmaGradData.opacity * 100);
             try {
                 api.set(shaderId, {'alpha': alphaPercent});
-                console.log('[SWEEP GRADIENT] Set shader alpha to ' + alphaPercent + '%');
             } catch (eAlpha) {}
         }
         
@@ -3352,7 +3239,6 @@ function createSweepGradientFromFigma(figmaGradData, layerId, attrs) {
             // Parent the shader under the shape
             try { api.parent(shaderId, layerId); } catch (ePar) {}
             
-            console.log('[SWEEP GRADIENT] Connected shader to layer ' + layerId);
         } catch (eConnect) {
             console.error('[SWEEP GRADIENT] Failed to connect shader: ' + eConnect.message);
         }
@@ -3390,7 +3276,6 @@ function createDiamondGradientFromFigma(figmaGradData, layerId, attrs) {
     try {
         // Skip gradient creation if disabled in settings
         if (typeof importGradientsEnabled !== 'undefined' && !importGradientsEnabled) {
-            console.log('[DIAMOND GRADIENT] Gradients disabled in settings, skipping');
             return null;
         }
         
@@ -3401,7 +3286,6 @@ function createDiamondGradientFromFigma(figmaGradData, layerId, attrs) {
             return null;
         }
         
-        console.log('[DIAMOND GRADIENT] Creating diamond gradient with ' + stops.length + ' stops');
         
         // Create descriptive name from first and last colors
         var firstStop = stops[0];
@@ -3412,19 +3296,16 @@ function createDiamondGradientFromFigma(figmaGradData, layerId, attrs) {
         
         // Create the gradient shader
         var shaderId = api.create('gradientShader', gradientName);
-        console.log('[DIAMOND GRADIENT] Created shader: ' + shaderId);
         
         // Set gradient type to shape gradient (for diamond with 4 sides)
         // Cavalry API: api.setGenerator(id, 'generator', 'shapeGradientShader')
         try {
             api.setGenerator(shaderId, 'generator', 'shapeGradientShader');
-            console.log('[DIAMOND GRADIENT] Set generator to shapeGradientShader');
         } catch (eGen) {
             console.warn('[DIAMOND GRADIENT] Could not set shapeGradientShader: ' + eGen.message);
             // Fallback: try radial gradient as an approximation
             try {
                 api.setGenerator(shaderId, 'generator', 'radialGradientShader');
-                console.log('[DIAMOND GRADIENT] Fallback to radialGradientShader');
             } catch (eFallback) {
                 console.warn('[DIAMOND GRADIENT] Could not set radial fallback: ' + eFallback.message);
             }
@@ -3434,7 +3315,6 @@ function createDiamondGradientFromFigma(figmaGradData, layerId, attrs) {
         // Cavalry API: generator.sides (integer) - from Cavalry docs "Shape Sides"
         try {
             api.set(shaderId, {"generator.sides": 4});
-            console.log('[DIAMOND GRADIENT] Set sides to 4 (diamond)');
         } catch (eSides) {
             console.warn('[DIAMOND GRADIENT] Could not set sides: ' + eSides.message);
         }
@@ -3444,7 +3324,6 @@ function createDiamondGradientFromFigma(figmaGradData, layerId, attrs) {
         // Cavalry's polygon with 4 sides starts with flat top, so rotate 45°
         try {
             api.set(shaderId, {"generator.rotation": 45});
-            console.log('[DIAMOND GRADIENT] Set initial rotation to 45° for diamond orientation');
         } catch (eInitRot) {
             console.warn('[DIAMOND GRADIENT] Could not set initial rotation: ' + eInitRot.message);
         }
@@ -3460,7 +3339,6 @@ function createDiamondGradientFromFigma(figmaGradData, layerId, attrs) {
         
         // Set gradient colors
         api.setGradientFromColors(shaderId, 'generator.gradient', colors);
-        console.log('[DIAMOND GRADIENT] Set ' + colors.length + ' gradient colors');
         
         // Set individual stop positions and colors with opacity
         for (var si = 0; si < stops.length; si++) {
@@ -3472,18 +3350,15 @@ function createDiamondGradientFromFigma(figmaGradData, layerId, attrs) {
                 posAttr['generator.gradient.' + si + '.position'] = stopData.position;
                 api.set(shaderId, posAttr);
             } catch (ePos) {
-                console.log('[DIAMOND GRADIENT] Error setting stop ' + si + ' position: ' + ePos.message);
             }
             
             try {
                 // Set color with opacity
                 var colorWithAlphaValue = figmaRgbaToHexWithAlpha(stopData.color);
-                console.log('[DIAMOND GRADIENT] Stop ' + si + ': position=' + stopData.position.toFixed(3) + ', color=' + colorWithAlphaValue);
                 var colAttr = {};
                 colAttr['generator.gradient.' + si + '.color'] = colorWithAlphaValue;
                 api.set(shaderId, colAttr);
             } catch (eCol) {
-                console.log('[DIAMOND GRADIENT] Error setting stop ' + si + ' color: ' + eCol.message);
             }
         }
         
@@ -3525,9 +3400,6 @@ function createDiamondGradientFromFigma(figmaGradData, layerId, attrs) {
                 // Calculate the gradient-relative rotation (gradient rotation minus shape rotation)
                 var relativeGradientRotation = gradientRotationDeg - shapeRotationDeg;
                 
-                console.log('[DIAMOND GRADIENT] Gradient transform rotation: ' + gradientRotationDeg.toFixed(1) + '°');
-                console.log('[DIAMOND GRADIENT] Shape rotation: ' + shapeRotationDeg.toFixed(1) + '°');
-                console.log('[DIAMOND GRADIENT] Relative gradient rotation: ' + relativeGradientRotation.toFixed(1) + '°');
                 
                 // Add 45° base rotation for diamond orientation, then apply relative gradient rotation
                 // Negate the rotation because Cavalry uses counter-clockwise positive
@@ -3536,7 +3408,6 @@ function createDiamondGradientFromFigma(figmaGradData, layerId, attrs) {
                 // Normalize to 0-360 range
                 cavalryRotation = ((cavalryRotation % 360) + 360) % 360;
                 
-                console.log('[DIAMOND GRADIENT] Final Cavalry rotation: ' + cavalryRotation.toFixed(1) + '°');
                 
                 api.set(shaderId, {"generator.rotation": cavalryRotation});
             } catch (eRot) {
@@ -3549,7 +3420,6 @@ function createDiamondGradientFromFigma(figmaGradData, layerId, attrs) {
         // Values: 0=Clamp, 1=Repeat, 2=Mirror, 3=Decal
         try {
             api.set(shaderId, {'tiling': 2});
-            console.log('[DIAMOND GRADIENT] Set tiling to Mirror (2)');
         } catch (eTiling) {
             console.warn('[DIAMOND GRADIENT] Could not set tiling: ' + eTiling.message);
         }
@@ -3559,7 +3429,6 @@ function createDiamondGradientFromFigma(figmaGradData, layerId, attrs) {
             var alphaPercent = Math.round(figmaGradData.opacity * 100);
             try {
                 api.set(shaderId, {'alpha': alphaPercent});
-                console.log('[DIAMOND GRADIENT] Set shader alpha to ' + alphaPercent + '%');
             } catch (eAlpha) {}
         }
         
@@ -3573,7 +3442,6 @@ function createDiamondGradientFromFigma(figmaGradData, layerId, attrs) {
             // Parent the shader under the shape
             try { api.parent(shaderId, layerId); } catch (ePar) {}
             
-            console.log('[DIAMOND GRADIENT] Connected shader to layer ' + layerId);
         } catch (eConnect) {
             console.error('[DIAMOND GRADIENT] Failed to connect shader: ' + eConnect.message);
         }
@@ -4352,7 +4220,6 @@ function detectShadowPasses(filterContent) {
         effectBlends.push({ idx: effectMatch.index, result: effectMatch[1] });
     }
     
-    console.info("[Shadow Debug] Found " + effectBlends.length + " effect_dropShadow blends, " + morphs.length + " morphology elements");
     
     if (effectBlends.length > 0) {
         // Parse each shadow pass by looking backwards from each feBlend
@@ -4376,12 +4243,10 @@ function detectShadowPasses(filterContent) {
             }
             
             var vals = parseValuesFromSegment(passSeg);
-            console.info("[Shadow Debug] Pass " + ei + ": dx=" + vals.dx + ", dy=" + vals.dy + ", blur=" + vals.blur + ", color=" + vals.color + ", alpha=" + vals.alpha + ", spread=" + spread);
             
             if (vals.color || vals.dx !== 0 || vals.dy !== 0 || vals.blur !== 8/3 || spread !== 0) {
                 var passObj = { dx: vals.dx, dy: vals.dy, blur: vals.blur, color: vals.color || '#000000', alpha: vals.alpha, spread: spread };
                 passes.push(passObj);
-                console.info("[Shadow Debug] Added pass " + ei);
             }
         }
     } else if (morphs.length > 0) {
@@ -4391,7 +4256,6 @@ function detectShadowPasses(filterContent) {
             var op = (_gradGetAttr(morphs[i].el, 'operator')||'').toLowerCase();
             // Skip erode morphology - those are inner shadows, not drop shadows
             if (op === 'erode') {
-                console.info("[Shadow Debug] Skipping erode morphology (inner shadow)");
                 continue;
             }
             var start = morphs[i].idx + morphs[i].el.length;
@@ -4412,7 +4276,6 @@ function detectShadowPasses(filterContent) {
             offsetMatches.push({ idx: offsetMatch.index, el: offsetMatch[0] });
         }
         
-        console.info("[Shadow Debug] Found " + offsetMatches.length + " feOffset elements");
 
         if (offsetMatches.length > 0) {
             // For each offset, look for blur and color matrix that follow it
@@ -4430,15 +4293,12 @@ function detectShadowPasses(filterContent) {
                 var seg = filterContent.slice(start, end);
                 var vals = parseValuesFromSegment(seg);
                 
-                console.info("[Shadow Debug] Pass " + oi + ": dx=" + vals.dx + ", dy=" + vals.dy + ", blur=" + vals.blur + ", color=" + vals.color + ", alpha=" + vals.alpha);
                 
                 // Include pass if it has any meaningful values (color, offset, blur, or alpha)
                 if (vals.color || vals.dx !== 0 || vals.dy !== 0 || vals.blur !== 8/3 || (vals.alpha && vals.alpha !== 0.5)) {
                     var passObj = { dx: vals.dx, dy: vals.dy, blur: vals.blur, color: vals.color || '#000000', alpha: vals.alpha, spread: 0 };
                     passes.push(passObj);
-                    console.info("[Shadow Debug] Added pass " + oi);
                 } else {
-                    console.info("[Shadow Debug] Skipped pass " + oi + " (no meaningful values)");
                 }
             }
         } else {
@@ -4515,7 +4375,6 @@ function detectInnerShadowPasses(filterContent) {
         innerBlends.push({ idx: innerMatch.index, result: innerMatch[1] });
     }
     
-    console.info("[Inner Shadow Debug] Found " + innerBlends.length + " innerShadow blends");
     
     if (innerBlends.length > 0) {
         for (var ei = 0; ei < innerBlends.length; ei++) {
@@ -4577,11 +4436,9 @@ function detectInnerShadowPasses(filterContent) {
                 }
             }
             
-            console.info("[Inner Shadow Debug] Pass " + ei + ": dx=" + dx + ", dy=" + dy + ", blur=" + blur + ", color=" + color + ", alpha=" + alpha + ", inset=" + inset);
             
             var passObj = { dx: dx, dy: dy, blur: blur, color: color, alpha: alpha, inset: inset };
             passes.push(passObj);
-            console.info("[Inner Shadow Debug] Added inner shadow pass " + ei);
         }
     }
     
@@ -4829,7 +4686,6 @@ function queueBackgroundBlur(overlayShapeId, amount, parentId) {
         amount: amount,
         parentId: parentId
     });
-    console.log('[Background Blur] Queued blur for overlay "' + api.getNiceName(overlayShapeId) + '" (amount=' + amount + ')');
 }
 
 /**
@@ -4885,7 +4741,6 @@ function processDeferredBackgroundBlurs() {
         return;
     }
     
-    console.log('[Background Blur] Processing ' + __deferredBackgroundBlurs.length + ' deferred blur(s)...');
     
     for (var i = 0; i < __deferredBackgroundBlurs.length; i++) {
         var blurRequest = __deferredBackgroundBlurs[i];
@@ -4936,7 +4791,6 @@ function processDeferredBackgroundBlurs() {
                             }
                         }
                         if (parentIndexInGrandparent > 0) {
-                            console.log('[Background Blur] Using grandparent siblings (overlay in wrapper group)');
                             siblings = grandparentChildren;
                             overlayIndex = parentIndexInGrandparent;
                         }
@@ -4948,13 +4802,11 @@ function processDeferredBackgroundBlurs() {
             
             if (overlayIndex <= 0) {
                 // No siblings before this shape (it's first or not found)
-                console.log('[Background Blur] No underlying siblings for "' + api.getNiceName(overlayShapeId) + '"');
                 continue;
             }
             
             // Get siblings that are BEFORE this shape (rendered underneath)
             var underlyingSiblings = siblings.slice(0, overlayIndex);
-            console.log('[Background Blur] Found ' + underlyingSiblings.length + ' potential underlying sibling(s)');
             
             var blurAmount = Math.max(0, (amount || 0) / 2); // Halve for Cavalry
             
@@ -4965,7 +4817,6 @@ function processDeferredBackgroundBlurs() {
                 
                 // Skip siblings that are themselves blur overlays
                 if (__blurOverlayShapes[siblingId]) {
-                    console.log('[Background Blur] Skipping sibling "' + api.getNiceName(siblingId) + '" (is a blur overlay)');
                     continue;
                 }
                 
@@ -4975,7 +4826,6 @@ function processDeferredBackgroundBlurs() {
                     
                     if (siblingBBox && overlaps) {
                         overlappingSiblings.push(siblingId);
-                        console.log('[Background Blur] Sibling "' + api.getNiceName(siblingId) + '" overlaps');
                     }
                 } catch (eSibling) {
                     // Skip this sibling
@@ -4983,7 +4833,6 @@ function processDeferredBackgroundBlurs() {
             }
             
             if (overlappingSiblings.length === 0) {
-                console.log('[Background Blur] No overlapping siblings found for "' + api.getNiceName(overlayShapeId) + '"');
                 continue;
             }
             
@@ -5021,7 +4870,6 @@ function processDeferredBackgroundBlurs() {
                     api.connect(blurFilterId, 'id', targetId, 'filters');
                     addFilterForTarget(targetId, blurFilterId); // Track for reverse lookup
                     connectedCount++;
-                    console.log('[Background Blur] Connected filter to "' + api.getNiceName(targetId) + '"');
                 } catch (eConnect) {
                     console.warn('[Background Blur] Could not connect filter to "' + api.getNiceName(targetId) + '": ' + eConnect.message);
                 }
@@ -5124,9 +4972,6 @@ function _preprocessMaskChildTransform(maskChild) {
     var decomposed = decomposeMatrix(fullMatrix);
     var rotationDeg = decomposed.rotationDeg || 0;
     
-    console.log('[MASK TRANSFORM] Pre-processing mask child: ' + (clone.name || clone.type));
-    console.log('[MASK TRANSFORM]   Transform: ' + transformStr);
-    console.log('[MASK TRANSFORM]   Extracted rotation: ' + rotationDeg.toFixed(2) + '°');
     
     // Handle based on shape type
     if (clone.type === 'rect') {
@@ -5158,7 +5003,6 @@ function _preprocessMaskChildTransform(maskChild) {
         clone.attrs.x = (transformedCenterX - w / 2).toString();
         clone.attrs.y = (transformedCenterY - h / 2).toString();
         
-        console.log('[MASK TRANSFORM]   Rect center: (' + centerX.toFixed(2) + ', ' + centerY.toFixed(2) + ') -> (' + transformedCenterX.toFixed(2) + ', ' + transformedCenterY.toFixed(2) + ')');
     } else if (clone.type === 'circle' || clone.type === 'ellipse') {
         var cx = parseFloat(clone.attrs.cx || '0');
         var cy = parseFloat(clone.attrs.cy || '0');
@@ -5174,7 +5018,6 @@ function _preprocessMaskChildTransform(maskChild) {
         clone.attrs.cx = transformedCx.toString();
         clone.attrs.cy = transformedCy.toString();
         
-        console.log('[MASK TRANSFORM]   Circle/Ellipse center: (' + cx.toFixed(2) + ', ' + cy.toFixed(2) + ') -> (' + transformedCx.toFixed(2) + ', ' + transformedCy.toFixed(2) + ')');
     }
     
     // Clear transform to prevent double-application in createRect/createCircle/createEllipse
@@ -5217,10 +5060,6 @@ function doesSvgGeometryMatchClipPath(svgGeometry, maskDef) {
             var dimMatch = Math.abs(targetW - clipW) < tolerance && Math.abs(targetH - clipH) < tolerance;
             var posMatch = Math.abs(targetX - clipX) < tolerance && Math.abs(targetY - clipY) < tolerance;
             
-            console.log('[MASK OPT] Comparing SVG rect geometries:');
-            console.log('[MASK OPT]   ClipPath rect: x=' + clipX + ', y=' + clipY + ', w=' + clipW + ', h=' + clipH);
-            console.log('[MASK OPT]   Target SVG rect: x=' + targetX + ', y=' + targetY + ', w=' + targetW + ', h=' + targetH);
-            console.log('[MASK OPT]   Dimension match: ' + dimMatch + ', Position match: ' + posMatch);
             
             return dimMatch && posMatch;
         }
@@ -5240,10 +5079,6 @@ function doesSvgGeometryMatchClipPath(svgGeometry, maskDef) {
             
             var pathMatch = clipDNorm === targetDNorm;
             
-            console.log('[MASK OPT] Comparing SVG path data:');
-            console.log('[MASK OPT]   ClipPath d length: ' + clipDNorm.length);
-            console.log('[MASK OPT]   Target d length: ' + targetDNorm.length);
-            console.log('[MASK OPT]   Path data match: ' + pathMatch);
             
             return pathMatch;
         }
@@ -5263,10 +5098,6 @@ function doesSvgGeometryMatchClipPath(svgGeometry, maskDef) {
                               Math.abs(targetCy - clipCy) < tolerance &&
                               Math.abs(targetR - clipR) < tolerance;
             
-            console.log('[MASK OPT] Comparing SVG circle geometries:');
-            console.log('[MASK OPT]   ClipPath circle: cx=' + clipCx + ', cy=' + clipCy + ', r=' + clipR);
-            console.log('[MASK OPT]   Target circle: cx=' + targetCx + ', cy=' + targetCy + ', r=' + targetR);
-            console.log('[MASK OPT]   Circle match: ' + circleMatch);
             
             return circleMatch;
         }
@@ -5289,18 +5120,12 @@ function doesSvgGeometryMatchClipPath(svgGeometry, maskDef) {
                                Math.abs(targetRx - clipRx) < tolerance &&
                                Math.abs(targetRy - clipRy) < tolerance;
             
-            console.log('[MASK OPT] Comparing SVG ellipse geometries:');
-            console.log('[MASK OPT]   ClipPath ellipse: cx=' + clipExCx + ', cy=' + clipExCy + ', rx=' + clipRx + ', ry=' + clipRy);
-            console.log('[MASK OPT]   Target ellipse: cx=' + targetExCx + ', cy=' + targetExCy + ', rx=' + targetRx + ', ry=' + targetRy);
-            console.log('[MASK OPT]   Ellipse match: ' + ellipseMatch);
             
             return ellipseMatch;
         }
         
-        console.log('[MASK OPT] ClipPath type (' + clipChild.type + ') does not match target geometry type, skipping optimization');
         return false;
     } catch (e) {
-        console.log('[MASK OPT] Error comparing geometries: ' + e.message);
         return false;
     }
 }
@@ -5335,8 +5160,6 @@ function getMaskDefinition(maskId) {
 // Create or reuse a mask shape and connect it to the target
 // svgGeometry is optional: {x, y, width, height} from the SVG rect node for optimization
 function createMaskShapeForTarget(maskId, targetShapeId, parentId, vb, model, svgGeometry) {
-    console.log('[MASK] createMaskShapeForTarget: maskId=' + maskId + ', target=' + (targetShapeId ? api.getNiceName(targetShapeId) : 'null'));
-    console.log('[MASK]   Current cache: ' + JSON.stringify(Object.keys(__createdMaskShapes)));
     
     try {
         // Look up the mask definition
@@ -5351,20 +5174,16 @@ function createMaskShapeForTarget(maskId, targetShapeId, parentId, vb, model, sv
         // Check if we already created/designated a Cavalry shape for this maskId
         if (__createdMaskShapes[maskId]) {
             var existingShapeId = __createdMaskShapes[maskId];
-            console.log('[MASK] Reusing cached mask shape: ' + existingShapeId + ' (' + api.getNiceName(existingShapeId) + ')');
             
             // If the target is the same as the cached mask shape, skip connecting to itself
             if (existingShapeId === targetShapeId) {
-                console.log('[MASK] Target IS the mask shape, no connection needed');
                 return existingShapeId;
             }
             
             // Connect the existing shape to the new target via masks
             try {
-                console.log('[MASK]   Attempting api.connect(' + existingShapeId + ', "id", ' + targetShapeId + ', "masks")');
                 api.connect(existingShapeId, 'id', targetShapeId, 'masks');
                 addMaskShapeForTarget(targetShapeId, existingShapeId);
-                console.log('[MASK]   ✓ Successfully connected "' + api.getNiceName(existingShapeId) + '" to "' + api.getNiceName(targetShapeId) + '"');
                 
                 // If this matte is a visible shape being reused, ensure it stays visible
                 if (__shapesUsedAsMattes[existingShapeId]) {
@@ -5381,8 +5200,6 @@ function createMaskShapeForTarget(maskId, targetShapeId, parentId, vb, model, sv
         // OPTIMIZATION: Check if the target SVG geometry matches the clipPath geometry
         // If so, use the target shape itself as the matte (no duplicate needed)
         if (maskDef.type === 'clip' && svgGeometry && doesSvgGeometryMatchClipPath(svgGeometry, maskDef)) {
-            console.log('[MASK OPT] ✓ Target geometry matches clipPath - using as matte');
-            console.log('[MASK OPT]   CACHING: __createdMaskShapes["' + maskId + '"] = ' + targetShapeId + ' ("' + api.getNiceName(targetShapeId) + '")');
             
             // Cache this shape as the mask for this clipPath
             __createdMaskShapes[maskId] = targetShapeId;
@@ -5393,7 +5210,6 @@ function createMaskShapeForTarget(maskId, targetShapeId, parentId, vb, model, sv
                 api.set(targetShapeId, { 'hidden': false });
             } catch (eVisible) {}
             
-            console.log('[Quiver] ✓ Optimized: Using "' + api.getNiceName(targetShapeId) + '" as matte for ' + typeLabel + ' ' + maskId);
             return targetShapeId;
         }
 
@@ -5431,7 +5247,6 @@ function createMaskShapeForTarget(maskId, targetShapeId, parentId, vb, model, sv
             return null;
         }
 
-        console.log('[MASK] Created new mask shape: ' + maskShapeId);
         // Cache the created shape for reuse
         __createdMaskShapes[maskId] = maskShapeId;
 
@@ -5473,7 +5288,6 @@ function createMaskShapeForTarget(maskId, targetShapeId, parentId, vb, model, sv
         try {
             api.connect(maskShapeId, 'id', targetShapeId, 'masks');
             addMaskShapeForTarget(targetShapeId, maskShapeId);
-            console.log('[MASK] Connected ' + typeLabel + ' to ' + api.getNiceName(targetShapeId));
         } catch (eClipMask) {
             console.warn('[Quiver] Could not connect mask: ' + eClipMask.message);
         }
@@ -5934,7 +5748,6 @@ function extractMasks(svgCode) {
             attrs: {}
         };
         
-        console.log('[Quiver] Extracted clipPath: ' + clipId + ' with ' + masks[clipId].children.length + ' child shapes');
     }
     
     return masks;
@@ -6070,7 +5883,6 @@ function mergeFillStrokePairs(node) {
         // Outer stroke: stroke circle radius = fill radius + strokeWidth/2
         var outer = nearly(scx, fcx) && nearly(scy, fcy) && nearly(sr, fr + w/2);
         if (!inner && !outer) return false;
-        console.log('[CIRCLE MERGE] Detected ' + (inner ? 'inner' : 'outer') + ' stroke circle (fill r=' + fr + ', stroke r=' + sr + ', strokeWidth=' + w + ')');
         fillEl.attrs.stroke = strokeEl.attrs.stroke;
         if (strokeEl.attrs['stroke-width'] !== undefined) fillEl.attrs['stroke-width'] = strokeEl.attrs['stroke-width'];
         if (strokeEl.attrs['stroke-opacity'] !== undefined) fillEl.attrs['stroke-opacity'] = strokeEl.attrs['stroke-opacity'];
@@ -6225,15 +6037,10 @@ function mergeFillStrokePairs(node) {
         var identical = (aContent === bContent);
         
         // Debug logging for text comparison
-        console.log('[MULTI-FILL TEXT] Comparing texts:');
-        console.log('  A: name="' + (a.name || 'unnamed') + '", content="' + (aContent || '(empty)').substring(0, 80) + '"');
-        console.log('  B: name="' + (b.name || 'unnamed') + '", content="' + (bContent || '(empty)').substring(0, 80) + '"');
-        console.log('  Identical: ' + identical);
         
         // CRITICAL: If both contents are empty, texts should NOT be considered identical
         // This prevents merging different texts that failed content extraction
         if (aContent === '' && bContent === '') {
-            console.log('[MULTI-FILL TEXT] WARNING: Both texts have empty content - NOT merging');
             return false;
         }
         
@@ -6318,7 +6125,6 @@ function mergeFillStrokePairs(node) {
             
             if (allAreGradientSimulation) {
                 // Mark ALL shapes in this group for removal - they're gradient simulation helpers
-                console.log('[MULTI-FILL] Skipping gradient simulation helper shapes (count: ' + g.length + ')');
                 for (var gri = 0; gri < g.length; gri++) {
                     g[gri].node.__remove = true;
                 }
@@ -6328,7 +6134,6 @@ function mergeFillStrokePairs(node) {
             if (!primary.attrs._additionalFills) {
                 primary.attrs._additionalFills = [];
             }
-            console.log('[MULTI-FILL] Merging ' + g.length + ' identical shapes into one');
             for (var si = 1; si < g.length; si++) {
                 var secondaryEntry = g[si];
                 var secondary = secondaryEntry.node;
@@ -6347,7 +6152,6 @@ function mergeFillStrokePairs(node) {
                 }
                 
                 primary.attrs._additionalFills.push(fillInfo);
-                console.log('[MULTI-FILL]   -> Added fill: ' + (fillInfo.fill || 'gradient-fill') + ' (opacity: ' + fillInfo.fillOpacity + ')');
                 
                 // NOTE: data-figma-gradient-fill is stored in fillInfo and processed via _additionalFills
                 // Do NOT transfer to primary.attrs to avoid duplicate gradient creation
@@ -6356,20 +6160,17 @@ function mergeFillStrokePairs(node) {
                 // This ensures filters from parent groups (like inner shadows) aren't lost
                 if (secondary.attrs._inheritedFilterId && !primary.attrs._inheritedFilterId) {
                     primary.attrs._inheritedFilterId = secondary.attrs._inheritedFilterId;
-                    console.log('[MULTI-FILL]   -> Transferred _inheritedFilterId: ' + secondary.attrs._inheritedFilterId);
                 }
                 
                 // Also transfer any direct filter attribute from the secondary shape
                 if (secondary.attrs.filter && !primary.attrs.filter) {
                     primary.attrs.filter = secondary.attrs.filter;
-                    console.log('[MULTI-FILL]   -> Transferred direct filter: ' + secondary.attrs.filter);
                 }
                 
                 // CRITICAL: Check if the secondary's PARENT GROUP has a filter (e.g., inner shadow)
                 // This is the common case: Figma exports <g filter="..."><rect fill="..."/></g>
                 if (secondaryHolder && secondaryHolder.attrs && secondaryHolder.attrs.filter && !primary.attrs.filter) {
                     primary.attrs.filter = secondaryHolder.attrs.filter;
-                    console.log('[MULTI-FILL]   -> Transferred filter from parent group: ' + secondaryHolder.attrs.filter);
                 }
                 
                 // Mark for removal
@@ -6468,8 +6269,6 @@ function applyFillAndStroke(layerId, attrs) {
         var figmaGradientFill = attrs['data-figma-gradient-fill'];
         if (figmaGradientFill && !gradientId) {
             try {
-                console.log('[ANGULAR GRADIENT] Found data-figma-gradient-fill attribute, length=' + figmaGradientFill.length);
-                console.log('[ANGULAR GRADIENT] Raw attribute (first 200 chars): ' + figmaGradientFill.substring(0, 200));
                 
                 // Parse the JSON data from the attribute (HTML entities need decoding)
                 // Handle both named entities (&quot;) and numeric entities (&#34;)
@@ -6482,11 +6281,8 @@ function applyFillAndStroke(layerId, attrs) {
                     .replace(/&gt;/g, '>')       // Named entity for >
                     .replace(/&amp;/g, '&');     // Named entity for & (must be last!)
                 
-                console.log('[ANGULAR GRADIENT] Decoded JSON (first 200 chars): ' + decodedJson.substring(0, 200));
                 
                 var figmaGradData = JSON.parse(decodedJson);
-                console.log('[ANGULAR GRADIENT] Parsed Figma gradient data: type=' + figmaGradData.type);
-                console.log('[ANGULAR GRADIENT] Stops count: ' + ((figmaGradData.stops || figmaGradData.stopsVar || []).length));
                 
                 // Handle GRADIENT_ANGULAR (maps to Cavalry's Sweep gradient)
                 if (figmaGradData.type === 'GRADIENT_ANGULAR') {
@@ -6500,7 +6296,6 @@ function applyFillAndStroke(layerId, attrs) {
                 
                 // Handle GRADIENT_DIAMOND (maps to Cavalry's Shape gradient with 4 sides)
                 if (figmaGradData.type === 'GRADIENT_DIAMOND') {
-                    console.log('[DIAMOND GRADIENT] Detected GRADIENT_DIAMOND type, creating diamond gradient');
                     // Create a diamond (shape) gradient shader
                     var diamondShaderId = createDiamondGradientFromFigma(figmaGradData, layerId, attrs);
                     if (diamondShaderId) {
@@ -6537,15 +6332,12 @@ function applyFillAndStroke(layerId, attrs) {
                 var shapeOpacityPercent = Math.round(shapeOpacity * 100);
                 try {
                     api.set(layerId, { 'opacity': shapeOpacityPercent });
-                    console.log('[OPACITY] Set shape opacity=' + shapeOpacityPercent + '% on ' + api.getNiceName(layerId));
                 } catch (eShapeOp) {
-                    console.log('[OPACITY] Could not set shape opacity: ' + eShapeOp.message);
                 }
             }
             
             // Debug log when inherited opacity is applied
             if (inheritedOpacity < 0.999) {
-                console.log('[OPACITY] Applied inherited opacity=' + inheritedOpacity + ' to layer ' + api.getNiceName(layerId));
             }
             // If gradient fill, pass fill-opacity to shader (not material.alpha)
             if (gradientId) {
@@ -6563,7 +6355,6 @@ function applyFillAndStroke(layerId, attrs) {
                     // This is the center BEFORE translation - needed because gradient coords are local
                     if (attrs._localCenterX !== undefined && attrs._localCenterY !== undefined) {
                         svgShapeCenter = { x: attrs._localCenterX, y: attrs._localCenterY };
-                        console.log('[GRADIENT] Using local center for offset: (' + svgShapeCenter.x + ', ' + svgShapeCenter.y + ')');
                     }
                     // Check for transformed center (from matrix transforms - rotation/scale)
                     else if (attrs._transformedCenterX !== undefined && attrs._transformedCenterY !== undefined) {
@@ -6572,7 +6363,6 @@ function applyFillAndStroke(layerId, attrs) {
                     // Check for path SVG center (calculated from path segments)
                     else if (attrs._pathSvgCenterX !== undefined && attrs._pathSvgCenterY !== undefined) {
                         svgShapeCenter = { x: attrs._pathSvgCenterX, y: attrs._pathSvgCenterY };
-                        console.log('[RADIAL GRADIENT] Using path SVG center from segments: (' + svgShapeCenter.x + ', ' + svgShapeCenter.y + ')');
                     }
                     // For rect: x + width/2, y + height/2
                     else if (attrs.x !== undefined && attrs.width !== undefined) {
@@ -6696,10 +6486,8 @@ function applyFillAndStroke(layerId, attrs) {
                                 var imgShaderAlpha = Math.round(fillAlpha * 100);
                                 api.set(shaderNode, { 'alpha': imgShaderAlpha });
                                 if (imgShaderAlpha < 100) {
-                                    console.log('[Quiver Image] Set image shader alpha to ' + imgShaderAlpha + '% (fill-opacity)');
                                 }
                             } catch (eImgAlpha) {
-                                console.log('[Quiver Image] Could not set image shader alpha: ' + eImgAlpha.message);
                             }
                             
                             // Align and scale inside the target shape
@@ -6715,7 +6503,6 @@ function applyFillAndStroke(layerId, attrs) {
                                 if (useTransform && isObjectBoundingBox) {
                                     // PRECISE MODE: Use scaleMode None and calculate exact scale/offset
                                     // The transform matrix is in objectBoundingBox coordinates (0-1 range)
-                                    console.log('[Quiver Image] Applying precise transform for pattern ' + pid);
                                     
                                     // Set scaleMode to None (0) for manual positioning
                                     var smSet = false;
@@ -6747,10 +6534,6 @@ function applyFillAndStroke(layerId, attrs) {
                                     var imgH = parseFloat(imgMeta && imgMeta.height) || 100;
                                     
                                     // Debug: log all input values
-                                    console.log('[Quiver Image] Pattern: ' + pid);
-                                    console.log('[Quiver Image]   Shape dimensions: ' + shapeW + ' x ' + shapeH);
-                                    console.log('[Quiver Image]   Image dimensions: ' + imgW + ' x ' + imgH);
-                                    console.log('[Quiver Image]   Transform matrix: a=' + useTransform.a + ', d=' + useTransform.d + ', e=' + useTransform.e + ', f=' + useTransform.f);
                                     
                                     // Calculate scale for Cavalry (where 1.0 = 100% = native image size)
                                     // In objectBoundingBox with patternContentUnits="objectBoundingBox":
@@ -6763,7 +6546,6 @@ function applyFillAndStroke(layerId, attrs) {
                                     var cavalryScaleX = useTransform.a * shapeW;
                                     var cavalryScaleY = useTransform.d * shapeH;
                                     
-                                    console.log('[Quiver Image]   Cavalry scale: ' + cavalryScaleX.toFixed(4) + ' x ' + cavalryScaleY.toFixed(4) + ' (1.0 = 100%)');
                                     
                                     // Apply scale
                                     _setFirstSupported(shaderNode, ['scale','generator.scale'], [cavalryScaleX, cavalryScaleY]);
@@ -6794,9 +6576,6 @@ function applyFillAndStroke(layerId, attrs) {
                                     var cavalryOffsetX = offsetX;
                                     var cavalryOffsetY = -offsetY;
                                     
-                                    console.log('[Quiver Image]   Visible size: ' + visibleW.toFixed(2) + ' x ' + visibleH.toFixed(2));
-                                    console.log('[Quiver Image]   Image center: (' + imgCenterX.toFixed(2) + ', ' + imgCenterY.toFixed(2) + ')');
-                                    console.log('[Quiver Image]   Cavalry offset: (' + cavalryOffsetX.toFixed(2) + ', ' + cavalryOffsetY.toFixed(2) + ')');
                                     
                                     _setFirstSupported(shaderNode, ['offset','generator.offset'], [cavalryOffsetX, cavalryOffsetY]);
                                     
@@ -6821,7 +6600,6 @@ function applyFillAndStroke(layerId, attrs) {
                                 try { api.set(shaderNode, { 'filterQuality': imageFilterQuality }); fqOk = true; } catch (eFQ1) { fqOk = false; }
                                 if (!fqOk) { try { api.set(shaderNode, { 'generator.filterQuality': imageFilterQuality }); } catch (eFQ2) {} }
                             } catch (eAlign) {
-                                console.log('[Quiver Image] Error applying image transform: ' + (eAlign.message || eAlign));
                             }
                             __patternImageShaderCache[pid] = shaderNode;
                             }
@@ -6855,7 +6633,6 @@ function applyFillAndStroke(layerId, attrs) {
                             api.set(primaryColorShaderId, { 'alpha': Math.round(fillAlpha * 100) });
                             api.connect(primaryColorShaderId, 'id', layerId, 'material.colorShaders');
                             try { api.parent(primaryColorShaderId, layerId); } catch (eParP) {}
-                            console.log('[MULTI-FILL] Created primary colorShader: ' + color + ' (stacking mode)');
                         }
                     } catch (ePrimaryShader) {
                         // Fallback to materialColor
@@ -6877,7 +6654,6 @@ function applyFillAndStroke(layerId, attrs) {
         // MULTI-FILL: Connect additional fills (from merged identical shapes)
         // These are stacked on top of the primary fill
         if (attrs._additionalFills && attrs._additionalFills.length > 0) {
-            console.log('[MULTI-FILL] Connecting ' + attrs._additionalFills.length + ' additional fill(s) to ' + api.getNiceName(layerId));
             
             // Calculate SVG center for gradient offset calculation (if not already calculated)
             // NOTE: Use local center for gradient offset (gradient coords are in local space)
@@ -6921,7 +6697,6 @@ function applyFillAndStroke(layerId, attrs) {
                 var addFigmaGradFill = (typeof addFillInfo === 'object') ? addFillInfo['data-figma-gradient-fill'] : null;
                 if (addFigmaGradFill) {
                     try {
-                        console.log('[MULTI-FILL]   -> Processing Figma gradient fill from additional fill');
                         
                         // Decode HTML entities in the JSON
                         var decodedJsonAdd = addFigmaGradFill
@@ -6934,13 +6709,11 @@ function applyFillAndStroke(layerId, attrs) {
                             .replace(/&amp;/g, '&');
                         
                         var figmaGradDataAdd = JSON.parse(decodedJsonAdd);
-                        console.log('[MULTI-FILL]   -> Figma gradient type: ' + figmaGradDataAdd.type);
                         
                         // Handle GRADIENT_ANGULAR (Sweep gradient)
                         if (figmaGradDataAdd.type === 'GRADIENT_ANGULAR') {
                             var sweepShaderIdAdd = createSweepGradientFromFigma(figmaGradDataAdd, layerId, attrs);
                             if (sweepShaderIdAdd) {
-                                console.log('[MULTI-FILL]   -> Created sweep gradient from additional fill');
                             }
                         }
                         
@@ -6948,14 +6721,12 @@ function applyFillAndStroke(layerId, attrs) {
                         if (figmaGradDataAdd.type === 'GRADIENT_DIAMOND') {
                             var diamondShaderIdAdd = createDiamondGradientFromFigma(figmaGradDataAdd, layerId, attrs);
                             if (diamondShaderIdAdd) {
-                                console.log('[MULTI-FILL]   -> Created diamond gradient from additional fill');
                             }
                         }
                         
                         // Skip further processing for this fill - gradient is handled
                         continue;
                     } catch (eFigmaGradAdd) {
-                        console.log('[MULTI-FILL]   -> Error processing Figma gradient: ' + eFigmaGradAdd.message);
                     }
                 }
                 
@@ -6974,9 +6745,7 @@ function applyFillAndStroke(layerId, attrs) {
                             var gradAlphaPercent = Math.round(addFillOpacity * 100);
                             try {
                                 api.set(addGradShader, { 'alpha': gradAlphaPercent });
-                                console.log('[MULTI-FILL]   -> Connected gradient: ' + addFillId + ' with alpha=' + gradAlphaPercent + '% (fill-opacity)');
                             } catch (eGradAlpha) {
-                                console.log('[MULTI-FILL]   -> Connected gradient: ' + addFillId + ' (alpha set failed: ' + eGradAlpha.message + ')');
                             }
                         }
                     } catch (eAddGrad) {}
@@ -7017,7 +6786,6 @@ function applyFillAndStroke(layerId, attrs) {
                                     var addImgAlphaPercent = Math.round(addFillOpacity * 100);
                                     api.set(addShaderNode, { 'alpha': addImgAlphaPercent });
                                     if (addImgAlphaPercent < 100) {
-                                        console.log('[MULTI-FILL] Set image shader alpha to ' + addImgAlphaPercent + '% (fill-opacity)');
                                     }
                                 } catch (eAddImgAlpha) {}
                                 
@@ -7030,7 +6798,6 @@ function applyFillAndStroke(layerId, attrs) {
                                     var addIsObjectBoundingBox = addPatternData && addPatternData.attrs && addPatternData.attrs.patternContentUnits === 'objectBoundingBox';
                                     
                                     if (addUseTransform && addIsObjectBoundingBox) {
-                                        console.log('[MULTI-FILL] Applying precise transform for pattern ' + addPid);
                                         var addSmSet = false;
                                         try { api.set(addShaderNode, { 'scaleMode': 0 }); addSmSet = true; } catch (eSM02) { addSmSet = false; }
                                         if (!addSmSet) { try { api.set(addShaderNode, { 'generator.scaleMode': 0 }); } catch (eSM0b2) {} }
@@ -7078,17 +6845,13 @@ function applyFillAndStroke(layerId, attrs) {
                                     try { api.set(addShaderNode, { 'filterQuality': imageFilterQuality }); addFqOk = true; } catch (eFQ12) {}
                                     if (!addFqOk) { try { api.set(addShaderNode, { 'generator.filterQuality': imageFilterQuality }); } catch (eFQ22) {} }
                                 } catch (eAddAlign) {
-                                    console.log('[MULTI-FILL] Error applying image transform: ' + (eAddAlign.message || eAddAlign));
                                 }
                                 
                                 __patternImageShaderCache[addPid] = addShaderNode;
-                                console.log('[MULTI-FILL]   -> Connected pattern/image: ' + addFillId);
                             } else if (addCached) {
                                 try { api.connect(addCached, 'id', layerId, 'material.colorShaders'); } catch (eConnCached) {}
-                                console.log('[MULTI-FILL]   -> Connected cached pattern/image: ' + addFillId);
                             }
                         } catch (eAddPat) {
-                            console.log('[MULTI-FILL]   -> Error connecting pattern: ' + eAddPat.message);
                         }
                     }
                 } else if (addFillValue && addFillValue !== 'none') {
@@ -7117,7 +6880,6 @@ function applyFillAndStroke(layerId, attrs) {
                                     'shaderColor.a': aVal
                                 }); 
                             } catch (eSetColor) {
-                                console.log('[MULTI-FILL]   -> shaderColor set failed: ' + eSetColor.message);
                             }
                             
                             // Also set alpha attribute (0-100 percentage) for shader opacity
@@ -7130,10 +6892,8 @@ function applyFillAndStroke(layerId, attrs) {
                             // Parent under the shape
                             try { api.parent(colorShaderId, layerId); } catch (eParColor) {}
                             
-                            console.log('[MULTI-FILL]   -> Created colorShader: rgb(' + rVal + ',' + gVal + ',' + bVal + ') alpha=' + aVal + ' (' + alphaPercent + '%)');
                         }
                     } catch (eColorShader) {
-                        console.log('[MULTI-FILL]   -> Error creating colorShader: ' + eColorShader.message);
                     }
                 }
             }
@@ -7166,7 +6926,6 @@ function applyFillAndStroke(layerId, attrs) {
                             svgShapeCenterStroke = { x: attrs._transformedCenterX, y: attrs._transformedCenterY };
                         } else if (attrs._pathSvgCenterX !== undefined && attrs._pathSvgCenterY !== undefined) {
                             svgShapeCenterStroke = { x: attrs._pathSvgCenterX, y: attrs._pathSvgCenterY };
-                            console.log('[RADIAL GRADIENT STROKE] Using path SVG center: (' + svgShapeCenterStroke.x + ', ' + svgShapeCenterStroke.y + ')');
                         } else if (attrs.x !== undefined && attrs.width !== undefined) {
                             var rectXS = parseFloat(attrs.x || '0');
                             var rectYS = parseFloat(attrs.y || '0');
@@ -7750,9 +7509,7 @@ function createRect(node, parentId, vb) {
         var cavalryRotation = -node.attrs._rotationDeg;
         try {
             api.set(id, { "rotation": cavalryRotation });
-            console.log('[Quiver] Applied rotation ' + cavalryRotation.toFixed(2) + '° to rect "' + name + '"');
         } catch (eRot) {
-            console.log('[Quiver] Could not apply rotation: ' + eRot.message);
         }
     }
 
@@ -7831,7 +7588,6 @@ function createEllipse(node, parentId, vb) {
     try {
         if (node.attrs._rotationDeg !== undefined && Math.abs(node.attrs._rotationDeg) > 0.0001) {
             api.set(id, {"rotation": -node.attrs._rotationDeg});
-            console.log('[Quiver] Applied rotation ' + Math.abs(node.attrs._rotationDeg).toFixed(2) + '° to ellipse "' + name + '"');
         }
     } catch (eRotE) {}
     
@@ -8189,12 +7945,10 @@ function replaceEmojisWithPlaceholder(text) {
     
     // Log what happened
     if (emojisDisabled && matches.length > 0) {
-        console.log('[Emoji Replace] Emojis disabled - removed ' + matches.length + ' emoji(s) from text');
     } else if (matches.length > 0) {
         var spacesBefore = matches.filter(function(m) { return m.needsSpaceBefore; }).length;
         var spacesAfter = matches.filter(function(m) { return m.needsSpaceAfter; }).length;
         if (spacesBefore > 0 || spacesAfter > 0) {
-            console.log('[Emoji Replace] Inserted ' + spacesBefore + ' space(s) before and ' + spacesAfter + ' space(s) after emojis to ensure standalone words');
         }
     }
     
@@ -8356,7 +8110,6 @@ function countVisualChars(text) {
 function getWordIndexForEmoji(textNodeName, originalIndex) {
     var data = __emojiIndexMaps[textNodeName];
     if (!data || !data.indexMap || !data.modifiedText) {
-        console.log('[Emoji Word] No data for "' + textNodeName + '"');
         return { wordIndex: -1 };
     }
     
@@ -8364,7 +8117,6 @@ function getWordIndexForEmoji(textNodeName, originalIndex) {
     var text = data.modifiedText;
     
     if (stringIndex === undefined) {
-        console.log('[Emoji Word] No mapping for original index ' + originalIndex);
         return { wordIndex: -1 };
     }
     
@@ -8390,7 +8142,6 @@ function getWordIndexForEmoji(textNodeName, originalIndex) {
             
             // Check if this is our target position
             if (i === stringIndex) {
-                console.log('[Emoji Word] Found emoji at wordIndex=' + wordIndex);
                 return { wordIndex: wordIndex };
             }
         }
@@ -8409,7 +8160,6 @@ function getWordIndexForEmoji(textNodeName, originalIndex) {
         }
     }
     
-    console.log('[Emoji Word] Position ' + stringIndex + ' not found in text');
     return { wordIndex: -1 };
 }
 
@@ -8439,9 +8189,6 @@ function setActualGlyphCount(textNodeName, actualGlyphCount) {
         // This accounts for ligatures automatically - no pattern matching needed!
         if (data.totalVisualChars > 0) {
             data.glyphScaleFactor = actualGlyphCount / data.totalVisualChars;
-            console.log('[Emoji Index] Calibration for "' + textNodeName.substring(0, 40) + '...": ' +
-                        'actualGlyphs=' + actualGlyphCount + ', totalVisualChars=' + data.totalVisualChars + 
-                        ', scaleFactor=' + data.glyphScaleFactor.toFixed(6));
         }
     }
 }
@@ -8468,7 +8215,6 @@ function setActualGlyphCount(textNodeName, actualGlyphCount) {
 function getAdjustedEmojiIndex(textNodeName, originalIndex) {
     var data = __emojiIndexMaps[textNodeName];
     if (!data) {
-        console.log('[Emoji Index] No data for "' + textNodeName + '", returning original: ' + originalIndex);
         return originalIndex;
     }
     
@@ -8476,7 +8222,6 @@ function getAdjustedEmojiIndex(textNodeName, originalIndex) {
     var modifiedText = data.modifiedText;
     
     if (!indexMap || !indexMap.hasOwnProperty(originalIndex)) {
-        console.log('[Emoji Index] No mapping for index ' + originalIndex + ', returning original');
         return originalIndex;
     }
     
@@ -8484,7 +8229,6 @@ function getAdjustedEmojiIndex(textNodeName, originalIndex) {
     var stringIndex = indexMap[originalIndex];
     
     if (!modifiedText) {
-        console.log('[Emoji Index] No modified text available, returning string index: ' + stringIndex);
         return stringIndex;
     }
     
@@ -8534,20 +8278,8 @@ function getAdjustedEmojiIndex(textNodeName, originalIndex) {
         // Scale proportionally based on actual glyph count
         // Round to nearest integer for the index
         glyphIndex = Math.round(visualIndex * data.glyphScaleFactor);
-        
-        // Debug output showing the calibrated calculation
-        console.log('[Emoji Index] Stats: stringLen=' + stringIndex + ', visualChars=' + visualIndex + 
-                    ', skipped=' + (stringIndex - visualIndex) + ' (spaces=' + spaceCount + ', newlines=' + newlineCount + ', zeroWidth=' + zeroWidthCount + ')' +
-                    ', scaleFactor=' + data.glyphScaleFactor.toFixed(4) + ', glyphIndex=' + glyphIndex);
-    } else {
-        // No calibration data - fall back to visual index
-        console.log('[Emoji Index] Stats: stringLen=' + stringIndex + ', visualChars=' + visualIndex + 
-                    ', skipped=' + (stringIndex - visualIndex) + ' (spaces=' + spaceCount + ', newlines=' + newlineCount + ', zeroWidth=' + zeroWidthCount + ')' +
-                    ' (no calibration, using visualIndex as glyphIndex)');
     }
     
-    console.log('[Emoji Index] Adjusted for "' + textNodeName.substring(0, 50) + '...": original=' + originalIndex + 
-                ', stringIndex=' + stringIndex + ', visualIndex=' + visualIndex + ', glyphIndex=' + glyphIndex);
     return glyphIndex;
 }
 
@@ -8574,8 +8306,6 @@ function createText(node, parentId, vb, inheritedScale) {
     var figmaTextData = null;
     try {
         var textNodeName = node.name || '';
-        console.log('[Quiver Text] createText called for: "' + textNodeName + '"');
-        console.log('[Quiver Text] getFigmaTextData function exists: ' + (typeof getFigmaTextData === 'function'));
         
         // Extract text content preview for disambiguation when multiple nodes have same name
         var textContentPreview = '';
@@ -8593,22 +8323,16 @@ function createText(node, parentId, vb, inheritedScale) {
                 x: node.tspans[0].x || 0,
                 y: node.tspans[0].y || 0
             };
-            console.log('[Quiver Text] SVG tspan position: (' + svgPosition.x.toFixed(1) + ', ' + svgPosition.y.toFixed(1) + ')');
         }
         
         if (typeof getFigmaTextData === 'function') {
             figmaTextData = getFigmaTextData(textNodeName, textContentPreview, svgPosition);
-            console.log('[Quiver Text] getFigmaTextData returned: ' + (figmaTextData ? 'found' : 'null'));
             if (figmaTextData) {
-                console.log('[Quiver Text] Found Figma data for "' + textNodeName + '": align=' + figmaTextData.textAlignHorizontal);
             } else {
-                console.log('[Quiver Text] No Figma data found for "' + textNodeName + '"');
             }
         } else {
-            console.log('[Quiver Text] getFigmaTextData function not available');
         }
     } catch (eFTD) {
-        console.log('[Quiver Text] Error looking up Figma data: ' + eFTD.message);
     }
     
     // ALWAYS use SVG tspan joining for text content - this preserves visual line breaks
@@ -8648,7 +8372,6 @@ function createText(node, parentId, vb, inheritedScale) {
     // Since we position based on the first VISIBLE tspan, leading empty lines shift text incorrectly
     combined = combined.replace(/^(\n)+/, '');
     
-    console.log('[Quiver Text] Combined text from tspans: ' + node.tspans.length + ' tspans, result has ' + combined.split('\n').length + ' lines');
     
     try { combined = decodeEntitiesForName(combined); } catch (eDecAll) {}
     var name = combined.split(/\s+/).slice(0,3).join(' ');
@@ -8746,7 +8469,6 @@ function createText(node, parentId, vb, inheritedScale) {
                 var sum = 0; 
                 for (var di = 0; di < diffs.length; di++) sum += diffs[di];
                 actualLineHeight = sum / diffs.length;
-                console.log('[Quiver Text] SVG tspan Y analysis: ' + diffs.length + ' line break(s), avg baseline-to-baseline = ' + actualLineHeight.toFixed(2) + 'px');
             }
         }
         
@@ -8778,22 +8500,18 @@ function createText(node, parentId, vb, inheritedScale) {
                     figmaLhInfo = ' (Figma: AUTO)';
                 }
             }
-            console.log('[Quiver Text] Line height: actual=' + actualLineHeight.toFixed(2) + 'px' + figmaLhInfo + ', Cavalry default ~' + cavalryDefaultLH.toFixed(2) + 'px (x' + cavalryDefaultMultiplier + ') -> offset ' + lineSpacingOffset.toFixed(2));
         } else if (figmaTextData && figmaTextData.lineHeight) {
             // Single line text or no measurable line breaks - use Figma data if available
             var lh = figmaTextData.lineHeight;
             if (lh.unit === 'AUTO') {
                 lineSpacingOffset = 0;
-                console.log('[Quiver Text] Line height: Figma AUTO (single line, using Cavalry default)');
             } else if (lh.unit === 'PIXELS' && typeof lh.value === 'number') {
                 var cavalryDefaultLH = fontSize * 1.29;
                 lineSpacingOffset = lh.value - cavalryDefaultLH;
-                console.log('[Quiver Text] Line height: Figma ' + lh.value + 'px, Cavalry default ~' + cavalryDefaultLH.toFixed(2) + 'px -> offset ' + lineSpacingOffset.toFixed(2));
             } else if (lh.unit === 'PERCENT' && typeof lh.value === 'number') {
                 var figmaLH = fontSize * (lh.value / 100);
                 var cavalryDefaultLH = fontSize * 1.29;
                 lineSpacingOffset = figmaLH - cavalryDefaultLH;
-                console.log('[Quiver Text] Line height: Figma ' + lh.value + '% = ' + figmaLH.toFixed(2) + 'px, Cavalry default ~' + cavalryDefaultLH.toFixed(2) + 'px -> offset ' + lineSpacingOffset.toFixed(2));
             }
         }
     } catch (eLS) { lineSpacingOffset = 0; }
@@ -8847,8 +8565,6 @@ function createText(node, parentId, vb, inheritedScale) {
         }
         // For left alignment (0), keep the SVG's X position (pos.x)
         
-        console.log('[Quiver Text] Position: SVG tspan(' + first.x.toFixed(1) + ',' + first.y.toFixed(1) + ') -> Cavalry(' + finalPosX.toFixed(1) + ',' + finalPosY.toFixed(1) + ')');
-        console.log('[Quiver Text] Alignment: H=' + horizontalAlignment + ' (0=Left,1=Center,2=Right) V=' + verticalAlignment + ' (3=Baseline)');
     }
     
     // Replace emoji characters with em-dash placeholders for Get Sub-Mesh Transform positioning
@@ -8872,9 +8588,7 @@ function createText(node, parentId, vb, inheritedScale) {
         }
         if (!emojisStrippedSimple) {
             var currentPlaceholder = (typeof emojiPlaceholder !== 'undefined' && emojiPlaceholder.length === 3) ? emojiPlaceholder : '[e]';
-            console.log('[Quiver Text] Replaced emojis with ' + currentPlaceholder + ' placeholders, index map: ' + JSON.stringify(emojiReplacement.indexMap));
         } else {
-            console.log('[Quiver Text] Stripped ' + emojiMatchesSimple.length + ' emoji(s) from text');
         }
     }
     
@@ -8891,11 +8605,6 @@ function createText(node, parentId, vb, inheritedScale) {
         "verticalAlignment": verticalAlignment
     };
     
-    console.log('[Quiver Text] Setting textSettings:');
-    console.log('  horizontalAlignment: ' + horizontalAlignment + ' (0=Left, 1=Center, 2=Right)');
-    console.log('  verticalAlignment: ' + verticalAlignment + ' (3=Baseline)');
-    console.log('  position: (' + finalPosX.toFixed(1) + ', ' + finalPosY.toFixed(1) + ')');
-    console.log('  fontSize: ' + fontSize);
     // Letter spacing - prefer Figma's letterSpacing data when available
     var letterSpacingRatio = null; // Track ratio for expression connection
     var lsNum = 0;
@@ -8909,13 +8618,11 @@ function createText(node, parentId, vb, inheritedScale) {
             lsNum = ls.value;
             letterSpacingRatio = lsNum / fontSize;
             figmaLetterSpacingUsed = true;
-            console.log('[Quiver Text] Letter spacing: Figma ' + ls.value + 'px -> ratio ' + letterSpacingRatio.toFixed(6));
         } else if (ls.unit === 'PERCENT') {
             // Percentage of font size (e.g., -3% = -0.03 * fontSize)
             letterSpacingRatio = ls.value / 100;
             lsNum = letterSpacingRatio * fontSize;
             figmaLetterSpacingUsed = true;
-            console.log('[Quiver Text] Letter spacing: Figma ' + ls.value + '% -> ' + lsNum.toFixed(2) + 'px, ratio ' + letterSpacingRatio.toFixed(6));
         }
     }
     
@@ -8961,9 +8668,7 @@ function createText(node, parentId, vb, inheritedScale) {
     try {
         var appliedHAlign = api.get(id, 'horizontalAlignment');
         var appliedVAlign = api.get(id, 'verticalAlignment');
-        console.log('[Quiver Text] AFTER api.set - horizontalAlignment: ' + appliedHAlign + ', verticalAlignment: ' + appliedVAlign);
     } catch (eVerify) {
-        console.log('[Quiver Text] Could not verify alignment: ' + eVerify.message);
     }
 
     // Letter spacing is now set as a simple static value (not an expression)
@@ -9055,13 +8760,11 @@ function createTextFromFigmaData(figmaData, parentId, vb, inheritedScale, fills,
         inheritedScale = inheritedScale || {x: 1, y: 1};
         
         if (!figmaData || !figmaData.characters) {
-            console.log('[Styled Text] No characters in Figma data');
             return null;
         }
         
         // Skip if text import is disabled
         if (!importLiveTextEnabled) {
-            console.log('[Styled Text] Text import disabled');
             return null;
         }
         
@@ -9092,13 +8795,10 @@ function createTextFromFigmaData(figmaData, parentId, vb, inheritedScale, fills,
             };
             if (!emojisStripped) {
                 var currentPlaceholder = (typeof emojiPlaceholder !== 'undefined' && emojiPlaceholder.length === 3) ? emojiPlaceholder : '[e]';
-                console.log('[Styled Text] Replaced emojis with ' + currentPlaceholder + ' placeholders, index map: ' + JSON.stringify(emojiReplacement.indexMap));
             } else {
-                console.log('[Styled Text] Stripped ' + emojiMatches.length + ' emoji(s) from text');
             }
         }
         
-        console.log('[Styled Text] Creating text from Figma data: "' + characters.substring(0, 50) + '..."');
         
         // Create the text shape
         var id = api.create('textShape', name);
@@ -9189,9 +8889,7 @@ function createTextFromFigmaData(figmaData, parentId, vb, inheritedScale, fills,
                 var bY = (b.tspans && b.tspans.length > 0) ? b.tspans[0].y : 0;
                 return aY - bY; // Sort ascending (topmost Y = smallest value first)
             });
-            console.log('[Styled Text] Sorted ' + textChildrenArray.length + ' text children by Y position');
             if (textChildrenArray[0].tspans && textChildrenArray[0].tspans.length > 0) {
-                console.log('[Styled Text] Topmost line Y: ' + textChildrenArray[0].tspans[0].y);
             }
         }
         
@@ -9265,7 +8963,6 @@ function createTextFromFigmaData(figmaData, parentId, vb, inheritedScale, fills,
             if (dominantFont) {
                 fontFamily = dominantFont.fontFamily;
                 fontStyle = dominantFont.fontStyle;
-                console.log('[Styled Text] Dominant font: "' + fontFamily + ' ' + fontStyle + '" (' + maxCoverage + ' chars) - using as base to minimize Apply Typeface nodes');
             }
         }
         
@@ -9297,7 +8994,6 @@ function createTextFromFigmaData(figmaData, parentId, vb, inheritedScale, fills,
             autoHeight = true;
         }
         
-        console.log('[Styled Text] textAutoResize: ' + textAutoResize + ' -> autoWidth: ' + autoWidth + ', autoHeight: ' + autoHeight);
         
         // Set text properties
         var textSettings = {
@@ -9359,7 +9055,6 @@ function createTextFromFigmaData(figmaData, parentId, vb, inheritedScale, fills,
                     if (figmaData.lineHeight.unit === 'PERCENT') figmaLhInfo = ' (Figma: ' + figmaData.lineHeight.value + '%)';
                     else if (figmaData.lineHeight.unit === 'PIXELS') figmaLhInfo = ' (Figma: ' + figmaData.lineHeight.value + 'px)';
                 }
-                console.log('[Styled Text] lineHeight: SVG tspan=' + actualLineHeight.toFixed(2) + 'px' + figmaLhInfo + ', Cavalry default=' + cavalryDefaultLH.toFixed(2) + 'px -> lineSpacing: ' + lineSpacingOffset.toFixed(2));
             }
         }
         
@@ -9405,7 +9100,6 @@ function createTextFromFigmaData(figmaData, parentId, vb, inheritedScale, fills,
                         if (figmaData.lineHeight.unit === 'PERCENT') figmaLhInfo = ' (Figma: ' + figmaData.lineHeight.value + '%)';
                         else if (figmaData.lineHeight.unit === 'PIXELS') figmaLhInfo = ' (Figma: ' + figmaData.lineHeight.value + 'px)';
                     }
-                    console.log('[Styled Text] lineHeight: SVG text Y=' + actualLineHeight.toFixed(2) + 'px' + figmaLhInfo + ' (from ' + yPositions.length + ' text elements), Cavalry default=' + cavalryDefaultLH.toFixed(2) + 'px -> lineSpacing: ' + lineSpacingOffset.toFixed(2));
                 }
             }
         }
@@ -9416,14 +9110,11 @@ function createTextFromFigmaData(figmaData, parentId, vb, inheritedScale, fills,
                 var lineHeightPx = figmaData.lineHeight.value * scaleAvg;
                 var defaultLineHeight = fontSize * 1.29;
                 lineSpacingOffset = lineHeightPx - defaultLineHeight;
-                console.log('[Styled Text] lineHeight: ' + figmaData.lineHeight.value + 'px -> lineSpacing: ' + lineSpacingOffset.toFixed(2));
             } else if (figmaData.lineHeight.unit === 'PERCENT' && figmaData.lineHeight.value) {
                 var lineHeightPx = fontSize * (figmaData.lineHeight.value / 100);
                 var defaultLineHeight = fontSize * 1.29;
                 lineSpacingOffset = lineHeightPx - defaultLineHeight;
-                console.log('[Styled Text] lineHeight: ' + figmaData.lineHeight.value + '% (fallback) -> lineSpacing: ' + lineSpacingOffset.toFixed(2));
             } else {
-                console.log('[Styled Text] lineHeight: AUTO (using default)');
             }
         }
         
@@ -9437,24 +9128,13 @@ function createTextFromFigmaData(figmaData, parentId, vb, inheritedScale, fills,
         if (figmaData.letterSpacing) {
             if (figmaData.letterSpacing.unit === 'PIXELS' && figmaData.letterSpacing.value !== undefined) {
                 textSettings["letterSpacing"] = figmaData.letterSpacing.value * scaleAvg;
-                console.log('[Styled Text] letterSpacing: ' + figmaData.letterSpacing.value + 'px -> ' + textSettings["letterSpacing"].toFixed(2));
             } else if (figmaData.letterSpacing.unit === 'PERCENT' && figmaData.letterSpacing.value !== undefined) {
                 // Percent is relative to font size (e.g., 10% of 16px = 1.6px)
                 textSettings["letterSpacing"] = (fontSize * figmaData.letterSpacing.value / 100) * scaleAvg;
-                console.log('[Styled Text] letterSpacing: ' + figmaData.letterSpacing.value + '% -> ' + textSettings["letterSpacing"].toFixed(2));
             }
         }
         
-        console.log('[Styled Text] Setting textSettings:');
-        console.log('  Figma box: topLeft=(' + figmaX.toFixed(1) + ', ' + figmaY.toFixed(1) + ') size=' + figmaWidth.toFixed(1) + 'x' + figmaHeight.toFixed(1));
-        console.log('  Figma anchor: leftEdge X=' + figmaAnchorX.toFixed(1) + ', baseline Y=' + figmaBaselineY.toFixed(1) + ' (' + baselineSource + ')');
-        console.log('  Cavalry position: (' + cavalryX.toFixed(1) + ', ' + cavalryY.toFixed(1) + ')');
-        console.log('  fontSize: ' + fontSize);
-        console.log('  font: ' + fontFamily + ' / ' + fontStyle);
-        console.log('  alignment: h=' + horizontalAlignment + ' (text flow within box), v=3 (Baseline)');
-        console.log('  sizing: autoWidth=' + autoWidth + ', autoHeight=' + autoHeight);
         if (!autoWidth) {
-            console.log('  textBoxSize.x: ' + textBoxWidth.toFixed(1));
         }
         
         api.set(id, textSettings);
@@ -9465,7 +9145,6 @@ function createTextFromFigmaData(figmaData, parentId, vb, inheritedScale, fills,
         // Instead of creating one node per segment, we combine indices for segments with the same font
         // e.g., segments 0:40 and 773:821 with same font become one node with indices "0:40, 773:821"
         if (figmaData.styledSegments && figmaData.styledSegments.length > 1) {
-            console.log('[Styled Text] Processing ' + figmaData.styledSegments.length + ' styled segment(s)');
             
             // Build base font string for comparison
             var baseFontFull = fontFamily + ' ' + fontStyle;
@@ -9484,7 +9163,6 @@ function createTextFromFigmaData(figmaData, parentId, vb, inheritedScale, fills,
                 
                 // Skip segments that match the base font (no styling needed)
                 if (segFontFull === baseFontFull) {
-                    console.log('[Styled Text]   Segment ' + si + ': "' + segFontFull + '" matches base font, skipping');
                     continue;
                 }
                 
@@ -9498,7 +9176,6 @@ function createTextFromFigmaData(figmaData, parentId, vb, inheritedScale, fills,
                 var rangeStr = adjustedStart + ':' + (adjustedEnd - 1);
                 
                 if (emojiMatches.length > 0) {
-                    console.log('[Styled Text]   Segment ' + si + ' index adjustment: ' + seg.start + ':' + (seg.end - 1) + ' -> ' + rangeStr);
                 }
                 
                 // Add to font group
@@ -9510,12 +9187,10 @@ function createTextFromFigmaData(figmaData, parentId, vb, inheritedScale, fills,
                     };
                 }
                 fontGroups[segFontFull].ranges.push(rangeStr);
-                console.log('[Styled Text]   Segment ' + si + ': "' + segFontFull + '" range ' + rangeStr);
             }
             
             // Create one Apply Typeface node per unique font
             var fontKeys = Object.keys(fontGroups);
-            console.log('[Styled Text] Consolidated into ' + fontKeys.length + ' unique font style(s)');
             
             for (var fi = 0; fi < fontKeys.length; fi++) {
                 var fontKey = fontKeys[fi];
@@ -9525,7 +9200,6 @@ function createTextFromFigmaData(figmaData, parentId, vb, inheritedScale, fills,
                     // Create Apply Typeface node with a descriptive name
                     var styleName = group.fontStyle || 'Style';
                     var applyTypefaceId = api.create('applyTypeface', styleName);
-                    console.log('[Styled Text]   Created applyTypeface: ' + applyTypefaceId + ' for "' + fontKey + '"');
                     
                     // Combine all ranges with comma separator
                     // Cavalry API supports: "0:40, 773:821" for multiple ranges
@@ -9540,14 +9214,12 @@ function createTextFromFigmaData(figmaData, parentId, vb, inheritedScale, fills,
                         "indexMode": 2,  // Character level
                         "indices": indicesStr
                     });
-                    console.log('[Styled Text]   Set indices: "' + indicesStr + '"');
                     
                     // Set font separately (font.font and font.style)
                     api.set(applyTypefaceId, {
                         "font.font": group.fontFamily,
                         "font.style": group.fontStyle
                     });
-                    console.log('[Styled Text]   Set font: ' + group.fontFamily + ' ' + group.fontStyle);
                     
                     // Connect Apply Typeface to the text shape's styleBehaviours
                     api.connect(applyTypefaceId, 'id', id, 'styleBehaviours');
@@ -9555,9 +9227,7 @@ function createTextFromFigmaData(figmaData, parentId, vb, inheritedScale, fills,
                     // Parent Apply Typeface under the text shape for clean hierarchy
                     api.parent(applyTypefaceId, id);
                     
-                    console.log('[Styled Text]   ✓ ' + fontKey + ': indices="' + indicesStr + '" (' + group.ranges.length + ' range(s))');
                 } catch (eApply) {
-                    console.log('[Styled Text]   Failed to apply typeface for "' + fontKey + '": ' + String(eApply));
                 }
             }
         }
@@ -9568,7 +9238,6 @@ function createTextFromFigmaData(figmaData, parentId, vb, inheritedScale, fills,
         // SVG rendering order: first element is at BOTTOM, later elements are on TOP
         fills = fills || [];
         if (fills.length > 0) {
-            console.log('[Styled Text] Applying ' + fills.length + ' fill(s) from SVG');
             
             // Extract _scaleY from svgTextChildren for gradient flip detection
             // Text nodes can have matrix transforms with Y-flips that affect gradient direction
@@ -9613,15 +9282,11 @@ function createTextFromFigmaData(figmaData, parentId, vb, inheritedScale, fills,
                                 // For text, we need to pass fill opacity to shader and scaleY for flip detection
                                 var connectedOk = connectShaderToShape(gradShader, id, null, fillOpacity, textScaleY);
                                 if (connectedOk) {
-                                    console.log('[Styled Text]   Fill ' + fi + ': ' + fillColor + ' (gradient shader connected, scaleY=' + textScaleY + ')');
                                 } else {
-                                    console.log('[Styled Text]   Fill ' + fi + ': ' + fillColor + ' (gradient shader failed to connect)');
                                 }
                             } else {
-                                console.log('[Styled Text]   Fill ' + fi + ': ' + fillColor + ' (gradient not found: ' + gradientId + ')');
                             }
                         } catch (eGrad) {
-                            console.log('[Styled Text]   Failed to connect gradient ' + gradientId + ': ' + String(eGrad));
                         }
                     } else {
                         // Parse hex color to RGB components
@@ -9654,18 +9319,15 @@ function createTextFromFigmaData(figmaData, parentId, vb, inheritedScale, fills,
                             // Parent under the text shape
                             api.parent(shaderId, id);
                             
-                            console.log('[Styled Text]   Fill ' + fi + ': ' + fillColor + ' (colorShader - stacking mode)');
                         } else {
                             // Single fill: set on material directly
                             api.set(id, {"material.materialColor": fillColor});
                             if (fillOpacity < 1) {
                                 api.set(id, {"material.alpha": fillOpacity * 100});
                             }
-                            console.log('[Styled Text]   Fill ' + fi + ': ' + fillColor + ' (material)');
                         }
                     }
                 } catch (eFillShader) {
-                    console.log('[Styled Text]   Failed to apply fill ' + fi + ': ' + String(eFillShader));
                 }
             }
         } else {
@@ -9692,7 +9354,6 @@ function createTextFromFigmaData(figmaData, parentId, vb, inheritedScale, fills,
         return id;
         
     } catch (e) {
-        console.log('[Styled Text] Error creating text from Figma data: ' + e.message);
         return null;
     }
 }
@@ -9710,7 +9371,6 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
     if (node.type === 'g' || node.type === 'svg' || node.type === 'root') {
         // Skip empty groups (no children)
         if (node.type === 'g' && (!node.children || node.children.length === 0)) {
-            console.log('Skipping empty group:', node.name);
             return null;
         }
         
@@ -9718,7 +9378,6 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
         // These groups contain foreignObject elements used to render angular/diamond gradients
         // Since we parse data-figma-gradient-fill directly, we don't need these simulation groups
         if (node.type === 'g' && node.attrs && node.attrs['data-figma-skip-parse'] === 'true') {
-            console.log('[Figma Skip] Skipping gradient simulation group:', node.name || 'unnamed');
             return null;
         }
         
@@ -9828,7 +9487,6 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
                 // Transfer background blur attribute if present on the group
                 if (node.attrs['data-figma-bg-blur-radius'] && !singleChild.attrs['data-figma-bg-blur-radius']) {
                     singleChild.attrs['data-figma-bg-blur-radius'] = node.attrs['data-figma-bg-blur-radius'];
-                    console.log('[Background Blur] Propagated blur radius ' + node.attrs['data-figma-bg-blur-radius'] + ' from group to child');
                 }
                 
                 // Transfer filter attribute if present on the group (for layer blur, etc.)
@@ -9860,7 +9518,6 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
                             singleChild.attrs._inheritedMaskIds.push(allMasks[mIdx]);
                         }
                     }
-                    console.log('[DEBUG MASK] Blend mode optimization: transferred masks [' + allMasks.join(', ') + '] from group "' + (node.name || 'unnamed') + '" to single child');
                 }
                 
                 // Transfer parent name if child has no meaningful name
@@ -9900,8 +9557,6 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
                 var figmaTextForGroup = getFigmaTextData(rawGroupName);
                 
                 if (figmaTextForGroup && figmaTextForGroup.characters) {
-                    console.log('[Styled Text] Found Figma data for group "' + rawGroupName + '" with ' + node.children.length + ' text children');
-                    console.log('[Styled Text] Creating single text shape from Figma data: "' + figmaTextForGroup.characters.substring(0, 50) + '..."');
                     
                     // Extract fills from the SVG text children for multi-fill support
                     // Figma exports multiple <text> elements with the same geometry but different fills
@@ -9917,7 +9572,6 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
                         if (childFill && childFill !== 'none' && !seenFills[childFill]) {
                             seenFills[childFill] = true;
                             textFills.push({color: childFill, opacity: childOpacity});
-                            console.log('[Styled Text] Extracted fill from child ' + fci + ': ' + childFill + ' (opacity: ' + childOpacity + ')');
                         }
                         
                         // Check for additional fills from multi-fill optimization
@@ -9929,7 +9583,6 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
                                 if (addFill && addFill !== 'none' && !seenFills[addFill]) {
                                     seenFills[addFill] = true;
                                     textFills.push({color: addFill, opacity: addOpacity});
-                                    console.log('[Styled Text] Extracted additional fill from child ' + fci + ': ' + addFill + ' (opacity: ' + addOpacity + ')');
                                 }
                             }
                         }
@@ -9976,27 +9629,22 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
                                         if (!childFilterId) childFilterId = filterChild.attrs._inheritedFilterId;
                                         if (childFilterId) {
                                             fIdStyled = childFilterId;
-                                            console.log('[Styled Text] Found filter "' + fIdStyled + '" on text child ' + fcIdx);
                                         }
                                     }
                                 }
                             }
                             
-                            console.log('[Styled Text] Filter check: fIdStyled=' + fIdStyled + ', node.attrs.filter=' + (node.attrs && node.attrs.filter) + ', _inheritedFilterId=' + (node.attrs && node.attrs._inheritedFilterId));
                             
                             if (fIdStyled && __svgFilterMap && __svgFilterMap[fIdStyled]) {
-                                console.log('[Styled Text] Found filter "' + fIdStyled + '" for styled text, filter content length: ' + __svgFilterMap[fIdStyled].length);
                                 
                                 // Check for drop shadows
                                 var passesStyled = detectShadowPasses(__svgFilterMap[fIdStyled]);
-                                console.log('[Styled Text] Drop shadow passes: ' + passesStyled.length);
                                 for (var pStyled = 0; pStyled < passesStyled.length; pStyled++) {
                                     createAndAttachDropShadow(styledTextId, passesStyled[pStyled]);
                                 }
                                 
                                 // Check for inner shadows
                                 var innerPassesStyled = detectInnerShadowPasses(__svgFilterMap[fIdStyled]);
-                                console.log('[Styled Text] Inner shadow passes: ' + innerPassesStyled.length);
                                 for (var inpStyled = 0; inpStyled < innerPassesStyled.length; inpStyled++) {
                                     createAndAttachInnerShadow(styledTextId, innerPassesStyled[inpStyled]);
                                 }
@@ -10004,14 +9652,10 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
                                 // Check for blur
                                 var blurAmtStyled = detectBlurAmount(__svgFilterMap[fIdStyled]);
                                 if (blurAmtStyled !== null) {
-                                    console.log('[Styled Text] Blur amount: ' + blurAmtStyled);
                                     createAndAttachBlur(styledTextId, blurAmtStyled);
                                 }
                             } else if (fIdStyled) {
-                                console.log('[Styled Text] Filter ID "' + fIdStyled + '" not found in __svgFilterMap');
-                                console.log('[Styled Text] Available filters: ' + Object.keys(__svgFilterMap || {}).join(', '));
                             } else {
-                                console.log('[Styled Text] No filter found for styled text "' + rawGroupName + '"');
                             }
                         } catch (eStyledFilter) {
                             console.warn('[Styled Text] Error applying filters: ' + (eStyledFilter.message || eStyledFilter));
@@ -10105,7 +9749,6 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
         // Propagate background blur attribute from group to geometry children
         var groupBgBlur = node.attrs && node.attrs['data-figma-bg-blur-radius'];
         if (groupBgBlur) {
-            console.log('[Background Blur] Group "' + (node.name || 'unnamed') + '" has blur radius: ' + groupBgBlur);
             // Find the first geometry child to apply blur to
             for (var blurIdx = 0; blurIdx < childTargets.length; blurIdx++) {
                 var blurChild = childTargets[blurIdx];
@@ -10114,7 +9757,6 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
                 if (isBlurGeom && !blurChild.attrs['data-figma-bg-blur-radius']) {
                     if (!blurChild.attrs) blurChild.attrs = {};
                     blurChild.attrs['data-figma-bg-blur-radius'] = groupBgBlur;
-                    console.log('[Background Blur] Propagated blur radius ' + groupBgBlur + ' to child "' + (blurChild.name || blurType) + '"');
                     break; // Only apply to first geometry child
                 }
             }
@@ -10123,29 +9765,22 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
         // NESTED CLIPS: Use _inheritedMaskIds array to accumulate multiple masks
         var groupName = node.attrs && node.attrs.id || node.name || 'unnamed';
         var ownMaskId = extractUrlRefId(node.attrs && node.attrs.mask) || extractUrlRefId(node.attrs && node.attrs['clip-path']);
-        console.log('[DEBUG MASK] Group "' + groupName + '" clip-path attr: ' + (node.attrs && node.attrs['clip-path']));
-        console.log('[DEBUG MASK]   mask attr: ' + (node.attrs && node.attrs.mask) + ', extracted ownMaskId: ' + ownMaskId);
         
         // Build array of all masks to propagate (parent masks + this group's mask)
         var parentMaskIds = (node.attrs && node.attrs._inheritedMaskIds) || [];
-        console.log('[DEBUG MASK]   _inheritedMaskIds from parent: [' + parentMaskIds.join(', ') + ']');
         
         // Combine: parent masks first, then this group's mask (order matters for intersection)
         var masksToPropagate = parentMaskIds.slice(); // clone array
         if (ownMaskId) {
             masksToPropagate.push(ownMaskId);
         }
-        console.log('[DEBUG MASK]   Final masksToPropagate: [' + masksToPropagate.join(', ') + ']');
-        console.log('[DEBUG MASK]   Children count: ' + childTargets.length);
         
         // Log all children for debugging
         for (var dbgC = 0; dbgC < childTargets.length; dbgC++) {
             var dbgChild = childTargets[dbgC];
-            console.log('[DEBUG MASK]   Child ' + dbgC + ': type=' + dbgChild.type + ', name="' + (dbgChild.attrs && dbgChild.attrs.id || dbgChild.name || 'unnamed') + '"');
         }
         
         if (masksToPropagate.length > 0) {
-            console.log('[DEBUG MASK]   Propagating ' + masksToPropagate.length + ' mask(s) to ' + childTargets.length + ' children');
             // Propagate ALL masks to all direct children
             for (var mi = 0; mi < childTargets.length; mi++) {
                 var chM = childTargets[mi];
@@ -10158,13 +9793,10 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
                 chM.attrs._inheritedMaskIds = masksToPropagate.slice(); // clone array
                 
                 if (childOwnMask) {
-                    console.log('[DEBUG MASK]     -> Child "' + (chM.attrs && chM.attrs.id || chM.name || 'child-' + mi) + '" has own mask "' + childOwnMask + '", will add to inherited masks');
                 } else {
-                    console.log('[DEBUG MASK]     -> Set _inheritedMaskIds on child "' + (chM.attrs && chM.attrs.id || chM.name || 'child-' + mi) + '" (type: ' + chM.type + '): [' + masksToPropagate.join(', ') + ']');
                 }
             }
         } else {
-            console.log('[DEBUG MASK]   No mask to propagate for group "' + groupName + '"');
         }
         
         // Propagate group opacity to children (Figma applies opacity to groups, not children)
@@ -10177,13 +9809,11 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
         
         // Only propagate if opacity is less than 1 (something to inherit)
         if (effectiveGroupOpacity < 0.999) {
-            console.log('[DEBUG OPACITY] Group "' + groupName + '" has opacity=' + groupOpacity + ', inherited=' + inheritedOpacity + ', effective=' + effectiveGroupOpacity);
             for (var oi = 0; oi < childTargets.length; oi++) {
                 var chO = childTargets[oi];
                 if (!chO.attrs) chO.attrs = {};
                 // Store inherited opacity for children to use
                 chO.attrs._inheritedOpacity = effectiveGroupOpacity;
-                console.log('[DEBUG OPACITY]   -> Set _inheritedOpacity=' + effectiveGroupOpacity + ' on child "' + (chO.attrs && chO.attrs.id || chO.name || 'child-' + oi) + '"');
             }
         }
         
@@ -10225,7 +9855,6 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
             if (fillIdMatch) {
                 var fillId = fillIdMatch[1].toLowerCase();
                 if (fillId.indexOf('_diamond_') !== -1 || fillId.indexOf('_angular_') !== -1) {
-                    console.log('[GRADIENT HELPER] Skipping gradient simulation rect: fill=' + rectFill);
                     return null;
                 }
             }
@@ -10240,12 +9869,6 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
         
         // Debug logging for rect positioning
         var rectName = node.name || 'unnamed rect';
-        console.log('[DEBUG RECT] Processing rect: ' + rectName);
-        console.log('[DEBUG RECT]   Original: x=' + x + ', y=' + y + ', w=' + w + ', h=' + h);
-        console.log('[DEBUG RECT]   nodeT (translate): x=' + nodeT.x + ', y=' + nodeT.y);
-        console.log('[DEBUG RECT]   inheritedTranslate: x=' + inheritedTranslate.x + ', y=' + inheritedTranslate.y);
-        console.log('[DEBUG RECT]   parentMatrix: ' + (parentMatrix ? 'a=' + parentMatrix.a + ',b=' + parentMatrix.b + ',c=' + parentMatrix.c + ',d=' + parentMatrix.d + ',e=' + parentMatrix.e + ',f=' + parentMatrix.f : 'null'));
-        console.log('[DEBUG RECT]   node.attrs.transform: ' + (node.attrs && node.attrs.transform || 'none'));
         
         // Apply parent matrix if it exists (inherited from parent group transform)
         if (parentMatrix) {
@@ -10271,7 +9894,6 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
             clone.attrs.height = (maxYP - minYP).toString();
             // Clear transform to prevent double-application in createRect
             delete clone.attrs.transform;
-            console.log('[DEBUG RECT]   -> parentMatrix applied: new x=' + minXP + ', y=' + minYP);
         } else if (node.attrs && node.attrs.transform) {
             // Check if transform contains non-trivial operations (rotation, scale, skew, or matrix)
             // If so, use full matrix approach to compute the correct center position
@@ -10288,7 +9910,6 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
                 var decomposed = decomposeMatrix(fullMatrix);
                 var rotationDeg = decomposed.rotationDeg || 0;
                 
-                console.log('[DEBUG RECT]   -> Full transform detected: rotation=' + rotationDeg.toFixed(2) + '° scaleX=' + decomposed.scaleX.toFixed(4) + ' scaleY=' + decomposed.scaleY.toFixed(4));
                 
                 // Calculate the center of the original rect
                 var centerX = x + w / 2;
@@ -10324,7 +9945,6 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
                 
                 // Clear transform to prevent double-application in createRect
                 delete clone.attrs.transform;
-                console.log('[DEBUG RECT]   -> Full transform applied: center=(' + transformedCenterX.toFixed(2) + ',' + transformedCenterY.toFixed(2) + ') rotation=' + rotationDeg.toFixed(2) + '°');
             } else {
                 // Pure translation only - use simple translation
                 clone.attrs.x = (x + nodeT.x + inheritedTranslate.x).toString();
@@ -10338,7 +9958,6 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
                     clone.attrs.transform = clone.attrs.transform.replace(/translate\([^)]*\)\s*/g, '').trim();
                     if (clone.attrs.transform === '') delete clone.attrs.transform;
                 }
-                console.log('[DEBUG RECT]   -> Simple translation applied');
             }
         } else {
             // No transform at all
@@ -10347,10 +9966,8 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
             // Store the LOCAL center for gradient offset calculation
             clone.attrs._localCenterX = x + w / 2;
             clone.attrs._localCenterY = y + h / 2;
-            console.log('[DEBUG RECT]   -> No transform, position unchanged');
         }
         
-        console.log('[DEBUG RECT]   Final clone: x=' + clone.attrs.x + ', y=' + clone.attrs.y + ', w=' + clone.attrs.width + ', h=' + clone.attrs.height);
         
         var rid = createRect(clone, parentId, vb);
         _registerChild(parentId, rid);
@@ -10436,7 +10053,6 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
                     createMaskShapeForTarget(allMaskIds[mri], rid, parentId, vb, model, svgGeometry);
                 }
                 if (allMaskIds.length > 1) {
-                    console.log('[NESTED CLIP] Applied ' + allMaskIds.length + ' masks to rect: [' + allMaskIds.join(', ') + ']');
                 }
             }
         } catch (eMask) {  }
@@ -10552,7 +10168,6 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
                     createMaskShapeForTarget(allMaskIdsC[mci], cid, parentId, vb, model, svgGeometryC);
                 }
                 if (allMaskIdsC.length > 1) {
-                    console.log('[NESTED CLIP] Applied ' + allMaskIdsC.length + ' masks to circle: [' + allMaskIdsC.join(', ') + ']');
                 }
             }
         } catch (eMaskC) {  }
@@ -10596,7 +10211,6 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
             // Clear transform to prevent double-application in createEllipse
             delete cloneE.attrs.transform;
             
-            console.log('[DEBUG ELLIPSE] Matrix transform applied: local center (' + cx.toFixed(2) + ', ' + cy.toFixed(2) + ') -> world center (' + transformed.x.toFixed(2) + ', ' + transformed.y.toFixed(2) + ') scaleY=' + decomposedE.scaleY.toFixed(4));
         } else {
             // Use simple translation
             cloneE.attrs.cx = (cx + nodeT.x + inheritedTranslate.x).toString();
@@ -10673,7 +10287,6 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
                     createMaskShapeForTarget(allMaskIdsE[mei], eid, parentId, vb, model, svgGeometryE);
                 }
                 if (allMaskIdsE.length > 1) {
-                    console.log('[NESTED CLIP] Applied ' + allMaskIdsE.length + ' masks to ellipse: [' + allMaskIdsE.join(', ') + ']');
                 }
             }
         } catch (eMaskE) {  }
@@ -10716,7 +10329,6 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
             var fullMatrixT = parseTransformMatrixList(node.attrs.transform);
             var decomposedT = decomposeMatrix(fullMatrixT);
             cloneT.attrs._scaleY = decomposedT.scaleY;
-            console.log('[DEBUG TEXT] Matrix transform applied: scaleY=' + decomposedT.scaleY.toFixed(2));
         } else if (!parentMatrix) {
             // Only apply simple translation if we didn't already apply parent matrix
             for (var k = 0; k < cloneT.tspans.length; k++) {
@@ -10993,7 +10605,6 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
             if (pathFillIdMatch) {
                 var pathFillId = pathFillIdMatch[1].toLowerCase();
                 if (pathFillId.indexOf('_diamond_') !== -1 || pathFillId.indexOf('_angular_') !== -1) {
-                    console.log('[GRADIENT HELPER] Skipping gradient simulation path: fill=' + pathFill);
                     return null;
                 }
             }
@@ -11276,10 +10887,6 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
         
         // Mask/Clip: apply ALL masks (nested clip intersection)
         try {
-            console.log('[DEBUG MASK PATH] Processing path "' + (node.attrs && node.attrs.id || node.name || 'unnamed') + '" (Cavalry ID: ' + vecId + ')');
-            console.log('[DEBUG MASK PATH]   node.attrs.mask: ' + (node.attrs && node.attrs.mask));
-            console.log('[DEBUG MASK PATH]   node.attrs.clip-path: ' + (node.attrs && node.attrs['clip-path']));
-            console.log('[DEBUG MASK PATH]   node.attrs._inheritedMaskIds: [' + ((node.attrs && node.attrs._inheritedMaskIds) || []).join(', ') + ']');
             
             // Build list of all masks to apply: inherited masks + own mask
             var allMaskIdsP = (node.attrs && node.attrs._inheritedMaskIds) ? node.attrs._inheritedMaskIds.slice() : [];
@@ -11295,20 +10902,16 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
             }
             
             // Apply all inherited masks - Clipping Masks naturally intersect
-            console.log('[DEBUG MASK PATH]   Masks to apply: [' + allMaskIdsP.join(', ') + ']');
             
             if (allMaskIdsP.length > 0) {
                 
                 for (var mpi = 0; mpi < allMaskIdsP.length; mpi++) {
-                    console.log('[DEBUG MASK PATH]   CALLING createMaskShapeForTarget for path with maskId: ' + allMaskIdsP[mpi]);
                     createMaskShapeForTarget(allMaskIdsP[mpi], vecId, parentId, vb, model, svgGeometryP);
                 }
                 
                 if (allMaskIdsP.length > 1) {
-                    console.log('[NESTED CLIP] Applied ' + allMaskIdsP.length + ' masks to path: [' + allMaskIdsP.join(', ') + ']');
             }
             } else {
-                console.log('[DEBUG MASK PATH]   No mask to apply for this path');
             }
         } catch (eMaskP) {
             console.error('[DEBUG MASK PATH] Error applying mask: ' + (eMaskP.message || eMaskP));
@@ -11731,22 +11334,158 @@ function initializeQuiverWebServer() {
     }
 }
 
+// Track loading indicator layer IDs for cleanup
+var __loadingIndicatorLayers = [];
+
+/**
+ * Get the active composition dimensions
+ * Falls back to 1920x1080 if unable to determine
+ * @returns {Object} {width, height}
+ */
+function getCompDimensions() {
+    var defaultDims = { width: 1920, height: 1080 };
+    try {
+        var compId = api.getActiveComp();
+        if (!compId) return defaultDims;
+        
+        // Try to get resolution from composition
+        var resolution = api.get(compId, 'resolution');
+        if (resolution && resolution.length >= 2) {
+            return { width: resolution[0], height: resolution[1] };
+        }
+        
+        // Fallback: try individual properties
+        var w = api.get(compId, 'resolution.x');
+        var h = api.get(compId, 'resolution.y');
+        if (w && h) {
+            return { width: w, height: h };
+        }
+    } catch (e) {
+        // Couldn't get comp dimensions, use defaults
+    }
+    return defaultDims;
+}
+
+/**
+ * Show loading indicator by importing the Firing....svg file
+ * Uses Quiver's native SVG import pipeline (processAndImportSVG)
+ * Adjusts dimensions to match active composition bounds
+ * @returns {Array} Array of created layer IDs (the "Firing..." group)
+ */
+function showLoadingIndicator() {
+    try {
+        // Get composition dimensions for the overlay
+        var compDims = getCompDimensions();
+        var compWidth = compDims.width;
+        var compHeight = compDims.height;
+        
+        // Read the loading SVG file using api.readFromFile (same as quiver_createUI.js)
+        // Located in quiver_assets folder following the same pattern as other assets
+        var svgPath = ui.scriptLocation + '/quiver_assets/quiver_firing-loader.svg';
+        var svgContent = null;
+        
+        try {
+            svgContent = api.readFromFile(svgPath);
+        } catch (readError) {
+            return [];
+        }
+        
+        if (!svgContent || svgContent.trim() === '') {
+            return [];
+        }
+        
+        // Adjust SVG dimensions to match composition bounds
+        // Original SVG is 1920x1080, dialog box is centered at x=637, y=476
+        // Dialog dimensions: 646.505 x 127
+        var origWidth = 1920;
+        var origHeight = 1080;
+        var dialogWidth = 646.505;
+        var dialogHeight = 127;
+        
+        // Calculate new dialog position to center it in the composition
+        var newDialogX = Math.round((compWidth - dialogWidth) / 2);
+        var newDialogY = Math.round((compHeight - dialogHeight) / 2);
+        
+        // Calculate offset to adjust all elements inside Frame 2 group
+        var offsetX = newDialogX - 637;
+        var offsetY = newDialogY - 476;
+        
+        // Update SVG viewBox and dimensions
+        svgContent = svgContent.replace(
+            /width="1920"\s+height="1080"\s+viewBox="0 0 1920 1080"/,
+            'width="' + compWidth + '" height="' + compHeight + '" viewBox="0 0 ' + compWidth + ' ' + compHeight + '"'
+        );
+        
+        // Update the dark overlay rect (70% black) to match composition bounds
+        svgContent = svgContent.replace(
+            /<rect width="1920" height="1080" fill="black" fill-opacity="0.7"\/>/,
+            '<rect width="' + compWidth + '" height="' + compHeight + '" fill="black" fill-opacity="0.7"/>'
+        );
+        
+        // Adjust the entire Frame 2 group position using transform
+        // This moves the dialog box, logo, and text together as a unit
+        // Don't modify individual element positions - just transform the group
+        if (offsetX !== 0 || offsetY !== 0) {
+            svgContent = svgContent.replace(
+                /<g id="Frame 2">/,
+                '<g id="Frame 2" transform="translate(' + offsetX + ', ' + offsetY + ')">'
+            );
+        }
+        
+        // Import using Quiver's native SVG parser (same pipeline as regular imports)
+        // resetImportedGroupIds() is called at start of processAndImportSVG
+        processAndImportSVG(svgContent);
+        
+        // Get the group IDs that were created during import
+        // Uses getImportedGroupIds() from quiver_svgParser.js
+        var createdGroups = [];
+        try {
+            createdGroups = getImportedGroupIds();
+        } catch (e) {
+            // Fallback if function not available
+        }
+        
+        // Flush events to ensure the loading indicator renders immediately
+        if (typeof api.processEvents === 'function') {
+            api.processEvents();
+        }
+        
+        return createdGroups;
+        
+    } catch (e) {
+    }
+    return [];
+}
+
+/**
+ * Hide loading indicator by deleting its layers
+ * @param {Array} layerIds - Array of layer IDs to delete
+ */
+function hideLoadingIndicator(layerIds) {
+    try {
+        if (layerIds && layerIds.length > 0) {
+            for (var i = 0; i < layerIds.length; i++) {
+                api.deleteLayer(layerIds[i]);
+            }
+        }
+    } catch (e) {
+        // Cleanup failure is non-critical
+    }
+}
+
 /**
  * Handle SVG import request (with optional hybrid vector data for stroke gradients)
  */
 function handleImportSVG(request) {
+    // Show loading indicator before import starts
+    var loadingLayers = showLoadingIndicator();
+    
     try {
-        console.log('[Quiver Import] handleImportSVG called');
-        console.log('[Quiver Import] request.textData: ' + (request.textData ? request.textData.length + ' items' : 'none'));
-        console.log('[Quiver Import] request.vectorData: ' + (request.vectorData ? request.vectorData.length + ' items' : 'none'));
-        console.log('[Quiver Import] request.emojiData: ' + (request.emojiData ? request.emojiData.length + ' items' : 'none'));
         
         // HYBRID TEXT: Store Figma text data BEFORE SVG import so createText can access it
         if (request.textData && request.textData.length > 0) {
-            console.info("🏹 Quiver: Storing " + request.textData.length + " text node(s) alignment data...");
             setFigmaTextData(request.textData);
         } else {
-            console.log('[Quiver Import] No textData in request, clearing previous data');
             clearFigmaTextData(); // Clear any previous data
         }
         
@@ -11761,7 +11500,6 @@ function handleImportSVG(request) {
         // If hybrid vector data is present (nodes with stroke gradients),
         // process them to restore proper strokes with gradients
         if (request.vectorData && request.vectorData.length > 0) {
-            console.info("🏹 Quiver: Processing " + request.vectorData.length + " stroke gradient node(s)...");
             
             var viewBox = extractViewBox(request.svgCode);
             if (!viewBox) {
@@ -11775,10 +11513,7 @@ function handleImportSVG(request) {
         // These overlay the invisible emoji characters in text, preserving spacing
         // Only process if emoji import is enabled in settings
         if (request.emojiData && request.emojiData.length > 0) {
-            if (typeof importEmojisEnabled !== 'undefined' && !importEmojisEnabled) {
-                console.info("🏹 Quiver: Skipping " + request.emojiData.length + " emoji(s) - emoji import disabled");
-            } else {
-                console.info("🏹 Quiver: Processing " + request.emojiData.length + " emoji(s)...");
+            if (typeof importEmojisEnabled === 'undefined' || importEmojisEnabled) {
                 
                 var viewBox = extractViewBox(request.svgCode);
                 if (!viewBox) {
@@ -11796,6 +11531,9 @@ function handleImportSVG(request) {
             clearEmojiIndexMaps();
         }
         
+        // Hide loading indicator now that import is complete
+        hideLoadingIndicator(loadingLayers);
+        
         // Try to bring Cavalry to the foreground
         // Note: Window focusing may not be available in Cavalry's scripting API
         try {
@@ -11808,6 +11546,8 @@ function handleImportSVG(request) {
             // Window focusing not available
         }
     } catch (e) {
+        // Hide loading indicator even on error
+        hideLoadingIndicator(loadingLayers);
         console.error("🏹 Quiver: Import failed - " + e.message);
     }
 }
@@ -11852,7 +11592,6 @@ function setFigmaTextData(textDataArray) {
                 }
             }
             
-            console.log('[Quiver Text] Stored Figma text data: "' + td.name + '" (align: ' + td.textAlignHorizontal + ')');
         }
     }
 }
@@ -11900,7 +11639,6 @@ function getFigmaTextData(name, content, svgPosition) {
     
     // If base name was different from original name and we found candidates, log it
     if (baseName !== name && allCandidates.length > 0) {
-        console.log('[Quiver Text] Using base name "' + baseName + '" for SVG element "' + name + '" (' + allCandidates.length + ' candidates)');
     }
     
     // If no candidates found by base name, try exact name as-is (unique names)
@@ -11915,7 +11653,6 @@ function getFigmaTextData(name, content, svgPosition) {
         if (content) {
             var contentKey = content.substring(0, 50);
             if (__figmaTextDataByContent[contentKey]) {
-                console.log('[Quiver Text] Matched by content: "' + contentKey.substring(0, 20) + '..."');
                 return __figmaTextDataByContent[contentKey];
             }
         }
@@ -11957,12 +11694,6 @@ function getFigmaTextData(name, content, svgPosition) {
                 var dy = Math.abs((entryY || 0) - (svgPosition.y || 0));
                 var distance = dx + (dy * 0.3);
                 
-                console.log('[Quiver Text] Position check: "' + (entry.name || baseName) + '" (content: "' + 
-                            (entry.characters || '').substring(0, 15) + '...") ' +
-                            'Figma(' + (entryX || 0).toFixed(1) + ',' + (entryY || 0).toFixed(1) + ')' +
-                            ' vs SVG(' + (svgPosition.x || 0).toFixed(1) + ',' + (svgPosition.y || 0).toFixed(1) + ')' +
-                            ' distance=' + distance.toFixed(1));
-                
                 if (distance < bestDistance) {
                     bestDistance = distance;
                     bestMatch = entry;
@@ -11971,8 +11702,6 @@ function getFigmaTextData(name, content, svgPosition) {
         }
         
         if (bestMatch && bestDistance < 500) { // Within 500px is a reasonable match
-            console.log('[Quiver Text] Matched "' + name + '" to "' + (bestMatch.name || baseName) + 
-                        '" (content: "' + (bestMatch.characters || '').substring(0, 15) + '...") by position (distance=' + bestDistance.toFixed(1) + ')');
             return bestMatch;
         }
     }
@@ -11981,7 +11710,6 @@ function getFigmaTextData(name, content, svgPosition) {
     for (var p = 0; p < candidateEntries.length; p++) {
         if (!candidateEntries[p]._used) {
             candidateEntries[p]._used = true;
-            console.log('[Quiver Text] Using entry ' + (p + 1) + ' of ' + candidateEntries.length + ' for "' + name + '"');
             return candidateEntries[p];
         }
     }
@@ -12012,7 +11740,6 @@ function registerCreatedTextShape(figmaTextName, textShapeId) {
         __createdTextShapes[figmaTextName] = [];
     }
     __createdTextShapes[figmaTextName].push(textShapeId);
-    console.log('[Text Registry] Registered "' + figmaTextName + '" -> ' + textShapeId);
 }
 
 /**
@@ -12036,7 +11763,6 @@ function getCreatedTextShape(figmaTextName) {
         if (__createdTextShapes.hasOwnProperty(key)) {
             var cleanKey = key.replace(/[\u{1F000}-\u{1FFFF}]/gu, '').trim();
             if (cleanKey === cleanName || key.indexOf(cleanName) >= 0 || cleanName.indexOf(key) >= 0) {
-                console.log('[Text Registry] Matched "' + figmaTextName + '" to "' + key + '"');
                 return __createdTextShapes[key][0];
             }
         }
@@ -12089,7 +11815,6 @@ function processStrokeGradientNodes(vectorDataArray, viewBox) {
                 // if another layer has the same name
                 markLayerAsProcessed(existingLayerId);
                 
-                console.info("   Found existing layer '" + nodeData.name + "' - extracting gradient shader...");
                 
                 // Determine the layer to read position from
                 // If the existing layer is a group, the actual position is on its first child shape
@@ -12105,7 +11830,6 @@ function processStrokeGradientNodes(vectorDataArray, viewBox) {
                                 var childType = groupChildren[gc].split('#')[0];
                                 if (childType === 'editableShape' || childType === 'basicShape' || childType === 'path') {
                                     positionSourceLayerId = groupChildren[gc];
-                                    console.info("   Layer is a group - reading position from child: " + positionSourceLayerId);
                                     break;
                                 }
                             }
@@ -12126,7 +11850,6 @@ function processStrokeGradientNodes(vectorDataArray, viewBox) {
                     var rawRot = api.get(positionSourceLayerId, 'rotation');
                     existingRot = (typeof rawRot === 'number') ? rawRot : parseFloat(rawRot) || 0;
                     if (existingRot !== 0) {
-                        console.info("   Existing layer rotation: " + existingRot + "°");
                     }
                 } catch (eRot) {}
                 
@@ -12143,7 +11866,6 @@ function processStrokeGradientNodes(vectorDataArray, viewBox) {
                         for (var si = 0; si < siblings.length; si++) {
                             if (siblings[si] === existingLayerId) {
                                 originalIndex = si;
-                                console.info("   Layer is at index " + si + " of " + siblings.length + " siblings");
                                 break;
                             }
                         }
@@ -12159,8 +11881,6 @@ function processStrokeGradientNodes(vectorDataArray, viewBox) {
                 
                 // Get existing clipping masks connected to this layer
                 // Use our reverse lookup cache since Cavalry's masks array isn't directly readable
-                console.log('[DEBUG HYBRID MASK] Looking for masks on existing layer: ' + existingLayerId);
-                console.log('[DEBUG HYBRID MASK]   Layer name: ' + nodeData.name);
                 
                 // Helper: recursively collect masks from a layer and its children
                 // This is needed because when the found layer is a GROUP (e.g., "Vector 312"),
@@ -12175,7 +11895,6 @@ function processStrokeGradientNodes(vectorDataArray, viewBox) {
                             for (var mi = 0; mi < masks.length; mi++) {
                                 if (existingClippingMasks.indexOf(masks[mi]) === -1) {
                                     existingClippingMasks.push(masks[mi]);
-                                    console.log('[DEBUG HYBRID MASK]   Found mask on ' + layerId + ': ' + masks[mi]);
                                 }
                             }
                         }
@@ -12193,16 +11912,13 @@ function processStrokeGradientNodes(vectorDataArray, viewBox) {
                 // Method 1: Use our reverse lookup cache recursively (most reliable)
                 // This handles both direct layers AND groups containing paths with masks
                 collectMasksRecursively(existingLayerId, 0);
-                console.log('[DEBUG HYBRID MASK]   After recursive collection: ' + existingClippingMasks.length + ' mask(s)');
                 
                 // Method 2: Fallback - try Cavalry API methods (for completeness/debugging)
                 if (existingClippingMasks.length === 0) {
                     try {
                         var clipMaskChildren = api.getAttrChildren(existingLayerId, 'masks');
-                        console.log('[DEBUG HYBRID MASK]   getAttrChildren("masks") returned: ' + (clipMaskChildren ? JSON.stringify(clipMaskChildren) : 'null'));
                         
                         if (clipMaskChildren && clipMaskChildren.length > 0) {
-                            console.log('[DEBUG HYBRID MASK]   masks array has ' + clipMaskChildren.length + ' children but reverse lookup was empty');
                             // Try the API methods as fallback
                             for (var cmc = 0; cmc < clipMaskChildren.length; cmc++) {
                                 var childAttrId = clipMaskChildren[cmc];
@@ -12229,16 +11945,13 @@ function processStrokeGradientNodes(vectorDataArray, viewBox) {
                                 
                                 if (maskLayerId) {
                                     existingClippingMasks.push(maskLayerId);
-                                    console.log('[DEBUG HYBRID MASK]   Found via API fallback: ' + maskLayerId);
                                 }
                             }
                         }
                     } catch (eCM) {
-                        console.log('[DEBUG HYBRID MASK]   API fallback failed: ' + (eCM.message || eCM));
                     }
                 }
                 
-                console.log('[DEBUG HYBRID MASK] Clipping mask collection complete. Found: ' + existingClippingMasks.length);
                 
                 // Helper: extract layer type from layerId (e.g., "gradientShader#33" -> "gradientShader")
                 function getLayerType(layerId) {
@@ -12258,18 +11971,15 @@ function processStrokeGradientNodes(vectorDataArray, viewBox) {
                     
                     try {
                         var children = api.getChildren(layerId);
-                        console.info(indent + "Checking " + children.length + " children of " + layerId + "...");
                         
                         for (var c = 0; c < children.length; c++) {
                             var childId = children[c];
                             var childType = getLayerType(childId);
                             var childName = "";
                             try { childName = api.getNiceName(childId); } catch (eN) { childName = childId; }
-                            console.info(indent + "Child " + c + ": '" + childName + "' (id: " + childId + ", type: " + childType + ")");
                             
                             if (childType === 'gradientShader') {
                                 allShaders.push({id: childId, name: childName});
-                                console.info(indent + "  -> Found gradient shader!");
                             }
                             
                             // Check if this child is a filter effect
@@ -12277,7 +11987,6 @@ function processStrokeGradientNodes(vectorDataArray, viewBox) {
                             for (var ft = 0; ft < filterTypes.length; ft++) {
                                 if (childType === filterTypes[ft]) {
                                     allFilters.push({id: childId, name: childName, type: childType});
-                                    console.info(indent + "  -> Found filter: " + childType);
                                     isFilter = true;
                                     break;
                                 }
@@ -12291,21 +12000,16 @@ function processStrokeGradientNodes(vectorDataArray, viewBox) {
                             }
                         }
                     } catch (eFind) {
-                        console.error(indent + "Error checking children: " + eFind.message);
                     }
                 }
                 
                 // Start searching from the existing layer
                 collectShadersAndFilters(existingLayerId, 0);
                 
-                console.info("   Found " + allShaders.length + " gradient shaders");
-                console.info("   Found " + allFilters.length + " filter effects to transfer");
                 
                 // Assign shaders based on what the Figma data tells us about the shape
                 var hasFigmaFill = nodeData.fills && nodeData.fills.length > 0 && nodeData.fills[0].visible !== false;
                 var hasFigmaGradientFill = hasFigmaFill && nodeData.fills[0].gradientType;
-                console.info("   Figma data: hasFill=" + hasFigmaFill + ", hasGradientFill=" + hasFigmaGradientFill);
-                console.info("   Found " + allShaders.length + " gradient shaders");
                 
                 // Logic for shader assignment:
                 // - If shape had BOTH gradient fill and gradient stroke in Figma:
@@ -12320,22 +12024,17 @@ function processStrokeGradientNodes(vectorDataArray, viewBox) {
                     // So: Shader 0 = STROKE, Shader 1 = FILL
                     existingStrokeShader = allShaders[0].id;
                     existingFillShader = allShaders[1].id;
-                    console.info("   Shader 0 ('" + allShaders[0].name + "') → STROKE");
-                    console.info("   Shader 1 ('" + allShaders[1].name + "') → FILL");
                 } else if (allShaders.length >= 1) {
                     // Single shader (or no gradient fill) → shader is from outlined stroke
                     existingStrokeShader = allShaders[0].id;
-                    console.info("   Shader 0 ('" + allShaders[0].name + "') → STROKE (outlined)");
                     
                     // If there's a second shader and Figma had a fill, might be for fill
                     if (allShaders.length >= 2 && hasFigmaFill) {
                         existingFillShader = allShaders[1].id;
-                        console.info("   Shader 1 ('" + allShaders[1].name + "') → FILL");
                     }
                 }
                 
                 if (!existingStrokeShader) {
-                    console.info("   No existing gradient shader found - will create new one");
                 }
                 
                 // Create the replacement path with proper stroke (and fill if applicable)
@@ -12349,14 +12048,12 @@ function processStrokeGradientNodes(vectorDataArray, viewBox) {
                     if (parentId) {
                         try {
                             api.parent(newLayerId, parentId);
-                            console.info("   Parented new layer to: " + api.getNiceName(parentId));
                             
                             // Reorder: move new layer to the same position as the old one
                             api.select([newLayerId]);
                             
                             // First, bring all the way to front (index 0)
                             api.bringToFront();
-                            console.info("   Brought layer to front (index 0)");
                             
                             // Then move backward to reach originalIndex
                             // Since old layer is still at originalIndex, we need to go to originalIndex
@@ -12365,7 +12062,6 @@ function processStrokeGradientNodes(vectorDataArray, viewBox) {
                                 for (var m = 0; m < originalIndex; m++) {
                                     api.moveBackward();
                                 }
-                                console.info("   Moved backward " + originalIndex + " times to position " + originalIndex);
                             }
                         } catch (eParent) {
                             console.error("   Failed to parent/reorder: " + eParent.message);
@@ -12374,7 +12070,6 @@ function processStrokeGradientNodes(vectorDataArray, viewBox) {
                     
                     // Transfer filter effects (drop shadows, blurs) to the new layer
                     if (allFilters.length > 0) {
-                        console.info("   Transferring " + allFilters.length + " filter effects...");
                         for (var fi = 0; fi < allFilters.length; fi++) {
                             var filter = allFilters[fi];
                             
@@ -12384,13 +12079,10 @@ function processStrokeGradientNodes(vectorDataArray, viewBox) {
                                 continue;
                             }
                             
-                            console.info("     Processing filter: id=" + filter.id + ", name=" + filter.name + ", type=" + filter.type);
-                            console.info("     Target newLayerId: " + newLayerId);
                             
                             // Step 1: Re-parent the filter to the new layer
                             try {
                                 api.parent(filter.id, newLayerId);
-                                console.info("     Re-parented filter to new layer");
                             } catch (eParentFilter) {
                                 console.error("     Failed to re-parent filter: " + eParentFilter.message);
                             }
@@ -12398,44 +12090,32 @@ function processStrokeGradientNodes(vectorDataArray, viewBox) {
                             // Step 2: Connect the filter to the new layer's filters input
                             try {
                                 api.connect(filter.id, 'id', newLayerId, 'filters');
-                                console.info("     Connected filter to new layer's filters");
                             } catch (eConnFilter) {
                                 console.error("     Failed to connect filter: " + eConnFilter.message);
                                 // Try fallback to deformers
                                 try {
                                     api.connect(filter.id, 'id', newLayerId, 'deformers');
-                                    console.info("     Connected filter via deformers fallback");
                                 } catch (eConnDeform) {
                                     console.error("     Deformers fallback also failed: " + eConnDeform.message);
                                 }
                             }
                             
-                            console.info("     Transferred filter: " + filter.name);
                         }
                     }
                     
                     // Transfer clipping masks (clip-paths/masks) to the new layer
-                    console.log('[DEBUG HYBRID MASK] About to transfer clipping masks. Count: ' + existingClippingMasks.length);
-                    console.log('[DEBUG HYBRID MASK]   existingClippingMasks array: ' + JSON.stringify(existingClippingMasks));
-                    console.log('[DEBUG HYBRID MASK]   newLayerId: ' + newLayerId);
                     if (existingClippingMasks.length > 0) {
-                        console.info("   Transferring " + existingClippingMasks.length + " clipping mask(s)...");
                         for (var cmi = 0; cmi < existingClippingMasks.length; cmi++) {
                             var maskId = existingClippingMasks[cmi];
-                            console.log('[DEBUG HYBRID MASK]   Connecting maskId ' + maskId + ' to newLayerId ' + newLayerId);
                             try {
                                 api.connect(maskId, 'id', newLayerId, 'masks');
-                                console.info("     Connected clipping mask: " + maskId);
-                                console.log('[DEBUG HYBRID MASK]   SUCCESS: Connected clipping mask ' + maskId);
                                 
                                 // Ensure the mask stays visible (it might be a visible shape being reused)
                                 try {
                                     api.set(maskId, { 'hidden': false });
-                                    console.log('[DEBUG HYBRID MASK]   Ensured mask stays visible');
                                 } catch (eVis) {}
                             } catch (eConnMask) {
                                 console.error("     Failed to connect clipping mask: " + eConnMask.message);
-                                console.log('[DEBUG HYBRID MASK]   FAILED to connect clipping mask: ' + eConnMask.message);
                             }
                         }
                     }
@@ -12443,24 +12123,20 @@ function processStrokeGradientNodes(vectorDataArray, viewBox) {
                     // NOW delete the old layer (it's now at originalIndex + 1)
                     try { 
                         api.deleteLayer(existingLayerId); 
-                        console.info("   Deleted old outlined layer");
                     } catch (eDel) {
                         console.error("   Failed to delete old layer: " + eDel.message);
                     }
                     
                     // Path is positioned at existing layer's location (passed to createPathFromVectorDataWithExistingShaders)
                     // Gradient shader is already correctly positioned from the existing layer
-                    console.info("   Path created at existing layer's position");
                     
                     // Mark the new layer as processed too (in case there are multiple
                     // layers with the same name in the vectorData)
                     markLayerAsProcessed(newLayerId);
                     
-                    console.info("   Replaced '" + nodeData.name + "' with stroke gradient version");
                 }
             } else {
                 // Layer not found - create new one (without existing shader)
-                console.info("   Creating new layer '" + nodeData.name + "' with stroke gradient");
                 createPathFromVectorData(nodeData, viewBox, null);
             }
         } catch (eNode) {
@@ -12475,22 +12151,18 @@ function processStrokeGradientNodes(vectorDataArray, viewBox) {
  * Also tries suffixed names (e.g., "Polygon 5_2") if exact match not found
  */
 function findLayerByName(name) {
-    console.info("   findLayerByName: searching for '" + name + "'");
     
     try {
         // #region agent log
-        console.info("   [H2] About to call api.getCompLayers(false) - gets ALL layers");
         // #endregion
         
         // Get ALL layers in active comp (false = include nested, no compId needed)
         var allLayers = api.getCompLayers(false);
         
         // #region agent log
-        console.info("   [H2] getCompLayers returned: " + (allLayers ? allLayers.length : "null") + " total layers");
         // #endregion
         
         if (!allLayers || allLayers.length === 0) {
-            console.info("   findLayerByName: no layers in comp");
             return null;
         }
         
@@ -12513,7 +12185,6 @@ function findLayerByName(name) {
         // First pass: exact match
         for (var j = 0; j < candidates.length; j++) {
             if (candidates[j].name === name) {
-                console.info("   findLayerByName: FOUND '" + name + "' -> " + candidates[j].id);
                 return candidates[j].id;
             }
         }
@@ -12524,13 +12195,11 @@ function findLayerByName(name) {
             var suffixedName = name + '_' + suffix;
             for (var k = 0; k < candidates.length; k++) {
                 if (candidates[k].name === suffixedName) {
-                    console.info("   findLayerByName: FOUND '" + name + "' as '" + suffixedName + "' -> " + candidates[k].id);
                     return candidates[k].id;
                 }
             }
         }
         
-        console.info("   findLayerByName: '" + name + "' not found in " + allLayers.length + " layers");
         return null;
     } catch (e) {
         var errMsg = "unknown error";
@@ -12632,15 +12301,8 @@ function createPathFromVectorDataWithExistingShaders(nodeData, viewBox, parentId
                 // If delta is large (>50px), the vectorData is for a different layer instance
                 // Use the existing layer's position to place it correctly
                 if (dist > 50) {
-                    console.info("   Position mismatch detected (delta: " + dist.toFixed(1) + "px)");
-                    console.info("   -> Using existing layer position instead of computed");
                     finalPosX = targetPosition.x;
                     finalPosY = targetPosition.y;
-                } else if (dist > 1) {
-                    // Small delta - just log it
-                    console.info("   Position: computed (" + centre.x.toFixed(1) + ", " + centre.y.toFixed(1) + 
-                                ") vs existing (" + targetPosition.x.toFixed(1) + ", " + targetPosition.y.toFixed(1) + 
-                                ") - delta: " + dist.toFixed(1) + "px");
                 }
             }
             
@@ -12655,7 +12317,6 @@ function createPathFromVectorDataWithExistingShaders(nodeData, viewBox, parentId
             if (rotValue !== 0) {
                 try {
                     api.set(layerId, {"rotation": rotValue});
-                    console.info("   Applied existing layer rotation: " + rotValue.toFixed(2) + "°");
                 } catch (eRot) {
                     console.error("   Failed to apply rotation: " + eRot.message);
                 }
@@ -12676,7 +12337,6 @@ function createPathFromVectorDataWithExistingShaders(nodeData, viewBox, parentId
             if (fillOpacity < 1) {
                 try {
                     api.set(layerId, {"material.alpha": fillOpacity * 100}); // Cavalry uses 0-100
-                    console.info("   Applied fill opacity: " + (fillOpacity * 100) + "%");
                 } catch (eAlpha) {
                     console.error("   Failed to set fill opacity: " + eAlpha.message);
                 }
@@ -12687,7 +12347,6 @@ function createPathFromVectorDataWithExistingShaders(nodeData, viewBox, parentId
                 try {
                     connectShaderToShape(existingFillShader, layerId);
                     api.parent(existingFillShader, layerId);
-                    console.info("   Reused existing gradient shader for fill");
                 } catch (eFillShader) {
                     console.error("   Failed to connect fill shader: " + eFillShader.message);
                 }
@@ -12700,7 +12359,6 @@ function createPathFromVectorDataWithExistingShaders(nodeData, viewBox, parentId
                     var fillShader = createGradientFromFigmaPaint(fill, nodeData.name + '_fill');
                     if (fillShader) {
                         connectShaderToShape(fillShader, layerId);
-                        console.info("   Created new gradient shader for fill");
                     }
                 }
             }
@@ -12736,7 +12394,6 @@ function createPathFromVectorDataWithExistingShaders(nodeData, viewBox, parentId
                     // Convert Figma array to Cavalry CSV string (e.g., "62.35, 62.35")
                     var dashCsv = nodeData.dashPattern.join(', ');
                     api.set(layerId, {'stroke.dashPattern': dashCsv});
-                    console.info("   Applied dash pattern: " + dashCsv);
                 } catch (eDash) {
                     console.error("   Failed to apply dash pattern: " + eDash.message);
                 }
@@ -12747,7 +12404,6 @@ function createPathFromVectorDataWithExistingShaders(nodeData, viewBox, parentId
                 try {
                     connectShaderToStroke(existingStrokeShader, layerId);
                     api.parent(existingStrokeShader, layerId);
-                    console.info("   Reused existing gradient shader for stroke");
                     
                     // Update the shader with correct Figma data (fixes radiusRatio)
                     // Figma's SVG export decomposes the matrix, losing shear information
@@ -12758,7 +12414,6 @@ function createPathFromVectorDataWithExistingShaders(nodeData, viewBox, parentId
                             // The shader was already configured correctly during SVG import
                             // with the proper settings for the outlined shape dimensions.
                             // Recalculating here would use wrong dimensions (non-outlined path).
-                            console.log('[RADIAL GRADIENT FIX] Keeping existing shader settings (already correct from SVG import)');
                         } catch (eRadialFix) {
                             console.warn('[RADIAL GRADIENT FIX] Error: ' + eRadialFix.message);
                         }
@@ -12775,7 +12430,6 @@ function createPathFromVectorDataWithExistingShaders(nodeData, viewBox, parentId
                     var strokeShader = createGradientFromFigmaPaint(stroke, nodeData.name + '_stroke');
                     if (strokeShader) {
                         connectShaderToStroke(strokeShader, layerId);
-                        console.info("   Created new gradient shader for stroke");
                     }
                 }
             }
@@ -12794,7 +12448,6 @@ function createPathFromVectorDataWithExistingShaders(nodeData, viewBox, parentId
                     api.connect(bevelId, 'id', layerId, 'deformers');
                     // Parent under the shape
                     api.parent(bevelId, layerId);
-                    console.info("   Applied Bevel deformer with radius " + nodeData.cornerRadius);
                 }
             } catch (eBevel) {
                 console.error("   Failed to apply Bevel deformer: " + eBevel.message);
@@ -12913,7 +12566,6 @@ function createPathFromVectorData(nodeData, viewBox, parentId) {
                     api.set(layerId, {'stroke.dashPatternMode': 0});
                     var dashCsv = nodeData.dashPattern.join(', ');
                     api.set(layerId, {'stroke.dashPattern': dashCsv});
-                    console.info("   Applied dash pattern: " + dashCsv);
                 } catch (eDash) {
                     console.error("   Failed to apply dash pattern: " + eDash.message);
                 }
@@ -12927,7 +12579,6 @@ function createPathFromVectorData(nodeData, viewBox, parentId) {
                 var strokeShader = createGradientFromFigmaPaint(stroke, nodeData.name + '_stroke');
                 if (strokeShader) {
                     connectShaderToStroke(strokeShader, layerId);
-                    console.info("   Applied " + stroke.gradientType + " gradient to stroke");
                 }
             }
         }
@@ -13012,9 +12663,6 @@ function createGradientFromFigmaPaint(paintData, name) {
                     var shapeWidth = paintData.shapeWidth || 1;
                     var shapeHeight = paintData.shapeHeight || 1;
                     
-                    console.log('[RADIAL GRADIENT FIGMA] Computing scale from transform:');
-                    console.log('  Matrix: a=' + t.a.toFixed(6) + ', b=' + t.b.toFixed(6) + ', c=' + t.c.toFixed(6) + ', d=' + t.d.toFixed(6));
-                    console.log('  Shape dimensions: ' + shapeWidth.toFixed(2) + ' x ' + shapeHeight.toFixed(2));
                     
                     // Compute handle positions to get ellipse semi-axes
                     var centerX = t.a * 0.5 + t.c * 0.5 + t.e;
@@ -13033,7 +12681,6 @@ function createGradientFromFigmaPaint(paintData, name) {
                     var dy2 = (handle2Y - centerY) * shapeHeight;
                     var dist2 = Math.sqrt(dx2 * dx2 + dy2 * dy2);
                     
-                    console.log('  Ellipse semi-axes: dist1=' + dist1.toFixed(2) + 'px, dist2=' + dist2.toFixed(2) + 'px');
                     
                     // Calculate scale based on shape's half-dimensions
                     var shapeRadiusX = shapeWidth / 2;
@@ -13041,16 +12688,12 @@ function createGradientFromFigmaPaint(paintData, name) {
                     var scaleX = (dist1 / shapeRadiusX) * 100;
                     var scaleY = (dist2 / shapeRadiusY) * 100;
                     
-                    console.log('  Shape half-dimensions: ' + shapeRadiusX.toFixed(2) + ' x ' + shapeRadiusY.toFixed(2));
-                    console.log('  Calculated scale: x=' + scaleX.toFixed(1) + '%, y=' + scaleY.toFixed(1) + '%');
                     
                     // Set radiusRatio=1 (ellipse shape comes from scale.x/y)
                     api.set(shaderId, {"generator.radiusRatio": 1});
-                    console.log('[RADIAL GRADIENT FIGMA] Set radiusRatio: 1 (using scale.x/y for ellipse)');
                     
                     // Set scale values
                     api.set(shaderId, {"generator.scale.x": scaleX, "generator.scale.y": scaleY});
-                    console.log('[RADIAL GRADIENT FIGMA] Set generator.scale: (' + scaleX.toFixed(1) + ', ' + scaleY.toFixed(1) + ')');
                     
                     // Calculate and apply rotation from the matrix
                     var rotationRad = Math.atan2(t.b, t.a);
@@ -13128,7 +12771,6 @@ function processEmojiData(emojiDataArray, viewBox) {
         return;
     }
     
-    console.log('[Emoji] Processing ' + emojiDataArray.length + ' emoji(s) using Get Sub-Mesh Transform');
     
     var createdCount = 0;
     
@@ -13168,7 +12810,6 @@ function processEmojiData(emojiDataArray, viewBox) {
             continue;
         }
         
-        console.log('[Emoji] Found text shape ' + textShapeId + ' for "' + textNodeName + '"');
         
         // Use Count Sub-Meshes to get the ACTUAL word count
         // Word-level indexing is more reliable than character-level because:
@@ -13181,7 +12822,6 @@ function processEmojiData(emojiDataArray, viewBox) {
             api.set(countSubMeshId, { 'levelMode': 2 });  // 2 = Words
             actualWordCount = api.get(countSubMeshId, 'count');
             api.deleteLayer(countSubMeshId);  // Clean up temporary node
-            console.log('[Emoji] Count Sub-Meshes reports ' + actualWordCount + ' words');
         } catch (eCount) {
             console.warn('[Emoji] Could not create Count Sub-Meshes: ' + (eCount.message || eCount));
         }
@@ -13231,7 +12871,6 @@ function processEmojiData(emojiDataArray, viewBox) {
             api.connect(applyMaterialId, 'id', textShapeId, 'materialBehaviours');
             api.parent(applyMaterialId, textShapeId);
             
-            console.log('[Emoji] Created applyTextMaterial with regex to hide "' + currentPlaceholder + '" placeholders');
         } catch (eApply) {
             console.warn('[Emoji] Could not create Apply Text Material: ' + (eApply.message || eApply));
         }
@@ -13245,8 +12884,6 @@ function processEmojiData(emojiDataArray, viewBox) {
             var emoji = emojisForNode[m];
             var emojiWord = emojiWordData[m];
             
-            console.log('[Emoji] Processing "' + emoji.emojiChar + '" at charIndex ' + emoji.charIndex + 
-                        ' -> wordIndex=' + emojiWord.wordIndex);
             
             try {
                 // Save the base64 PNG to the Quiver assets folder
@@ -13266,7 +12903,6 @@ function processEmojiData(emojiDataArray, viewBox) {
                     continue;
                 }
                 
-                console.log('[Emoji] Saved to: ' + savedPath);
                 
                 // Create name for the emoji layer (just the emoji character)
                 // Track duplicates to avoid naming conflicts
@@ -13313,7 +12949,6 @@ function processEmojiData(emojiDataArray, viewBox) {
                     // Connect the text shape to the Get Sub-Mesh Transform's input
                     api.connect(textShapeId, 'id', getSubMeshId, 'inputShape');
                     
-                    console.log('[Emoji] Created getSubMeshTransform: ' + getSubMeshId + ' for wordIndex ' + wordIndex);
                 } catch (eSubMesh) {
                     console.error('[Emoji] Failed to create Get Sub-Mesh Transform: ' + (eSubMesh.message || eSubMesh));
                     continue;
@@ -13348,7 +12983,6 @@ function processEmojiData(emojiDataArray, viewBox) {
                     api.connect(getSubMeshId, 'position', shapeId, 'position');
                     api.connect(getSubMeshId, 'rotation', shapeId, 'rotation');
                     api.connect(getSubMeshId, 'scale', shapeId, 'scale');
-                    console.log('[Emoji] Connected getSubMeshTransform position/rotation/scale -> ' + emojiName);
                 } catch (eConnect) {
                     console.error('[Emoji] Failed to connect transform: ' + (eConnect.message || eConnect));
                 }
@@ -13381,12 +13015,10 @@ function processEmojiData(emojiDataArray, viewBox) {
                             // There's a layer above the text - reorder emoji to be under that layer
                             var layerAboveText = siblings[textIndex - 1];
                             api.reorder(shapeId, layerAboveText);
-                            console.log('[Emoji] Positioned "' + emojiName + '" above text shape (under layer at index ' + (textIndex - 1) + ')');
                         } else {
                             // Text is at index 0 (top) - bring emoji to front
                             api.select([shapeId]);
                             api.bringToFront();
-                            console.log('[Emoji] Positioned "' + emojiName + '" at front (text was at index 0)');
                         }
                     }
                 } catch (eLayerOrder) {
@@ -13398,7 +13030,6 @@ function processEmojiData(emojiDataArray, viewBox) {
                 // Use the reverse lookup cache (getMaskShapesForTarget) which is the reliable way
                 try {
                     var textMasks = getMaskShapesForTarget(textShapeId);
-                    console.log('[Emoji] Text shape ' + textShapeId + ' has ' + (textMasks ? textMasks.length : 0) + ' mask(s) via reverse lookup: ' + JSON.stringify(textMasks));
                     
                     if (textMasks && textMasks.length > 0) {
                         var masksConnected = 0;
@@ -13410,7 +13041,6 @@ function processEmojiData(emojiDataArray, viewBox) {
                                 
                                 api.connect(maskLayerId, 'id', shapeId, 'masks');
                                 addMaskShapeForTarget(shapeId, maskLayerId);
-                                console.log('[Emoji] Connected mask "' + maskName + '" (' + maskLayerId + ') to emoji');
                                 
                                 // Only keep the mask visible if it's a visible shape being reused as matte
                                 // (tracked in __shapesUsedAsMattes), otherwise it's a dedicated mask shape
@@ -13425,7 +13055,6 @@ function processEmojiData(emojiDataArray, viewBox) {
                                 console.warn('[Emoji] Failed to connect mask ' + maskLayerId + ': ' + (eConnect.message || eConnect));
                             }
                         }
-                        console.log('[Emoji] Applied ' + masksConnected + ' clipping mask(s) from text shape');
                     }
                 } catch (eMask) {
                     console.warn('[Emoji] Could not get/apply masks: ' + (eMask.message || eMask));
@@ -13436,7 +13065,6 @@ function processEmojiData(emojiDataArray, viewBox) {
                 // Use reverse lookup (getFiltersForTarget) since api.getAttrChildren/api.get doesn't work for filter IDs
                 try {
                     var textFilters = getFiltersForTarget(textShapeId);
-                    console.log('[Emoji] Text shape ' + textShapeId + ' has ' + (textFilters ? textFilters.length : 0) + ' filter(s) via reverse lookup: ' + JSON.stringify(textFilters));
                     
                     if (textFilters && textFilters.length > 0) {
                         var filtersConnected = 0;
@@ -13448,13 +13076,11 @@ function processEmojiData(emojiDataArray, viewBox) {
                                 
                                 api.connect(filterLayerId, 'id', shapeId, 'filters');
                                 addFilterForTarget(shapeId, filterLayerId); // Track new connection
-                                console.log('[Emoji] Connected filter "' + filterName + '" (' + filterLayerId + ') to emoji');
                                 filtersConnected++;
                             } catch (eFilterConnect) {
                                 console.warn('[Emoji] Failed to connect filter ' + filterLayerId + ': ' + (eFilterConnect.message || eFilterConnect));
                             }
                         }
-                        console.log('[Emoji] Applied ' + filtersConnected + ' filter(s) from text shape');
                     }
                 } catch (eFilter) {
                     console.warn('[Emoji] Could not get/apply filters: ' + (eFilter.message || eFilter));
@@ -13531,7 +13157,6 @@ function processEmojiData(emojiDataArray, viewBox) {
                 }
                 
                 createdCount++;
-                console.log('[Emoji] ✓ Created "' + emoji.emojiChar + '" with Get Sub-Mesh Transform at wordIndex ' + wordIndex);
                 
                 // Track this shape for potential grouping
                 createdEmojiShapes.push({
@@ -13557,7 +13182,6 @@ function processEmojiData(emojiDataArray, viewBox) {
                 
                 // Create the group
                 var emojiGroupId = api.create('group', emojiGroupName);
-                console.log('[Emoji] Created group "' + emojiGroupName + '" for ' + createdEmojiShapes.length + ' emojis');
                 
                 // Get the parent of the first emoji shape (they should all share the same parent)
                 var emojiParentId = null;
@@ -13603,7 +13227,6 @@ function processEmojiData(emojiDataArray, viewBox) {
                     }
                 } catch (eReorder) {}
                 
-                console.log('[Emoji] ✓ Grouped ' + createdEmojiShapes.length + ' emojis under "' + emojiGroupName + '"');
                 
             } catch (eGroup) {
                 console.warn('[Emoji] Could not create emoji group: ' + (eGroup.message || eGroup));
@@ -13611,9 +13234,6 @@ function processEmojiData(emojiDataArray, viewBox) {
         }
     }
     
-    if (createdCount > 0) {
-        console.info('🏹 Quiver: Created ' + createdCount + ' emoji image(s) with precise positioning');
-    }
 }
 
 /**
@@ -13681,7 +13301,6 @@ function processEmojiWithFallback(emoji, viewBox) {
         api.setStroke(shapeId, false);
         api.set(shapeId, { 'material.materialColor.a': 0 });
         
-        console.log('[Emoji Fallback] Created "' + emoji.emojiChar + '" at (' + cavalryPos.x.toFixed(1) + ', ' + cavalryPos.y.toFixed(1) + ')');
         return 1;
         
     } catch (e) {
@@ -13694,15 +13313,24 @@ function processEmojiWithFallback(emoji, viewBox) {
  * Handle clipboard import request
  */
 function handleImportFromClipboard(request) {
+    // Show loading indicator before import starts
+    var loadingLayers = showLoadingIndicator();
+    
     try {
         var svg = api.getClipboardText();
         if (!svg || svg.trim() === '') {
+            hideLoadingIndicator(loadingLayers);
             console.error("🏹 Quiver: Clipboard is empty");
             return;
         }
         processAndImportSVG(svg);
         console.info("🏹 Quiver: Clipboard imported successfully");
+        
+        // Hide loading indicator after import
+        hideLoadingIndicator(loadingLayers);
     } catch (e) {
+        // Hide loading indicator even on error
+        hideLoadingIndicator(loadingLayers);
         console.error("🏹 Quiver: Clipboard import failed - " + e.message);
     }
 }
@@ -13712,8 +13340,6 @@ function handleImportFromClipboard(request) {
  */
 function handleImportFromFigma(request) {
     console.info("🏹 Quiver: Figma import received");
-    console.info("   Direct Figma import coming soon!");
-    console.info("   For now, export as SVG from Figma and use importSVG action");
     
     // TODO: Implement direct Figma data conversion
     // This would parse Figma's JSON format and create Cavalry layers directly

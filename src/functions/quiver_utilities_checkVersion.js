@@ -108,11 +108,9 @@ function checkForUpdate(githubRepo, scriptName, currentVersion, callback) {
                 if (callback) callback(false);
             }
         } else {
-            console.log("Version check: Unable to fetch versions.json (HTTP " + client.status() + ")");
             if (callback) callback(false);
         }
     } catch (e) {
-        console.log("Version check: Error - " + e.message);
         if (callback) callback(false);
     }
 }

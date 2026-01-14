@@ -63,18 +63,15 @@ function parseGradientStops(gradientElement) {
     var match;
     while ((match = stopRegex.exec(gradientElement)) !== null) {
         var stopElement = match[0];
-        console.log('[GRADIENT STOP RAW] Element: ' + stopElement);
         var offset = _gradGetAttr(stopElement, "offset");
         
         // Try to get stop-color from direct attribute first
         var stopColor = _gradGetAttr(stopElement, "stop-color");
         var stopOpacity = _gradGetAttr(stopElement, "stop-opacity");
-        console.log('[GRADIENT STOP RAW] Direct attrs: stop-color=' + stopColor + ', stop-opacity=' + stopOpacity);
         
         // If not found as direct attribute, try extracting from style (Affinity SVG format)
         if (!stopColor || !stopOpacity) {
             var styleAttr = _gradGetAttr(stopElement, "style");
-            console.log('[GRADIENT STOP RAW] Style attr: ' + styleAttr);
             if (styleAttr) {
                 if (!stopColor) {
                     stopColor = extractStyleProperty(styleAttr, 'stop-color');
@@ -82,7 +79,6 @@ function parseGradientStops(gradientElement) {
                 if (!stopOpacity) {
                     stopOpacity = extractStyleProperty(styleAttr, 'stop-opacity');
                 }
-                console.log('[GRADIENT STOP RAW] From style: stop-color=' + stopColor + ', stop-opacity=' + stopOpacity);
             }
         }
         
@@ -93,7 +89,6 @@ function parseGradientStops(gradientElement) {
         }
         var opacity = stopOpacity ? parseFloat(stopOpacity) : 1.0;
         if (isNaN(opacity)) opacity = 1.0;
-        console.log('[GRADIENT PARSE] Stop: offset=' + offsetNum + ', color=' + stopColor + ', stop-opacity=' + stopOpacity + ' -> opacity=' + opacity);
         stops.push({
             offset: Math.max(0, Math.min(1, offsetNum)),
             color: parseColor(stopColor),
@@ -128,7 +123,6 @@ function extractGradients(svgCode) {
                 grad._absoluteCenterX = (x1 + x2) / 2;
                 grad._absoluteCenterY = (y1 + y2) / 2;
                 grad._isAbsoluteCoords = true;
-                console.log('[LINEAR GRADIENT] Parsed userSpaceOnUse: center=(' + grad._absoluteCenterX.toFixed(2) + ', ' + grad._absoluteCenterY.toFixed(2) + ')');
             }
             
             gradients.push(grad);
@@ -202,7 +196,6 @@ function createGradientShader(gradientData) {
             // radiusMode: 0 = Fixed, 1 = Bounding Box
             try {
                 api.set(shaderId, {"generator.radiusMode": 1}); // Bounding Box
-                console.log('[RADIAL GRADIENT] Set radiusMode to Bounding Box (1)');
             } catch (eRM) {
                 console.warn('[RADIAL GRADIENT] Could not set radiusMode: ' + eRM.message);
             }
@@ -240,8 +233,6 @@ function createGradientShader(gradientData) {
                     if (isAbsoluteCoords && gradientData.gradientUnits === 'userSpaceOnUse') {
                         // Set radiusRatio to 1 - ellipse shape will come from scale.x/y
                         api.set(shaderId, {"generator.radiusRatio": 1});
-                        console.log('[RADIAL GRADIENT] Set radiusRatio: 1 (using scale.x/y for ellipse shape)');
-                        console.log('[RADIAL GRADIENT] SVD axes: sigma1=' + sigma1.toFixed(2) + ', sigma2=' + sigma2.toFixed(2));
                     } else {
                         // For objectBoundingBox or small matrices, use radiusRatio for aspect
                         var radiusRatio = 1;
@@ -250,7 +241,6 @@ function createGradientShader(gradientData) {
                         }
                         radiusRatio = Math.max(0.01, Math.min(100, radiusRatio));
                         api.set(shaderId, {"generator.radiusRatio": radiusRatio});
-                        console.log('[RADIAL GRADIENT] Set radiusRatio: ' + radiusRatio.toFixed(4) + ' (objectBoundingBox mode)');
                     }
                     
                     // Store SVD values for scale calculation when connecting to shape
@@ -258,7 +248,6 @@ function createGradientShader(gradientData) {
                         __svgGradientMap[gradientData.id]._svdSigma1 = sigma1;
                         __svgGradientMap[gradientData.id]._svdSigma2 = sigma2;
                         __svgGradientMap[gradientData.id]._isAbsoluteCoords = isAbsoluteCoords;
-                        console.log('[RADIAL GRADIENT] Stored SVD values for scale: sigma1=' + sigma1.toFixed(2) + ', sigma2=' + sigma2.toFixed(2));
                     }
                 } catch (eRR) {
                     console.warn('[RADIAL GRADIENT] Could not process transform: ' + eRR.message);
@@ -579,12 +568,10 @@ function createGradientShader(gradientData) {
             try {
                 // Set color with opacity
                 var colorWithAlpha = colorWithOpacity(stop.color, stop.opacity);
-                console.log('[GRADIENT STOP] Stop ' + i + ': color=' + stop.color + ', opacity=' + stop.opacity + ' -> ' + colorWithAlpha);
                 var colAttr = {}; 
                 colAttr['generator.gradient.' + i + '.color'] = colorWithAlpha; 
                 api.set(shaderId, colAttr);
             } catch (eCol) {
-                console.log('[GRADIENT STOP] Error setting stop ' + i + ': ' + eCol.message);
             }
         }
         
@@ -616,7 +603,6 @@ function createSweepGradientFromFigma(figmaGradData, layerId, attrs) {
     try {
         // Skip gradient creation if disabled in settings
         if (typeof importGradientsEnabled !== 'undefined' && !importGradientsEnabled) {
-            console.log('[SWEEP GRADIENT] Gradients disabled in settings, skipping');
             return null;
         }
         
@@ -627,7 +613,6 @@ function createSweepGradientFromFigma(figmaGradData, layerId, attrs) {
             return null;
         }
         
-        console.log('[SWEEP GRADIENT] Creating sweep gradient with ' + stops.length + ' stops');
         
         // Create descriptive name from first and last colors
         var firstStop = stops[0];
@@ -638,12 +623,10 @@ function createSweepGradientFromFigma(figmaGradData, layerId, attrs) {
         
         // Create the gradient shader
         var shaderId = api.create('gradientShader', gradientName);
-        console.log('[SWEEP GRADIENT] Created shader: ' + shaderId);
         
         // Set gradient type to sweep (angular) gradient
         try {
             api.setGenerator(shaderId, 'generator', 'sweepGradientShader');
-            console.log('[SWEEP GRADIENT] Set generator to sweepGradientShader');
         } catch (eGen) {
             console.warn('[SWEEP GRADIENT] Could not set sweepGradientShader: ' + eGen.message);
             // If sweepGradientShader isn't available, the gradient may default to linear
@@ -654,7 +637,6 @@ function createSweepGradientFromFigma(figmaGradData, layerId, attrs) {
         // Cavalry API: generator.wrapUVs (boolean)
         try {
             api.set(shaderId, {"generator.wrapUVs": true});
-            console.log('[SWEEP GRADIENT] Enabled wrapUVs for seamless gradient wrapping');
         } catch (eWrap) {
             console.warn('[SWEEP GRADIENT] Could not set wrapUVs: ' + eWrap.message);
         }
@@ -688,7 +670,6 @@ function createSweepGradientFromFigma(figmaGradData, layerId, attrs) {
             color: startColor
         });
         
-        console.log('[SWEEP GRADIENT] Inverted stop positions for counter-clockwise Cavalry gradient');
         
         // Build colors array for setGradientFromColors
         var colors = [];
@@ -713,19 +694,16 @@ function createSweepGradientFromFigma(figmaGradData, layerId, attrs) {
                 posAttr['generator.gradient.' + si + '.position'] = stopData.position;
                 api.set(shaderId, posAttr);
             } catch (ePos) {
-                console.log('[SWEEP GRADIENT] Error setting stop ' + si + ' position: ' + ePos.message);
             }
             
             try {
                 // Set color with opacity
                 var colorWithAlphaValue = figmaRgbaToHexWithAlpha(stopData.color);
                 var logSuffix = isClosing ? ' (closing loop)' : '';
-                console.log('[SWEEP GRADIENT] Stop ' + si + ': position=' + stopData.position.toFixed(3) + ', color=' + colorWithAlphaValue + logSuffix);
                 var colAttr = {};
                 colAttr['generator.gradient.' + si + '.color'] = colorWithAlphaValue;
                 api.set(shaderId, colAttr);
             } catch (eCol) {
-                console.log('[SWEEP GRADIENT] Error setting stop ' + si + ' color: ' + eCol.message);
             }
         }
         
@@ -776,9 +754,6 @@ function createSweepGradientFromFigma(figmaGradData, layerId, attrs) {
                 // Calculate the gradient-relative rotation (gradient rotation minus shape rotation)
                 var relativeGradientRotation = gradientRotationDeg - shapeRotationDeg;
                 
-                console.log('[SWEEP GRADIENT] Gradient transform rotation: ' + gradientRotationDeg.toFixed(1) + '°');
-                console.log('[SWEEP GRADIENT] Shape rotation: ' + shapeRotationDeg.toFixed(1) + '°');
-                console.log('[SWEEP GRADIENT] Relative gradient rotation: ' + relativeGradientRotation.toFixed(1) + '°');
                 
                 // Convert from Figma (TOP start, CW) to Cavalry (RIGHT start, CCW):
                 // The negation accounts for direction flip, -90 shifts from TOP to RIGHT
@@ -788,7 +763,6 @@ function createSweepGradientFromFigma(figmaGradData, layerId, attrs) {
                 // Normalize to 0-360 range
                 cavalryRotation = ((cavalryRotation % 360) + 360) % 360;
                 
-                console.log('[SWEEP GRADIENT] Final Cavalry rotation: ' + cavalryRotation.toFixed(1) + '°');
                 
                 api.set(shaderId, {"generator.rotation": cavalryRotation});
             } catch (eRot) {
@@ -801,7 +775,6 @@ function createSweepGradientFromFigma(figmaGradData, layerId, attrs) {
             var alphaPercent = Math.round(figmaGradData.opacity * 100);
             try {
                 api.set(shaderId, {'alpha': alphaPercent});
-                console.log('[SWEEP GRADIENT] Set shader alpha to ' + alphaPercent + '%');
             } catch (eAlpha) {}
         }
         
@@ -815,7 +788,6 @@ function createSweepGradientFromFigma(figmaGradData, layerId, attrs) {
             // Parent the shader under the shape
             try { api.parent(shaderId, layerId); } catch (ePar) {}
             
-            console.log('[SWEEP GRADIENT] Connected shader to layer ' + layerId);
         } catch (eConnect) {
             console.error('[SWEEP GRADIENT] Failed to connect shader: ' + eConnect.message);
         }
@@ -853,7 +825,6 @@ function createDiamondGradientFromFigma(figmaGradData, layerId, attrs) {
     try {
         // Skip gradient creation if disabled in settings
         if (typeof importGradientsEnabled !== 'undefined' && !importGradientsEnabled) {
-            console.log('[DIAMOND GRADIENT] Gradients disabled in settings, skipping');
             return null;
         }
         
@@ -864,7 +835,6 @@ function createDiamondGradientFromFigma(figmaGradData, layerId, attrs) {
             return null;
         }
         
-        console.log('[DIAMOND GRADIENT] Creating diamond gradient with ' + stops.length + ' stops');
         
         // Create descriptive name from first and last colors
         var firstStop = stops[0];
@@ -875,19 +845,16 @@ function createDiamondGradientFromFigma(figmaGradData, layerId, attrs) {
         
         // Create the gradient shader
         var shaderId = api.create('gradientShader', gradientName);
-        console.log('[DIAMOND GRADIENT] Created shader: ' + shaderId);
         
         // Set gradient type to shape gradient (for diamond with 4 sides)
         // Cavalry API: api.setGenerator(id, 'generator', 'shapeGradientShader')
         try {
             api.setGenerator(shaderId, 'generator', 'shapeGradientShader');
-            console.log('[DIAMOND GRADIENT] Set generator to shapeGradientShader');
         } catch (eGen) {
             console.warn('[DIAMOND GRADIENT] Could not set shapeGradientShader: ' + eGen.message);
             // Fallback: try radial gradient as an approximation
             try {
                 api.setGenerator(shaderId, 'generator', 'radialGradientShader');
-                console.log('[DIAMOND GRADIENT] Fallback to radialGradientShader');
             } catch (eFallback) {
                 console.warn('[DIAMOND GRADIENT] Could not set radial fallback: ' + eFallback.message);
             }
@@ -897,7 +864,6 @@ function createDiamondGradientFromFigma(figmaGradData, layerId, attrs) {
         // Cavalry API: generator.sides (integer) - from Cavalry docs "Shape Sides"
         try {
             api.set(shaderId, {"generator.sides": 4});
-            console.log('[DIAMOND GRADIENT] Set sides to 4 (diamond)');
         } catch (eSides) {
             console.warn('[DIAMOND GRADIENT] Could not set sides: ' + eSides.message);
         }
@@ -907,7 +873,6 @@ function createDiamondGradientFromFigma(figmaGradData, layerId, attrs) {
         // Cavalry's polygon with 4 sides starts with flat top, so rotate 45°
         try {
             api.set(shaderId, {"generator.rotation": 45});
-            console.log('[DIAMOND GRADIENT] Set initial rotation to 45° for diamond orientation');
         } catch (eInitRot) {
             console.warn('[DIAMOND GRADIENT] Could not set initial rotation: ' + eInitRot.message);
         }
@@ -923,7 +888,6 @@ function createDiamondGradientFromFigma(figmaGradData, layerId, attrs) {
         
         // Set gradient colors
         api.setGradientFromColors(shaderId, 'generator.gradient', colors);
-        console.log('[DIAMOND GRADIENT] Set ' + colors.length + ' gradient colors');
         
         // Set individual stop positions and colors with opacity
         for (var si = 0; si < stops.length; si++) {
@@ -935,18 +899,15 @@ function createDiamondGradientFromFigma(figmaGradData, layerId, attrs) {
                 posAttr['generator.gradient.' + si + '.position'] = stopData.position;
                 api.set(shaderId, posAttr);
             } catch (ePos) {
-                console.log('[DIAMOND GRADIENT] Error setting stop ' + si + ' position: ' + ePos.message);
             }
             
             try {
                 // Set color with opacity
                 var colorWithAlphaValue = figmaRgbaToHexWithAlpha(stopData.color);
-                console.log('[DIAMOND GRADIENT] Stop ' + si + ': position=' + stopData.position.toFixed(3) + ', color=' + colorWithAlphaValue);
                 var colAttr = {};
                 colAttr['generator.gradient.' + si + '.color'] = colorWithAlphaValue;
                 api.set(shaderId, colAttr);
             } catch (eCol) {
-                console.log('[DIAMOND GRADIENT] Error setting stop ' + si + ' color: ' + eCol.message);
             }
         }
         
@@ -988,9 +949,6 @@ function createDiamondGradientFromFigma(figmaGradData, layerId, attrs) {
                 // Calculate the gradient-relative rotation (gradient rotation minus shape rotation)
                 var relativeGradientRotation = gradientRotationDeg - shapeRotationDeg;
                 
-                console.log('[DIAMOND GRADIENT] Gradient transform rotation: ' + gradientRotationDeg.toFixed(1) + '°');
-                console.log('[DIAMOND GRADIENT] Shape rotation: ' + shapeRotationDeg.toFixed(1) + '°');
-                console.log('[DIAMOND GRADIENT] Relative gradient rotation: ' + relativeGradientRotation.toFixed(1) + '°');
                 
                 // Add 45° base rotation for diamond orientation, then apply relative gradient rotation
                 // Negate the rotation because Cavalry uses counter-clockwise positive
@@ -999,7 +957,6 @@ function createDiamondGradientFromFigma(figmaGradData, layerId, attrs) {
                 // Normalize to 0-360 range
                 cavalryRotation = ((cavalryRotation % 360) + 360) % 360;
                 
-                console.log('[DIAMOND GRADIENT] Final Cavalry rotation: ' + cavalryRotation.toFixed(1) + '°');
                 
                 api.set(shaderId, {"generator.rotation": cavalryRotation});
             } catch (eRot) {
@@ -1012,7 +969,6 @@ function createDiamondGradientFromFigma(figmaGradData, layerId, attrs) {
         // Values: 0=Clamp, 1=Repeat, 2=Mirror, 3=Decal
         try {
             api.set(shaderId, {'tiling': 2});
-            console.log('[DIAMOND GRADIENT] Set tiling to Mirror (2)');
         } catch (eTiling) {
             console.warn('[DIAMOND GRADIENT] Could not set tiling: ' + eTiling.message);
         }
@@ -1022,7 +978,6 @@ function createDiamondGradientFromFigma(figmaGradData, layerId, attrs) {
             var alphaPercent = Math.round(figmaGradData.opacity * 100);
             try {
                 api.set(shaderId, {'alpha': alphaPercent});
-                console.log('[DIAMOND GRADIENT] Set shader alpha to ' + alphaPercent + '%');
             } catch (eAlpha) {}
         }
         
@@ -1036,7 +991,6 @@ function createDiamondGradientFromFigma(figmaGradData, layerId, attrs) {
             // Parent the shader under the shape
             try { api.parent(shaderId, layerId); } catch (ePar) {}
             
-            console.log('[DIAMOND GRADIENT] Connected shader to layer ' + layerId);
         } catch (eConnect) {
             console.error('[DIAMOND GRADIENT] Failed to connect shader: ' + eConnect.message);
         }

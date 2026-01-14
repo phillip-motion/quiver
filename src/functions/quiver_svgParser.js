@@ -285,7 +285,6 @@ function extractMasks(svgCode) {
             attrs: {}
         };
         
-        console.log('[Quiver] Extracted clipPath: ' + clipId + ' with ' + masks[clipId].children.length + ' child shapes');
     }
     
     return masks;
@@ -421,7 +420,6 @@ function mergeFillStrokePairs(node) {
         // Outer stroke: stroke circle radius = fill radius + strokeWidth/2
         var outer = nearly(scx, fcx) && nearly(scy, fcy) && nearly(sr, fr + w/2);
         if (!inner && !outer) return false;
-        console.log('[CIRCLE MERGE] Detected ' + (inner ? 'inner' : 'outer') + ' stroke circle (fill r=' + fr + ', stroke r=' + sr + ', strokeWidth=' + w + ')');
         fillEl.attrs.stroke = strokeEl.attrs.stroke;
         if (strokeEl.attrs['stroke-width'] !== undefined) fillEl.attrs['stroke-width'] = strokeEl.attrs['stroke-width'];
         if (strokeEl.attrs['stroke-opacity'] !== undefined) fillEl.attrs['stroke-opacity'] = strokeEl.attrs['stroke-opacity'];
@@ -576,15 +574,10 @@ function mergeFillStrokePairs(node) {
         var identical = (aContent === bContent);
         
         // Debug logging for text comparison
-        console.log('[MULTI-FILL TEXT] Comparing texts:');
-        console.log('  A: name="' + (a.name || 'unnamed') + '", content="' + (aContent || '(empty)').substring(0, 80) + '"');
-        console.log('  B: name="' + (b.name || 'unnamed') + '", content="' + (bContent || '(empty)').substring(0, 80) + '"');
-        console.log('  Identical: ' + identical);
         
         // CRITICAL: If both contents are empty, texts should NOT be considered identical
         // This prevents merging different texts that failed content extraction
         if (aContent === '' && bContent === '') {
-            console.log('[MULTI-FILL TEXT] WARNING: Both texts have empty content - NOT merging');
             return false;
         }
         
@@ -669,7 +662,6 @@ function mergeFillStrokePairs(node) {
             
             if (allAreGradientSimulation) {
                 // Mark ALL shapes in this group for removal - they're gradient simulation helpers
-                console.log('[MULTI-FILL] Skipping gradient simulation helper shapes (count: ' + g.length + ')');
                 for (var gri = 0; gri < g.length; gri++) {
                     g[gri].node.__remove = true;
                 }
@@ -679,7 +671,6 @@ function mergeFillStrokePairs(node) {
             if (!primary.attrs._additionalFills) {
                 primary.attrs._additionalFills = [];
             }
-            console.log('[MULTI-FILL] Merging ' + g.length + ' identical shapes into one');
             for (var si = 1; si < g.length; si++) {
                 var secondaryEntry = g[si];
                 var secondary = secondaryEntry.node;
@@ -698,7 +689,6 @@ function mergeFillStrokePairs(node) {
                 }
                 
                 primary.attrs._additionalFills.push(fillInfo);
-                console.log('[MULTI-FILL]   -> Added fill: ' + (fillInfo.fill || 'gradient-fill') + ' (opacity: ' + fillInfo.fillOpacity + ')');
                 
                 // NOTE: data-figma-gradient-fill is stored in fillInfo and processed via _additionalFills
                 // Do NOT transfer to primary.attrs to avoid duplicate gradient creation
@@ -707,20 +697,17 @@ function mergeFillStrokePairs(node) {
                 // This ensures filters from parent groups (like inner shadows) aren't lost
                 if (secondary.attrs._inheritedFilterId && !primary.attrs._inheritedFilterId) {
                     primary.attrs._inheritedFilterId = secondary.attrs._inheritedFilterId;
-                    console.log('[MULTI-FILL]   -> Transferred _inheritedFilterId: ' + secondary.attrs._inheritedFilterId);
                 }
                 
                 // Also transfer any direct filter attribute from the secondary shape
                 if (secondary.attrs.filter && !primary.attrs.filter) {
                     primary.attrs.filter = secondary.attrs.filter;
-                    console.log('[MULTI-FILL]   -> Transferred direct filter: ' + secondary.attrs.filter);
                 }
                 
                 // CRITICAL: Check if the secondary's PARENT GROUP has a filter (e.g., inner shadow)
                 // This is the common case: Figma exports <g filter="..."><rect fill="..."/></g>
                 if (secondaryHolder && secondaryHolder.attrs && secondaryHolder.attrs.filter && !primary.attrs.filter) {
                     primary.attrs.filter = secondaryHolder.attrs.filter;
-                    console.log('[MULTI-FILL]   -> Transferred filter from parent group: ' + secondaryHolder.attrs.filter);
                 }
                 
                 // Mark for removal
@@ -819,8 +806,6 @@ function applyFillAndStroke(layerId, attrs) {
         var figmaGradientFill = attrs['data-figma-gradient-fill'];
         if (figmaGradientFill && !gradientId) {
             try {
-                console.log('[ANGULAR GRADIENT] Found data-figma-gradient-fill attribute, length=' + figmaGradientFill.length);
-                console.log('[ANGULAR GRADIENT] Raw attribute (first 200 chars): ' + figmaGradientFill.substring(0, 200));
                 
                 // Parse the JSON data from the attribute (HTML entities need decoding)
                 // Handle both named entities (&quot;) and numeric entities (&#34;)
@@ -833,11 +818,8 @@ function applyFillAndStroke(layerId, attrs) {
                     .replace(/&gt;/g, '>')       // Named entity for >
                     .replace(/&amp;/g, '&');     // Named entity for & (must be last!)
                 
-                console.log('[ANGULAR GRADIENT] Decoded JSON (first 200 chars): ' + decodedJson.substring(0, 200));
                 
                 var figmaGradData = JSON.parse(decodedJson);
-                console.log('[ANGULAR GRADIENT] Parsed Figma gradient data: type=' + figmaGradData.type);
-                console.log('[ANGULAR GRADIENT] Stops count: ' + ((figmaGradData.stops || figmaGradData.stopsVar || []).length));
                 
                 // Handle GRADIENT_ANGULAR (maps to Cavalry's Sweep gradient)
                 if (figmaGradData.type === 'GRADIENT_ANGULAR') {
@@ -851,7 +833,6 @@ function applyFillAndStroke(layerId, attrs) {
                 
                 // Handle GRADIENT_DIAMOND (maps to Cavalry's Shape gradient with 4 sides)
                 if (figmaGradData.type === 'GRADIENT_DIAMOND') {
-                    console.log('[DIAMOND GRADIENT] Detected GRADIENT_DIAMOND type, creating diamond gradient');
                     // Create a diamond (shape) gradient shader
                     var diamondShaderId = createDiamondGradientFromFigma(figmaGradData, layerId, attrs);
                     if (diamondShaderId) {
@@ -888,15 +869,12 @@ function applyFillAndStroke(layerId, attrs) {
                 var shapeOpacityPercent = Math.round(shapeOpacity * 100);
                 try {
                     api.set(layerId, { 'opacity': shapeOpacityPercent });
-                    console.log('[OPACITY] Set shape opacity=' + shapeOpacityPercent + '% on ' + api.getNiceName(layerId));
                 } catch (eShapeOp) {
-                    console.log('[OPACITY] Could not set shape opacity: ' + eShapeOp.message);
                 }
             }
             
             // Debug log when inherited opacity is applied
             if (inheritedOpacity < 0.999) {
-                console.log('[OPACITY] Applied inherited opacity=' + inheritedOpacity + ' to layer ' + api.getNiceName(layerId));
             }
             // If gradient fill, pass fill-opacity to shader (not material.alpha)
             if (gradientId) {
@@ -914,7 +892,6 @@ function applyFillAndStroke(layerId, attrs) {
                     // This is the center BEFORE translation - needed because gradient coords are local
                     if (attrs._localCenterX !== undefined && attrs._localCenterY !== undefined) {
                         svgShapeCenter = { x: attrs._localCenterX, y: attrs._localCenterY };
-                        console.log('[GRADIENT] Using local center for offset: (' + svgShapeCenter.x + ', ' + svgShapeCenter.y + ')');
                     }
                     // Check for transformed center (from matrix transforms - rotation/scale)
                     else if (attrs._transformedCenterX !== undefined && attrs._transformedCenterY !== undefined) {
@@ -923,7 +900,6 @@ function applyFillAndStroke(layerId, attrs) {
                     // Check for path SVG center (calculated from path segments)
                     else if (attrs._pathSvgCenterX !== undefined && attrs._pathSvgCenterY !== undefined) {
                         svgShapeCenter = { x: attrs._pathSvgCenterX, y: attrs._pathSvgCenterY };
-                        console.log('[RADIAL GRADIENT] Using path SVG center from segments: (' + svgShapeCenter.x + ', ' + svgShapeCenter.y + ')');
                     }
                     // For rect: x + width/2, y + height/2
                     else if (attrs.x !== undefined && attrs.width !== undefined) {
@@ -1047,10 +1023,8 @@ function applyFillAndStroke(layerId, attrs) {
                                 var imgShaderAlpha = Math.round(fillAlpha * 100);
                                 api.set(shaderNode, { 'alpha': imgShaderAlpha });
                                 if (imgShaderAlpha < 100) {
-                                    console.log('[Quiver Image] Set image shader alpha to ' + imgShaderAlpha + '% (fill-opacity)');
                                 }
                             } catch (eImgAlpha) {
-                                console.log('[Quiver Image] Could not set image shader alpha: ' + eImgAlpha.message);
                             }
                             
                             // Align and scale inside the target shape
@@ -1066,7 +1040,6 @@ function applyFillAndStroke(layerId, attrs) {
                                 if (useTransform && isObjectBoundingBox) {
                                     // PRECISE MODE: Use scaleMode None and calculate exact scale/offset
                                     // The transform matrix is in objectBoundingBox coordinates (0-1 range)
-                                    console.log('[Quiver Image] Applying precise transform for pattern ' + pid);
                                     
                                     // Set scaleMode to None (0) for manual positioning
                                     var smSet = false;
@@ -1098,10 +1071,6 @@ function applyFillAndStroke(layerId, attrs) {
                                     var imgH = parseFloat(imgMeta && imgMeta.height) || 100;
                                     
                                     // Debug: log all input values
-                                    console.log('[Quiver Image] Pattern: ' + pid);
-                                    console.log('[Quiver Image]   Shape dimensions: ' + shapeW + ' x ' + shapeH);
-                                    console.log('[Quiver Image]   Image dimensions: ' + imgW + ' x ' + imgH);
-                                    console.log('[Quiver Image]   Transform matrix: a=' + useTransform.a + ', d=' + useTransform.d + ', e=' + useTransform.e + ', f=' + useTransform.f);
                                     
                                     // Calculate scale for Cavalry (where 1.0 = 100% = native image size)
                                     // In objectBoundingBox with patternContentUnits="objectBoundingBox":
@@ -1114,7 +1083,6 @@ function applyFillAndStroke(layerId, attrs) {
                                     var cavalryScaleX = useTransform.a * shapeW;
                                     var cavalryScaleY = useTransform.d * shapeH;
                                     
-                                    console.log('[Quiver Image]   Cavalry scale: ' + cavalryScaleX.toFixed(4) + ' x ' + cavalryScaleY.toFixed(4) + ' (1.0 = 100%)');
                                     
                                     // Apply scale
                                     _setFirstSupported(shaderNode, ['scale','generator.scale'], [cavalryScaleX, cavalryScaleY]);
@@ -1145,9 +1113,6 @@ function applyFillAndStroke(layerId, attrs) {
                                     var cavalryOffsetX = offsetX;
                                     var cavalryOffsetY = -offsetY;
                                     
-                                    console.log('[Quiver Image]   Visible size: ' + visibleW.toFixed(2) + ' x ' + visibleH.toFixed(2));
-                                    console.log('[Quiver Image]   Image center: (' + imgCenterX.toFixed(2) + ', ' + imgCenterY.toFixed(2) + ')');
-                                    console.log('[Quiver Image]   Cavalry offset: (' + cavalryOffsetX.toFixed(2) + ', ' + cavalryOffsetY.toFixed(2) + ')');
                                     
                                     _setFirstSupported(shaderNode, ['offset','generator.offset'], [cavalryOffsetX, cavalryOffsetY]);
                                     
@@ -1172,7 +1137,6 @@ function applyFillAndStroke(layerId, attrs) {
                                 try { api.set(shaderNode, { 'filterQuality': imageFilterQuality }); fqOk = true; } catch (eFQ1) { fqOk = false; }
                                 if (!fqOk) { try { api.set(shaderNode, { 'generator.filterQuality': imageFilterQuality }); } catch (eFQ2) {} }
                             } catch (eAlign) {
-                                console.log('[Quiver Image] Error applying image transform: ' + (eAlign.message || eAlign));
                             }
                             __patternImageShaderCache[pid] = shaderNode;
                             }
@@ -1206,7 +1170,6 @@ function applyFillAndStroke(layerId, attrs) {
                             api.set(primaryColorShaderId, { 'alpha': Math.round(fillAlpha * 100) });
                             api.connect(primaryColorShaderId, 'id', layerId, 'material.colorShaders');
                             try { api.parent(primaryColorShaderId, layerId); } catch (eParP) {}
-                            console.log('[MULTI-FILL] Created primary colorShader: ' + color + ' (stacking mode)');
                         }
                     } catch (ePrimaryShader) {
                         // Fallback to materialColor
@@ -1228,7 +1191,6 @@ function applyFillAndStroke(layerId, attrs) {
         // MULTI-FILL: Connect additional fills (from merged identical shapes)
         // These are stacked on top of the primary fill
         if (attrs._additionalFills && attrs._additionalFills.length > 0) {
-            console.log('[MULTI-FILL] Connecting ' + attrs._additionalFills.length + ' additional fill(s) to ' + api.getNiceName(layerId));
             
             // Calculate SVG center for gradient offset calculation (if not already calculated)
             // NOTE: Use local center for gradient offset (gradient coords are in local space)
@@ -1272,7 +1234,6 @@ function applyFillAndStroke(layerId, attrs) {
                 var addFigmaGradFill = (typeof addFillInfo === 'object') ? addFillInfo['data-figma-gradient-fill'] : null;
                 if (addFigmaGradFill) {
                     try {
-                        console.log('[MULTI-FILL]   -> Processing Figma gradient fill from additional fill');
                         
                         // Decode HTML entities in the JSON
                         var decodedJsonAdd = addFigmaGradFill
@@ -1285,13 +1246,11 @@ function applyFillAndStroke(layerId, attrs) {
                             .replace(/&amp;/g, '&');
                         
                         var figmaGradDataAdd = JSON.parse(decodedJsonAdd);
-                        console.log('[MULTI-FILL]   -> Figma gradient type: ' + figmaGradDataAdd.type);
                         
                         // Handle GRADIENT_ANGULAR (Sweep gradient)
                         if (figmaGradDataAdd.type === 'GRADIENT_ANGULAR') {
                             var sweepShaderIdAdd = createSweepGradientFromFigma(figmaGradDataAdd, layerId, attrs);
                             if (sweepShaderIdAdd) {
-                                console.log('[MULTI-FILL]   -> Created sweep gradient from additional fill');
                             }
                         }
                         
@@ -1299,14 +1258,12 @@ function applyFillAndStroke(layerId, attrs) {
                         if (figmaGradDataAdd.type === 'GRADIENT_DIAMOND') {
                             var diamondShaderIdAdd = createDiamondGradientFromFigma(figmaGradDataAdd, layerId, attrs);
                             if (diamondShaderIdAdd) {
-                                console.log('[MULTI-FILL]   -> Created diamond gradient from additional fill');
                             }
                         }
                         
                         // Skip further processing for this fill - gradient is handled
                         continue;
                     } catch (eFigmaGradAdd) {
-                        console.log('[MULTI-FILL]   -> Error processing Figma gradient: ' + eFigmaGradAdd.message);
                     }
                 }
                 
@@ -1325,9 +1282,7 @@ function applyFillAndStroke(layerId, attrs) {
                             var gradAlphaPercent = Math.round(addFillOpacity * 100);
                             try {
                                 api.set(addGradShader, { 'alpha': gradAlphaPercent });
-                                console.log('[MULTI-FILL]   -> Connected gradient: ' + addFillId + ' with alpha=' + gradAlphaPercent + '% (fill-opacity)');
                             } catch (eGradAlpha) {
-                                console.log('[MULTI-FILL]   -> Connected gradient: ' + addFillId + ' (alpha set failed: ' + eGradAlpha.message + ')');
                             }
                         }
                     } catch (eAddGrad) {}
@@ -1368,7 +1323,6 @@ function applyFillAndStroke(layerId, attrs) {
                                     var addImgAlphaPercent = Math.round(addFillOpacity * 100);
                                     api.set(addShaderNode, { 'alpha': addImgAlphaPercent });
                                     if (addImgAlphaPercent < 100) {
-                                        console.log('[MULTI-FILL] Set image shader alpha to ' + addImgAlphaPercent + '% (fill-opacity)');
                                     }
                                 } catch (eAddImgAlpha) {}
                                 
@@ -1381,7 +1335,6 @@ function applyFillAndStroke(layerId, attrs) {
                                     var addIsObjectBoundingBox = addPatternData && addPatternData.attrs && addPatternData.attrs.patternContentUnits === 'objectBoundingBox';
                                     
                                     if (addUseTransform && addIsObjectBoundingBox) {
-                                        console.log('[MULTI-FILL] Applying precise transform for pattern ' + addPid);
                                         var addSmSet = false;
                                         try { api.set(addShaderNode, { 'scaleMode': 0 }); addSmSet = true; } catch (eSM02) { addSmSet = false; }
                                         if (!addSmSet) { try { api.set(addShaderNode, { 'generator.scaleMode': 0 }); } catch (eSM0b2) {} }
@@ -1429,17 +1382,13 @@ function applyFillAndStroke(layerId, attrs) {
                                     try { api.set(addShaderNode, { 'filterQuality': imageFilterQuality }); addFqOk = true; } catch (eFQ12) {}
                                     if (!addFqOk) { try { api.set(addShaderNode, { 'generator.filterQuality': imageFilterQuality }); } catch (eFQ22) {} }
                                 } catch (eAddAlign) {
-                                    console.log('[MULTI-FILL] Error applying image transform: ' + (eAddAlign.message || eAddAlign));
                                 }
                                 
                                 __patternImageShaderCache[addPid] = addShaderNode;
-                                console.log('[MULTI-FILL]   -> Connected pattern/image: ' + addFillId);
                             } else if (addCached) {
                                 try { api.connect(addCached, 'id', layerId, 'material.colorShaders'); } catch (eConnCached) {}
-                                console.log('[MULTI-FILL]   -> Connected cached pattern/image: ' + addFillId);
                             }
                         } catch (eAddPat) {
-                            console.log('[MULTI-FILL]   -> Error connecting pattern: ' + eAddPat.message);
                         }
                     }
                 } else if (addFillValue && addFillValue !== 'none') {
@@ -1468,7 +1417,6 @@ function applyFillAndStroke(layerId, attrs) {
                                     'shaderColor.a': aVal
                                 }); 
                             } catch (eSetColor) {
-                                console.log('[MULTI-FILL]   -> shaderColor set failed: ' + eSetColor.message);
                             }
                             
                             // Also set alpha attribute (0-100 percentage) for shader opacity
@@ -1481,10 +1429,8 @@ function applyFillAndStroke(layerId, attrs) {
                             // Parent under the shape
                             try { api.parent(colorShaderId, layerId); } catch (eParColor) {}
                             
-                            console.log('[MULTI-FILL]   -> Created colorShader: rgb(' + rVal + ',' + gVal + ',' + bVal + ') alpha=' + aVal + ' (' + alphaPercent + '%)');
                         }
                     } catch (eColorShader) {
-                        console.log('[MULTI-FILL]   -> Error creating colorShader: ' + eColorShader.message);
                     }
                 }
             }
@@ -1517,7 +1463,6 @@ function applyFillAndStroke(layerId, attrs) {
                             svgShapeCenterStroke = { x: attrs._transformedCenterX, y: attrs._transformedCenterY };
                         } else if (attrs._pathSvgCenterX !== undefined && attrs._pathSvgCenterY !== undefined) {
                             svgShapeCenterStroke = { x: attrs._pathSvgCenterX, y: attrs._pathSvgCenterY };
-                            console.log('[RADIAL GRADIENT STROKE] Using path SVG center: (' + svgShapeCenterStroke.x + ', ' + svgShapeCenterStroke.y + ')');
                         } else if (attrs.x !== undefined && attrs.width !== undefined) {
                             var rectXS = parseFloat(attrs.x || '0');
                             var rectYS = parseFloat(attrs.y || '0');

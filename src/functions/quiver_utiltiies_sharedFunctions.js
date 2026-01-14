@@ -262,9 +262,7 @@ function connectShaderToShape(shaderId, shapeId, svgShapeCenter, fillAlpha, shap
             var shaderAlphaPct = Math.round(fillAlpha * 100);
             try {
                 api.set(shaderId, {'alpha': shaderAlphaPct});
-                console.log('[GRADIENT] Set shader alpha to ' + shaderAlphaPct + '% (from fill-opacity)');
             } catch (eShaderAlpha) {
-                console.log('[GRADIENT] Could not set shader alpha: ' + eShaderAlpha.message);
             }
         }
 
@@ -306,11 +304,9 @@ function connectShaderToShape(shaderId, shapeId, svgShapeCenter, fillAlpha, shap
                         // Use provided SVG center (preferred - accurate)
                         shapeSvgCenterX = svgShapeCenter.x;
                         shapeSvgCenterY = svgShapeCenter.y;
-                        console.log('[RADIAL GRADIENT] Using provided SVG center: (' + shapeSvgCenterX + ', ' + shapeSvgCenterY + ')');
                     } else {
                         // Fallback for paths: use Cavalry bounding box and reverse-convert to SVG
                         // We need the viewBox to do proper conversion, so just log and skip offset
-                        console.log('[RADIAL GRADIENT] No SVG center provided (likely a path) - skipping offset calculation');
                     }
                     
                     // Only calculate offset if we have a valid SVG center
@@ -324,17 +320,12 @@ function connectShaderToShape(shaderId, shapeId, svgShapeCenter, fillAlpha, shap
                         var relativeOffsetX = offsetSvgX;
                         var relativeOffsetY = -offsetSvgY; // Invert Y for SVG->Cavalry conversion
                         
-                        console.log('[RADIAL GRADIENT] Gradient SVG center: (' + absX + ', ' + absY + ')');
-                        console.log('[RADIAL GRADIENT] Shape SVG center: (' + shapeSvgCenterX + ', ' + shapeSvgCenterY + ')');
-                        console.log('[RADIAL GRADIENT] Offset SVG: (' + offsetSvgX + ', ' + offsetSvgY + ')');
-                        console.log('[RADIAL GRADIENT] Offset Cavalry: (' + relativeOffsetX + ', ' + relativeOffsetY + ')');
                         
                         // Update the gradient's offset
                         try {
                             // Validate the offset values before setting
                             if (!isNaN(relativeOffsetX) && !isNaN(relativeOffsetY)) {
                                 api.set(shaderId, {"generator.offset.x": relativeOffsetX, "generator.offset.y": relativeOffsetY});
-                                console.log('[RADIAL GRADIENT] Set generator.offset: (' + relativeOffsetX + ', ' + relativeOffsetY + ')');
                             }
                         } catch (eOffset) {
                             console.warn('[RADIAL GRADIENT] Could not set offset: ' + eOffset.message);
@@ -377,10 +368,6 @@ function connectShaderToShape(shaderId, shapeId, svgShapeCenter, fillAlpha, shap
                     var isAbsoluteCoords = (Math.abs(a) > 2 || Math.abs(b) > 2 || Math.abs(c) > 2 || Math.abs(d) > 2 ||
                                             Math.abs(e) > 2 || Math.abs(f) > 2);
                     
-                    console.log('[RADIAL GRADIENT] Computing scale from transform:');
-                    console.log('  Matrix: a=' + a.toFixed(2) + ', b=' + b.toFixed(2) + ', c=' + c.toFixed(2) + ', d=' + d.toFixed(2));
-                    console.log('  Shape dimensions: ' + shapeWidth.toFixed(2) + ' x ' + shapeHeight.toFixed(2));
-                    console.log('  Coordinate space: ' + (isAbsoluteCoords ? 'userSpaceOnUse' : 'objectBoundingBox'));
                     
                     if (isAbsoluteCoords && gradientDataRR.gradientUnits === 'userSpaceOnUse') {
                         // For userSpaceOnUse: use matrix column lengths for x/y scale
@@ -389,7 +376,6 @@ function connectShaderToShape(shaderId, shapeId, svgShapeCenter, fillAlpha, shap
                         var colXLength = Math.sqrt(a * a + b * b);  // Length of column 1
                         var colYLength = Math.sqrt(c * c + d * d);  // Length of column 2
                         
-                        console.log('  Matrix column lengths: colX=' + colXLength.toFixed(2) + 'px, colY=' + colYLength.toFixed(2) + 'px');
                         
                         // Calculate scale based on shape's half-dimensions
                         // In Cavalry, 100% scale means the gradient fills the bounding box
@@ -402,19 +388,15 @@ function connectShaderToShape(shaderId, shapeId, svgShapeCenter, fillAlpha, shap
                         var scaleX = (colXLength / shapeRadiusX) * 100;
                         var scaleY = (colYLength / shapeRadiusY) * 100;
                         
-                        console.log('  Shape half-dimensions: ' + shapeRadiusX.toFixed(2) + ' x ' + shapeRadiusY.toFixed(2));
-                        console.log('  Calculated scale: x=' + scaleX.toFixed(1) + '%, y=' + scaleY.toFixed(1) + '%');
                         
                         // Set radiusRatio to 1 (ellipse shape comes from scale.x/y)
                         try {
                             api.set(shaderId, {"generator.radiusRatio": 1});
-                            console.log('[RADIAL GRADIENT] Set radiusRatio: 1 (using scale.x/y for ellipse)');
                         } catch (eRR) {}
                         
                         // Set scale values
                         try {
                             api.set(shaderId, {"generator.scale.x": scaleX, "generator.scale.y": scaleY});
-                            console.log('[RADIAL GRADIENT] Set generator.scale: (' + scaleX.toFixed(1) + ', ' + scaleY.toFixed(1) + ')');
                         } catch (eScale) {
                             console.warn('[RADIAL GRADIENT] Could not set scale: ' + eScale.message);
                         }
@@ -426,7 +408,6 @@ function connectShaderToShape(shaderId, shapeId, svgShapeCenter, fillAlpha, shap
                             var rotationRad = Math.atan2(b, a);
                             var rotationDeg = -rotationRad * 180 / Math.PI;
                             api.set(shaderId, {"generator.rotation": rotationDeg});
-                            console.log('[RADIAL GRADIENT] Set generator.rotation: ' + rotationDeg.toFixed(1) + '°');
                         } catch (eRot) {
                             console.warn('[RADIAL GRADIENT] Could not set rotation: ' + eRot.message);
                         }
@@ -447,7 +428,6 @@ function connectShaderToShape(shaderId, shapeId, svgShapeCenter, fillAlpha, shap
                         var dist1 = Math.sqrt(dx1 * dx1 + dy1 * dy1);
                         var dist2 = Math.sqrt(dx2 * dx2 + dy2 * dy2);
                         
-                        console.log('  Handle distances: dist1=' + dist1.toFixed(2) + 'px, dist2=' + dist2.toFixed(2) + 'px');
                         
                         var radiusRatioNew = 1;
                         if (dist1 > 0.0001 && dist2 > 0.0001) {
@@ -456,7 +436,6 @@ function connectShaderToShape(shaderId, shapeId, svgShapeCenter, fillAlpha, shap
                         radiusRatioNew = Math.max(0.01, Math.min(100, radiusRatioNew));
                         
                         api.set(shaderId, {"generator.radiusRatio": radiusRatioNew});
-                        console.log('[RADIAL GRADIENT] Set radiusRatio: ' + radiusRatioNew.toFixed(4) + ' (objectBoundingBox)');
                     }
                 }
             }
@@ -499,12 +478,6 @@ function connectShaderToShape(shaderId, shapeId, svgShapeCenter, fillAlpha, shap
                     var gradCenterX = (x1 + x2) / 2;
                     var gradCenterY = (y1 + y2) / 2;
                     
-                    console.log('[LINEAR GRADIENT] Computing properties:');
-                    console.log('  Start: (' + x1.toFixed(2) + ', ' + y1.toFixed(2) + ')');
-                    console.log('  End: (' + x2.toFixed(2) + ', ' + y2.toFixed(2) + ')');
-                    console.log('  Gradient length: ' + gradientLength.toFixed(2) + 'px');
-                    console.log('  Gradient center: (' + gradCenterX.toFixed(2) + ', ' + gradCenterY.toFixed(2) + ')');
-                    console.log('  Shape dimensions: ' + shapeWidthL.toFixed(2) + ' x ' + shapeHeightL.toFixed(2));
                     
                     // Calculate offset - try to get shape SVG center, or estimate from gradient center
                     var shapeSvgCenterXL = null;
@@ -514,7 +487,6 @@ function connectShaderToShape(shaderId, shapeId, svgShapeCenter, fillAlpha, shap
                         // Use provided SVG center
                         shapeSvgCenterXL = svgShapeCenter.x;
                         shapeSvgCenterYL = svgShapeCenter.y;
-                        console.log('  Shape SVG center (provided): (' + shapeSvgCenterXL.toFixed(2) + ', ' + shapeSvgCenterYL.toFixed(2) + ')');
                     } else {
                         // Use world-space bounding box to get actual geometric center
                         // This works for text (baseline anchor) and any other non-centered pivots
@@ -541,14 +513,9 @@ function connectShaderToShape(shaderId, shapeId, svgShapeCenter, fillAlpha, shap
                                 shapeSvgCenterXL = (viewBoxWidth / 2) + worldCenterX;
                                 shapeSvgCenterYL = (viewBoxHeight / 2) - worldCenterY;
                                 
-                                console.log('  Shape world bbox: x=' + shapeBboxWorld.x.toFixed(1) + ', y=' + shapeBboxWorld.y.toFixed(1) + ', w=' + shapeBboxWorld.width.toFixed(1) + ', h=' + shapeBboxWorld.height.toFixed(1));
-                                console.log('  Shape world center: (' + worldCenterX.toFixed(2) + ', ' + worldCenterY.toFixed(2) + ')');
-                                console.log('  Shape SVG center (from world bbox): (' + shapeSvgCenterXL.toFixed(2) + ', ' + shapeSvgCenterYL.toFixed(2) + ')');
                             } else {
-                                console.log('  Could not get valid world bounding box');
                             }
                         } catch (eEstimate) {
-                            console.log('  Could not estimate shape SVG center: ' + eEstimate.message);
                         }
                     }
                     
@@ -564,12 +531,9 @@ function connectShaderToShape(shaderId, shapeId, svgShapeCenter, fillAlpha, shap
                         var offsetCavXL = offsetSvgXL;
                         var offsetCavYL = isFlippedY ? offsetSvgYL : -offsetSvgYL;
                         
-                        console.log('  Offset (SVG): (' + offsetSvgXL.toFixed(2) + ', ' + offsetSvgYL.toFixed(2) + ')');
-                        console.log('  Offset (Cavalry): (' + offsetCavXL.toFixed(2) + ', ' + offsetCavYL.toFixed(2) + ')' + (isFlippedY ? ' [Y-flip adjusted]' : ''));
                         
                         try {
                             api.set(shaderId, {"generator.offset.x": offsetCavXL, "generator.offset.y": offsetCavYL});
-                            console.log('[LINEAR GRADIENT] Set generator.offset: (' + offsetCavXL.toFixed(1) + ', ' + offsetCavYL.toFixed(1) + ')');
                         } catch (eOffL) {
                             console.warn('[LINEAR GRADIENT] Could not set offset: ' + eOffL.message);
                         }
@@ -588,13 +552,9 @@ function connectShaderToShape(shaderId, shapeId, svgShapeCenter, fillAlpha, shap
                     
                     var angleDeg = angleRad * 180 / Math.PI;
                     
-                    console.log('  Gradient angle: ' + angleDeg.toFixed(2) + '°');
-                    console.log('  Shape reference dimension: ' + shapeReference.toFixed(2) + 'px');
-                    console.log('  Calculated scale: ' + scaleL.toFixed(4));
                     
                     try {
                         api.set(shaderId, {"generator.scale": scaleL});
-                        console.log('[LINEAR GRADIENT] Set generator.scale: ' + scaleL.toFixed(4));
                     } catch (eScaleL) {
                         console.warn('[LINEAR GRADIENT] Could not set scale: ' + eScaleL.message);
                     }
@@ -630,8 +590,6 @@ function connectShaderToShape(shaderId, shapeId, svgShapeCenter, fillAlpha, shap
                             
                             if (Math.abs(newRotation - currentRotation) > 0.01) {
                                 api.set(shaderId, {"generator.rotation": newRotation});
-                                console.log('[LINEAR GRADIENT] Y-flip compensation: rotation ' + 
-                                            currentRotation.toFixed(1) + '° → ' + newRotation.toFixed(1) + '° (negated)');
                             }
                         } catch (eRotL) {
                             console.warn('[LINEAR GRADIENT] Could not set rotation: ' + eRotL.message);
@@ -699,10 +657,6 @@ function connectShaderToStroke(shaderId, shapeId, svgShapeCenter) {
                     var gradCenterX = (x1 + x2) / 2;
                     var gradCenterY = (y1 + y2) / 2;
                     
-                    console.log('[LINEAR GRADIENT STROKE] Computing properties:');
-                    console.log('  Gradient: (' + x1.toFixed(1) + ',' + y1.toFixed(1) + ') to (' + x2.toFixed(1) + ',' + y2.toFixed(1) + ')');
-                    console.log('  Gradient length: ' + gradientLength.toFixed(2) + 'px');
-                    console.log('  Shape dimensions: ' + shapeWidthL.toFixed(2) + ' x ' + shapeHeightL.toFixed(2));
                     
                     // Calculate offset
                     var shapeSvgCenterXL = null;
@@ -722,7 +676,6 @@ function connectShaderToStroke(shaderId, shapeId, svgShapeCenter) {
                                 var worldCenterYS = shapeBboxWorldS.y + shapeBboxWorldS.height / 2;
                                 shapeSvgCenterXL = (viewBoxWidth / 2) + worldCenterXS;
                                 shapeSvgCenterYL = (viewBoxHeight / 2) - worldCenterYS;
-                                console.log('  Shape SVG center (from world bbox): (' + shapeSvgCenterXL.toFixed(2) + ', ' + shapeSvgCenterYL.toFixed(2) + ')');
                             }
                         } catch (eEstimate) {}
                     }
@@ -735,7 +688,6 @@ function connectShaderToStroke(shaderId, shapeId, svgShapeCenter) {
                         
                         try {
                             api.set(shaderId, {"generator.offset.x": offsetCavXL, "generator.offset.y": offsetCavYL});
-                            console.log('[LINEAR GRADIENT STROKE] Set offset: (' + offsetCavXL.toFixed(1) + ', ' + offsetCavYL.toFixed(1) + ')');
                         } catch (eOffL) {}
                     }
                     
@@ -744,12 +696,9 @@ function connectShaderToStroke(shaderId, shapeId, svgShapeCenter) {
                     var shapeReference = Math.max(shapeWidthL, shapeHeightL);
                     var scaleL = (gradientLength / shapeReference);
                     
-                    console.log('  Shape reference dimension: ' + shapeReference.toFixed(2) + 'px');
-                    console.log('  Calculated scale: ' + scaleL.toFixed(4));
                     
                     try {
                         api.set(shaderId, {"generator.scale": scaleL});
-                        console.log('[LINEAR GRADIENT STROKE] Set scale: ' + scaleL.toFixed(4));
                     } catch (eScaleL) {}
                 }
             }
@@ -772,7 +721,6 @@ function connectShaderToStroke(shaderId, shapeId, svgShapeCenter) {
             }
             
             if (gradientDataR && gradientDataR.type === 'radial' && gradientDataR.transform) {
-                console.log('[RADIAL GRADIENT STROKE] Computing properties for ' + foundGidR);
                 
                 var shapeBboxR = api.getBoundingBox(shapeId, false);
                 if (shapeBboxR && shapeBboxR.width > 0 && shapeBboxR.height > 0) {
@@ -788,16 +736,12 @@ function connectShaderToStroke(shaderId, shapeId, svgShapeCenter) {
                     var isAbsoluteCoordsR = (Math.abs(aR) > 2 || Math.abs(bR) > 2 || Math.abs(cR) > 2 || Math.abs(dR) > 2 ||
                                             Math.abs(eR) > 2 || Math.abs(fR) > 2);
                     
-                    console.log('[RADIAL GRADIENT STROKE] Computing scale from transform:');
-                    console.log('  Matrix: a=' + aR.toFixed(2) + ', b=' + bR.toFixed(2) + ', c=' + cR.toFixed(2) + ', d=' + dR.toFixed(2));
-                    console.log('  Shape dimensions: ' + shapeWidthR.toFixed(2) + ' x ' + shapeHeightR.toFixed(2));
                     
                     if (isAbsoluteCoordsR && gradientDataR.gradientUnits === 'userSpaceOnUse') {
                         // Calculate column lengths (these represent the radii in the transformed space)
                         var colXLengthR = Math.sqrt(aR * aR + bR * bR);
                         var colYLengthR = Math.sqrt(cR * cR + dR * dR);
                         
-                        console.log('  Matrix column lengths: colX=' + colXLengthR.toFixed(2) + 'px, colY=' + colYLengthR.toFixed(2) + 'px');
                         
                         // For Bounding Box radiusMode: scale is relative to shape's half-dimensions
                         var shapeRadiusXR = shapeWidthR / 2;
@@ -806,19 +750,15 @@ function connectShaderToStroke(shaderId, shapeId, svgShapeCenter) {
                         var scaleXR = (colXLengthR / shapeRadiusXR) * 100;
                         var scaleYR = (colYLengthR / shapeRadiusYR) * 100;
                         
-                        console.log('  Shape half-dimensions: ' + shapeRadiusXR.toFixed(2) + ' x ' + shapeRadiusYR.toFixed(2));
-                        console.log('  Calculated scale: x=' + scaleXR.toFixed(1) + '%, y=' + scaleYR.toFixed(1) + '%');
                         
                         // Set radiusRatio to 1 (ellipse shape comes from scale.x/y)
                         try {
                             api.set(shaderId, {"generator.radiusRatio": 1});
-                            console.log('[RADIAL GRADIENT STROKE] Set radiusRatio: 1');
                         } catch (eRRR) {}
                         
                         // Set scale values
                         try {
                             api.set(shaderId, {"generator.scale.x": scaleXR, "generator.scale.y": scaleYR});
-                            console.log('[RADIAL GRADIENT STROKE] Set generator.scale: (' + scaleXR.toFixed(1) + ', ' + scaleYR.toFixed(1) + ')');
                         } catch (eScaleR) {}
                         
                         // Set rotation from the gradient transform matrix
@@ -828,7 +768,6 @@ function connectShaderToStroke(shaderId, shapeId, svgShapeCenter) {
                         var rotationDegR = -rotationRadR * (180 / Math.PI);
                         try {
                             api.set(shaderId, {"generator.rotation": rotationDegR});
-                            console.log('[RADIAL GRADIENT STROKE] Set generator.rotation: ' + rotationDegR.toFixed(1) + '°');
                         } catch (eRotR) {}
                         
                         // Calculate offset
@@ -864,7 +803,6 @@ function connectShaderToStroke(shaderId, shapeId, svgShapeCenter) {
                             
                             try {
                                 api.set(shaderId, {"generator.offset.x": offsetCavXR, "generator.offset.y": offsetCavYR});
-                                console.log('[RADIAL GRADIENT STROKE] Set generator.offset: (' + offsetCavXR.toFixed(1) + ', ' + offsetCavYR.toFixed(1) + ')');
                             } catch (eOffR) {}
                         }
                     }

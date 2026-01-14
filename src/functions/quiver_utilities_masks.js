@@ -57,9 +57,6 @@ function _preprocessMaskChildTransform(maskChild) {
     var decomposed = decomposeMatrix(fullMatrix);
     var rotationDeg = decomposed.rotationDeg || 0;
     
-    console.log('[MASK TRANSFORM] Pre-processing mask child: ' + (clone.name || clone.type));
-    console.log('[MASK TRANSFORM]   Transform: ' + transformStr);
-    console.log('[MASK TRANSFORM]   Extracted rotation: ' + rotationDeg.toFixed(2) + '°');
     
     // Handle based on shape type
     if (clone.type === 'rect') {
@@ -91,7 +88,6 @@ function _preprocessMaskChildTransform(maskChild) {
         clone.attrs.x = (transformedCenterX - w / 2).toString();
         clone.attrs.y = (transformedCenterY - h / 2).toString();
         
-        console.log('[MASK TRANSFORM]   Rect center: (' + centerX.toFixed(2) + ', ' + centerY.toFixed(2) + ') -> (' + transformedCenterX.toFixed(2) + ', ' + transformedCenterY.toFixed(2) + ')');
     } else if (clone.type === 'circle' || clone.type === 'ellipse') {
         var cx = parseFloat(clone.attrs.cx || '0');
         var cy = parseFloat(clone.attrs.cy || '0');
@@ -107,7 +103,6 @@ function _preprocessMaskChildTransform(maskChild) {
         clone.attrs.cx = transformedCx.toString();
         clone.attrs.cy = transformedCy.toString();
         
-        console.log('[MASK TRANSFORM]   Circle/Ellipse center: (' + cx.toFixed(2) + ', ' + cy.toFixed(2) + ') -> (' + transformedCx.toFixed(2) + ', ' + transformedCy.toFixed(2) + ')');
     }
     
     // Clear transform to prevent double-application in createRect/createCircle/createEllipse
@@ -150,10 +145,6 @@ function doesSvgGeometryMatchClipPath(svgGeometry, maskDef) {
             var dimMatch = Math.abs(targetW - clipW) < tolerance && Math.abs(targetH - clipH) < tolerance;
             var posMatch = Math.abs(targetX - clipX) < tolerance && Math.abs(targetY - clipY) < tolerance;
             
-            console.log('[MASK OPT] Comparing SVG rect geometries:');
-            console.log('[MASK OPT]   ClipPath rect: x=' + clipX + ', y=' + clipY + ', w=' + clipW + ', h=' + clipH);
-            console.log('[MASK OPT]   Target SVG rect: x=' + targetX + ', y=' + targetY + ', w=' + targetW + ', h=' + targetH);
-            console.log('[MASK OPT]   Dimension match: ' + dimMatch + ', Position match: ' + posMatch);
             
             return dimMatch && posMatch;
         }
@@ -173,10 +164,6 @@ function doesSvgGeometryMatchClipPath(svgGeometry, maskDef) {
             
             var pathMatch = clipDNorm === targetDNorm;
             
-            console.log('[MASK OPT] Comparing SVG path data:');
-            console.log('[MASK OPT]   ClipPath d length: ' + clipDNorm.length);
-            console.log('[MASK OPT]   Target d length: ' + targetDNorm.length);
-            console.log('[MASK OPT]   Path data match: ' + pathMatch);
             
             return pathMatch;
         }
@@ -196,10 +183,6 @@ function doesSvgGeometryMatchClipPath(svgGeometry, maskDef) {
                               Math.abs(targetCy - clipCy) < tolerance &&
                               Math.abs(targetR - clipR) < tolerance;
             
-            console.log('[MASK OPT] Comparing SVG circle geometries:');
-            console.log('[MASK OPT]   ClipPath circle: cx=' + clipCx + ', cy=' + clipCy + ', r=' + clipR);
-            console.log('[MASK OPT]   Target circle: cx=' + targetCx + ', cy=' + targetCy + ', r=' + targetR);
-            console.log('[MASK OPT]   Circle match: ' + circleMatch);
             
             return circleMatch;
         }
@@ -222,18 +205,12 @@ function doesSvgGeometryMatchClipPath(svgGeometry, maskDef) {
                                Math.abs(targetRx - clipRx) < tolerance &&
                                Math.abs(targetRy - clipRy) < tolerance;
             
-            console.log('[MASK OPT] Comparing SVG ellipse geometries:');
-            console.log('[MASK OPT]   ClipPath ellipse: cx=' + clipExCx + ', cy=' + clipExCy + ', rx=' + clipRx + ', ry=' + clipRy);
-            console.log('[MASK OPT]   Target ellipse: cx=' + targetExCx + ', cy=' + targetExCy + ', rx=' + targetRx + ', ry=' + targetRy);
-            console.log('[MASK OPT]   Ellipse match: ' + ellipseMatch);
             
             return ellipseMatch;
         }
         
-        console.log('[MASK OPT] ClipPath type (' + clipChild.type + ') does not match target geometry type, skipping optimization');
         return false;
     } catch (e) {
-        console.log('[MASK OPT] Error comparing geometries: ' + e.message);
         return false;
     }
 }
@@ -268,8 +245,6 @@ function getMaskDefinition(maskId) {
 // Create or reuse a mask shape and connect it to the target
 // svgGeometry is optional: {x, y, width, height} from the SVG rect node for optimization
 function createMaskShapeForTarget(maskId, targetShapeId, parentId, vb, model, svgGeometry) {
-    console.log('[MASK] createMaskShapeForTarget: maskId=' + maskId + ', target=' + (targetShapeId ? api.getNiceName(targetShapeId) : 'null'));
-    console.log('[MASK]   Current cache: ' + JSON.stringify(Object.keys(__createdMaskShapes)));
     
     try {
         // Look up the mask definition
@@ -284,20 +259,16 @@ function createMaskShapeForTarget(maskId, targetShapeId, parentId, vb, model, sv
         // Check if we already created/designated a Cavalry shape for this maskId
         if (__createdMaskShapes[maskId]) {
             var existingShapeId = __createdMaskShapes[maskId];
-            console.log('[MASK] Reusing cached mask shape: ' + existingShapeId + ' (' + api.getNiceName(existingShapeId) + ')');
             
             // If the target is the same as the cached mask shape, skip connecting to itself
             if (existingShapeId === targetShapeId) {
-                console.log('[MASK] Target IS the mask shape, no connection needed');
                 return existingShapeId;
             }
             
             // Connect the existing shape to the new target via masks
             try {
-                console.log('[MASK]   Attempting api.connect(' + existingShapeId + ', "id", ' + targetShapeId + ', "masks")');
                 api.connect(existingShapeId, 'id', targetShapeId, 'masks');
                 addMaskShapeForTarget(targetShapeId, existingShapeId);
-                console.log('[MASK]   ✓ Successfully connected "' + api.getNiceName(existingShapeId) + '" to "' + api.getNiceName(targetShapeId) + '"');
                 
                 // If this matte is a visible shape being reused, ensure it stays visible
                 if (__shapesUsedAsMattes[existingShapeId]) {
@@ -314,8 +285,6 @@ function createMaskShapeForTarget(maskId, targetShapeId, parentId, vb, model, sv
         // OPTIMIZATION: Check if the target SVG geometry matches the clipPath geometry
         // If so, use the target shape itself as the matte (no duplicate needed)
         if (maskDef.type === 'clip' && svgGeometry && doesSvgGeometryMatchClipPath(svgGeometry, maskDef)) {
-            console.log('[MASK OPT] ✓ Target geometry matches clipPath - using as matte');
-            console.log('[MASK OPT]   CACHING: __createdMaskShapes["' + maskId + '"] = ' + targetShapeId + ' ("' + api.getNiceName(targetShapeId) + '")');
             
             // Cache this shape as the mask for this clipPath
             __createdMaskShapes[maskId] = targetShapeId;
@@ -326,7 +295,6 @@ function createMaskShapeForTarget(maskId, targetShapeId, parentId, vb, model, sv
                 api.set(targetShapeId, { 'hidden': false });
             } catch (eVisible) {}
             
-            console.log('[Quiver] ✓ Optimized: Using "' + api.getNiceName(targetShapeId) + '" as matte for ' + typeLabel + ' ' + maskId);
             return targetShapeId;
         }
 
@@ -364,7 +332,6 @@ function createMaskShapeForTarget(maskId, targetShapeId, parentId, vb, model, sv
             return null;
         }
 
-        console.log('[MASK] Created new mask shape: ' + maskShapeId);
         // Cache the created shape for reuse
         __createdMaskShapes[maskId] = maskShapeId;
 
@@ -406,7 +373,6 @@ function createMaskShapeForTarget(maskId, targetShapeId, parentId, vb, model, sv
         try {
             api.connect(maskShapeId, 'id', targetShapeId, 'masks');
             addMaskShapeForTarget(targetShapeId, maskShapeId);
-            console.log('[MASK] Connected ' + typeLabel + ' to ' + api.getNiceName(targetShapeId));
         } catch (eClipMask) {
             console.warn('[Quiver] Could not connect mask: ' + eClipMask.message);
         }
