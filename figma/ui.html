@@ -276,6 +276,10 @@
     
     // Button click handler
     sendButton.onclick = () => {
+      // Disable button immediately to prevent multiple clicks
+      // Button will be re-enabled after Cavalry confirms receipt (or error)
+      sendButton.disabled = true;
+      sendButton.textContent = 'Firing...';
       parent.postMessage({ pluginMessage: { type: 'send-to-cavalry' } }, '*');
     };
     
@@ -304,7 +308,19 @@
       
       if (msg.type === 'selection-info') {
         updateSelectionInfo(msg);
-      } 
+      }
+      else if (msg.type === 'enable-button') {
+        // Re-enable the button after Cavalry response (success or error)
+        sendButton.disabled = false;
+        sendButton.textContent = 'Fire towards Cavalry';
+      }
+      else if (msg.type === 'error') {
+        // Handle error from code.js (e.g., no selection, invalid type)
+        // Re-enable button so user can try again
+        sendButton.disabled = false;
+        sendButton.textContent = 'Fire towards Cavalry';
+        console.log('Error from plugin:', msg.message);
+      }
       else if (msg.type === 'send-svg') {
         console.log('Received send-svg message');
         console.log('  svgCode length:', msg.svgCode ? msg.svgCode.length : 'missing');
