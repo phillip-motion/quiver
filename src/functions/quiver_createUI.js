@@ -160,6 +160,7 @@ var keepOriginalEnabled = false;
 var defaultRadius = "";
 var importGradientsEnabled = true;
 var importLiveTextEnabled = true;
+var importEmojisEnabled = true;
 var importImageryEnabled = true;
 var importEffectsEnabled = true;
 var importGroupsEnabled = true;
@@ -384,6 +385,17 @@ function createSettingsWindow() {
     liveTextLayout.setSpaceBetween(8);
     settingsLayout.add(liveTextLayout);
     
+    // Import emojis checkbox
+    var emojisLayout = new ui.HLayout();
+    var importEmojisCheckbox = new ui.Checkbox(importEmojisEnabled);
+    importEmojisCheckbox.onValueChanged = function() {
+        importEmojisEnabled = importEmojisCheckbox.getValue();
+    };
+    emojisLayout.add(importEmojisCheckbox);
+    emojisLayout.add(new ui.Label("Import emojis"));
+    emojisLayout.setSpaceBetween(8);
+    settingsLayout.add(emojisLayout);
+    
     // Import imagery checkbox
     var imageryLayout = new ui.HLayout();
     var importImageryCheckbox = new ui.Checkbox(importImageryEnabled);
@@ -497,6 +509,7 @@ var cornerRadiusInput = new ui.LineEdit();
         defaultRadius = cornerRadiusInput.getText();
         importGradientsEnabled = importGradientsCheckbox.getValue();
         importLiveTextEnabled = importLiveTextCheckbox.getValue();
+        importEmojisEnabled = importEmojisCheckbox.getValue();
         importImageryEnabled = importImageryCheckbox.getValue();
         importEffectsEnabled = importEffectsCheckbox.getValue();
         importGroupsEnabled = importGroupsCheckbox.getValue();

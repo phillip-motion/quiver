@@ -82,11 +82,17 @@ function parseFontFamilyVariant(fontFamilyStr) {
  * 
  * The emoji images will overlay these positions, and Apply Text Material will hide them.
  * 
+ * If importEmojisEnabled is false, emojis are completely removed from the text
+ * (no placeholder, no image overlay) to avoid affecting Apply Typeface indices.
+ * 
  * @param {string} text - The text string that may contain emojis
  * @returns {Object} - {text: modified string, indexMap: {originalIndex -> newIndex}}
  */
 function replaceEmojisWithPlaceholder(text) {
-    if (!text) return { text: text, indexMap: {} };
+    if (!text) return { text: text, indexMap: {}, emojisStripped: false, matches: [] };
+    
+    // Check if emoji import is disabled - if so, completely remove emojis from text
+    var emojisDisabled = (typeof importEmojisEnabled !== 'undefined' && !importEmojisEnabled);
     
     // Comprehensive emoji regex pattern matching:
     // - Emoji presentation sequences
@@ -100,7 +106,8 @@ function replaceEmojisWithPlaceholder(text) {
     // Using the global emojiPlaceholder setting (default: [e]) for consistency with Apply Text Material
     // The placeholder must match what the regex in quiver_utilities_webserver.js looks for
     // Placeholder must be exactly 3 characters for font style logic to work correctly
-    var placeholder = (typeof emojiPlaceholder !== 'undefined' && emojiPlaceholder.length === 3) ? emojiPlaceholder : '[e]';
+    // When emojis are disabled, we use no placeholder (length 0) - just strip them
+    var placeholder = emojisDisabled ? '' : ((typeof emojiPlaceholder !== 'undefined' && emojiPlaceholder.length === 3) ? emojiPlaceholder : '[e]');
     var placeholderLength = placeholder.length;
     
     // Build index mapping: track how indices shift after replacement
@@ -117,54 +124,65 @@ function replaceEmojisWithPlaceholder(text) {
         });
     }
     
-    // Determine which spaces need to be added around each emoji
-    // Each emoji placeholder must be its own "word" for word-level positioning
-    // We need spaces BEFORE and AFTER each em-dash placeholder
-    // 
-    // IMPORTANT: For consecutive emojis, we only insert ONE space between them
-    // (either as "after" for the first or "before" for the second, not both)
-    for (var i = 0; i < matches.length; i++) {
-        var m = matches[i];
-        m.needsSpaceBefore = false;
-        m.needsSpaceAfter = false;
-        
-        // Check if we need a space BEFORE this emoji
-        // But first check if the previous emoji already has a space AFTER it
-        // (in which case we don't need a space before this one)
-        var prevEmoji = (i > 0) ? matches[i - 1] : null;
-        var prevEmojiEnd = prevEmoji ? (prevEmoji.originalIndex + prevEmoji.originalLength) : -1;
-        
-        if (m.originalIndex > 0) {
-            // If this emoji immediately follows the previous one, check if prev has spaceAfter
-            if (prevEmoji && prevEmojiEnd === m.originalIndex && prevEmoji.needsSpaceAfter) {
-                // Previous emoji already inserted space after - we don't need space before
-                m.needsSpaceBefore = false;
-            } else {
-                var charBefore = text.charAt(m.originalIndex - 1);
-                // If the previous character is not whitespace, we need a space
-                if (charBefore !== ' ' && charBefore !== '\t' && charBefore !== '\n' && charBefore !== '\r') {
-                    m.needsSpaceBefore = true;
+    // When emojis are disabled, we just need to track the matches for index adjustment
+    // No spaces are added - emojis are simply removed
+    // When emojis are enabled, we add spaces around placeholders for word-level positioning
+    if (!emojisDisabled) {
+        // Determine which spaces need to be added around each emoji
+        // Each emoji placeholder must be its own "word" for word-level positioning
+        // We need spaces BEFORE and AFTER each em-dash placeholder
+        // 
+        // IMPORTANT: For consecutive emojis, we only insert ONE space between them
+        // (either as "after" for the first or "before" for the second, not both)
+        for (var i = 0; i < matches.length; i++) {
+            var m = matches[i];
+            m.needsSpaceBefore = false;
+            m.needsSpaceAfter = false;
+            
+            // Check if we need a space BEFORE this emoji
+            // But first check if the previous emoji already has a space AFTER it
+            // (in which case we don't need a space before this one)
+            var prevEmoji = (i > 0) ? matches[i - 1] : null;
+            var prevEmojiEnd = prevEmoji ? (prevEmoji.originalIndex + prevEmoji.originalLength) : -1;
+            
+            if (m.originalIndex > 0) {
+                // If this emoji immediately follows the previous one, check if prev has spaceAfter
+                if (prevEmoji && prevEmojiEnd === m.originalIndex && prevEmoji.needsSpaceAfter) {
+                    // Previous emoji already inserted space after - we don't need space before
+                    m.needsSpaceBefore = false;
+                } else {
+                    var charBefore = text.charAt(m.originalIndex - 1);
+                    // If the previous character is not whitespace, we need a space
+                    if (charBefore !== ' ' && charBefore !== '\t' && charBefore !== '\n' && charBefore !== '\r') {
+                        m.needsSpaceBefore = true;
+                    }
+                }
+            }
+            
+            // Check if we need a space AFTER this emoji
+            var endIndex = m.originalIndex + m.originalLength;
+            if (endIndex < text.length) {
+                var charAfter = text.charAt(endIndex);
+                // If the next character is not whitespace, we need a space
+                if (charAfter !== ' ' && charAfter !== '\t' && charAfter !== '\n' && charAfter !== '\r') {
+                    m.needsSpaceAfter = true;
                 }
             }
         }
-        
-        // Check if we need a space AFTER this emoji
-        var endIndex = m.originalIndex + m.originalLength;
-        if (endIndex < text.length) {
-            var charAfter = text.charAt(endIndex);
-            // If the next character is not whitespace, we need a space
-            if (charAfter !== ' ' && charAfter !== '\t' && charAfter !== '\n' && charAfter !== '\r') {
-                m.needsSpaceAfter = true;
-            }
+    } else {
+        // When disabled, no spaces are added
+        for (var i = 0; i < matches.length; i++) {
+            matches[i].needsSpaceBefore = false;
+            matches[i].needsSpaceAfter = false;
         }
     }
     
     // Calculate new indices accounting for:
-    // - Emoji length reduction (emoji -> single em-dash)
-    // - Added spaces before/after each emoji
+    // - Emoji length reduction (emoji -> placeholder or removed entirely)
+    // - Added spaces before/after each emoji (when enabled)
     // 
     // Track the net offset: positive = text grew, negative = text shrank
-    // For each emoji position, we calculate where the em-dash ends up
+    // For each emoji position, we calculate where the placeholder ends up
     var netOffset = 0;  // Tracks cumulative change in text length
     
     for (var i = 0; i < matches.length; i++) {
@@ -179,9 +197,9 @@ function replaceEmojisWithPlaceholder(text) {
         var newIndex = m.originalIndex + netOffset;
         indexMap[m.originalIndex] = newIndex;
         
-        // Emoji replacement: multi-codepoint becomes placeholder (3 chars)
+        // Emoji replacement: multi-codepoint becomes placeholder (or nothing when disabled)
         // This changes subsequent positions by (emojiLength - placeholderLength)
-        // Can be negative (text grows) if emoji is shorter than placeholder
+        // When disabled: placeholderLength is 0, so offset = -emojiLength (text shrinks by emoji length)
         netOffset -= (m.originalLength - placeholderLength);
         
         // Space added AFTER this emoji increases subsequent positions
@@ -191,7 +209,8 @@ function replaceEmojisWithPlaceholder(text) {
     }
     
     // Build the modified text manually
-    // Insert spaces before/after each emoji to make it a standalone word
+    // Insert spaces before/after each emoji to make it a standalone word (when enabled)
+    // Or just remove the emoji entirely (when disabled)
     var modifiedText = '';
     var lastEnd = 0;
     
@@ -206,7 +225,7 @@ function replaceEmojisWithPlaceholder(text) {
             modifiedText += ' ';
         }
         
-        // Add the [#] placeholder
+        // Add the placeholder (empty string when disabled)
         modifiedText += placeholder;
         
         // Add space after if needed
@@ -220,18 +239,24 @@ function replaceEmojisWithPlaceholder(text) {
     // Add any remaining text after the last emoji
     modifiedText += text.substring(lastEnd);
     
-    // Log space insertion
-    var spacesBefore = matches.filter(function(m) { return m.needsSpaceBefore; }).length;
-    var spacesAfter = matches.filter(function(m) { return m.needsSpaceAfter; }).length;
-    if (spacesBefore > 0 || spacesAfter > 0) {
-        console.log('[Emoji Replace] Inserted ' + spacesBefore + ' space(s) before and ' + spacesAfter + ' space(s) after emojis to ensure standalone words');
+    // Log what happened
+    if (emojisDisabled && matches.length > 0) {
+        console.log('[Emoji Replace] Emojis disabled - removed ' + matches.length + ' emoji(s) from text');
+    } else if (matches.length > 0) {
+        var spacesBefore = matches.filter(function(m) { return m.needsSpaceBefore; }).length;
+        var spacesAfter = matches.filter(function(m) { return m.needsSpaceAfter; }).length;
+        if (spacesBefore > 0 || spacesAfter > 0) {
+            console.log('[Emoji Replace] Inserted ' + spacesBefore + ' space(s) before and ' + spacesAfter + ' space(s) after emojis to ensure standalone words');
+        }
     }
     
     return {
         text: modifiedText,
         indexMap: indexMap,
         // Also return the matches array for adjusting arbitrary indices (not just emoji positions)
-        matches: matches
+        matches: matches,
+        // Flag to indicate if emojis were stripped (no placeholder) vs replaced
+        emojisStripped: emojisDisabled
     };
 }
 
@@ -248,24 +273,31 @@ var __emojiIndexMaps = {};
  * 2. How many spaces were INSERTED before/after emojis to ensure standalone words
  * 
  * IMPORTANT: When we insert spaces around emojis, ALL subsequent indices shift.
- * This function accounts for both the emoji shrinking (multi-codepoint -> single em-dash)
+ * This function accounts for both the emoji shrinking (multi-codepoint -> placeholder)
  * AND the space insertions.
+ * 
+ * When emojisStripped is true, emojis are completely removed (placeholderLength = 0)
+ * and no spaces are inserted around them.
  * 
  * @param {number} originalIndex - The original character index in Figma's text
  * @param {Array} matches - Array of {originalIndex, originalLength, needsSpaceBefore, needsSpaceAfter} from replaceEmojisWithPlaceholder
+ * @param {boolean} emojisStripped - If true, emojis were removed entirely (no placeholder)
  * @returns {number} - The adjusted index in the modified text
  */
-function adjustIndexForEmojiReplacements(originalIndex, matches) {
+function adjustIndexForEmojiReplacements(originalIndex, matches, emojisStripped) {
     if (!matches || matches.length === 0) return originalIndex;
     
-    // Placeholder is 3 characters: [#]
-    var placeholderLength = 3;
+    // Placeholder length depends on whether emojis were stripped or replaced
+    // When stripped: 0 (completely removed)
+    // When replaced: 3 characters ([e])
+    var placeholderLength = emojisStripped ? 0 : 3;
     
     // Track how indices shift:
     // - Emoji replacement: changes by (emojiLength - placeholderLength)
-    //   Can be negative (text grows) if emoji is shorter than placeholder
-    // - Space before emoji: INCREASES by 1 (inserted character)
-    // - Space after emoji: INCREASES by 1 (inserted character)
+    //   When stripped: offset = -emojiLength (text shrinks)
+    //   When replaced: offset = -(emojiLength - 3)
+    // - Space before emoji: INCREASES by 1 (only when not stripped)
+    // - Space after emoji: INCREASES by 1 (only when not stripped)
     var netOffset = 0;  // Positive = text got longer, Negative = text got shorter
     
     for (var i = 0; i < matches.length; i++) {
@@ -276,26 +308,26 @@ function adjustIndexForEmojiReplacements(originalIndex, matches) {
         // Only process emojis that START before our target index
         if (emojiStart < originalIndex) {
             // Space inserted BEFORE this emoji (shifts all indices after it by +1)
-            if (m.needsSpaceBefore) {
+            // Only applies when emojis are being replaced, not stripped
+            if (m.needsSpaceBefore && !emojisStripped) {
                 netOffset += 1;
             }
             
-            // Emoji was replaced: changes by (emojiLength - placeholderLength)
-            // The emoji takes (originalLength) chars, replaced by placeholder (3 chars)
+            // Emoji was replaced/removed: changes by (emojiLength - placeholderLength)
             netOffset -= (m.originalLength - placeholderLength);
             
             // Space inserted AFTER this emoji (shifts all indices at or after emojiEnd by +1)
-            // Count if our target index is AT or AFTER the emoji ends
-            if (m.needsSpaceAfter && originalIndex >= emojiEnd) {
+            // Only applies when emojis are being replaced, not stripped
+            if (m.needsSpaceAfter && !emojisStripped && originalIndex >= emojiEnd) {
                 netOffset += 1;
             }
         } else if (emojiStart === originalIndex) {
             // Index is exactly AT the start of an emoji
-            // Account for space before (if any)
-            if (m.needsSpaceBefore) {
+            // Account for space before (if any, and only when not stripped)
+            if (m.needsSpaceBefore && !emojisStripped) {
                 netOffset += 1;
             }
-            // The index points to the start of the placeholder now
+            // The index points to the start of the placeholder (or nothing if stripped)
             break;
         } else {
             // All remaining emojis are after this index, stop
@@ -879,15 +911,23 @@ function createText(node, parentId, vb, inheritedScale) {
     combined = emojiReplacement.text;
     
     // Store the index map AND modified text for emoji processing
-    if (emojiReplacement.indexMap && Object.keys(emojiReplacement.indexMap).length > 0) {
+    var emojiMatchesSimple = emojiReplacement.matches || [];
+    var emojisStrippedSimple = emojiReplacement.emojisStripped || false;
+    if (Object.keys(emojiReplacement.indexMap).length > 0 || emojiMatchesSimple.length > 0) {
         if (typeof __emojiIndexMaps !== 'undefined') {
             __emojiIndexMaps[textNodeNameForEmoji] = {
                 indexMap: emojiReplacement.indexMap,
-                modifiedText: combined
+                modifiedText: combined,
+                matches: emojiMatchesSimple,
+                emojisStripped: emojisStrippedSimple
             };
         }
-        var currentPlaceholder = (typeof emojiPlaceholder !== 'undefined' && emojiPlaceholder.length === 3) ? emojiPlaceholder : '[e]';
-        console.log('[Quiver Text] Replaced emojis with ' + currentPlaceholder + ' placeholders, index map: ' + JSON.stringify(emojiReplacement.indexMap));
+        if (!emojisStrippedSimple) {
+            var currentPlaceholder = (typeof emojiPlaceholder !== 'undefined' && emojiPlaceholder.length === 3) ? emojiPlaceholder : '[e]';
+            console.log('[Quiver Text] Replaced emojis with ' + currentPlaceholder + ' placeholders, index map: ' + JSON.stringify(emojiReplacement.indexMap));
+        } else {
+            console.log('[Quiver Text] Stripped ' + emojiMatchesSimple.length + ' emoji(s) from text');
+        }
     }
     
     var textSettings = {
@@ -1092,15 +1132,22 @@ function createTextFromFigmaData(figmaData, parentId, vb, inheritedScale, fills,
         // The modified text is needed to calculate visual character indices
         // (Cavalry's Sub-Mesh Transform counts non-whitespace chars only)
         // The matches array is needed to adjust styled segment indices
+        // emojisStripped indicates whether emojis were removed (true) or replaced with placeholder (false)
         var emojiMatches = emojiReplacement.matches || [];
-        if (Object.keys(emojiReplacement.indexMap).length > 0) {
+        var emojisStripped = emojiReplacement.emojisStripped || false;
+        if (Object.keys(emojiReplacement.indexMap).length > 0 || emojiMatches.length > 0) {
             __emojiIndexMaps[figmaData.name || name] = {
                 indexMap: emojiReplacement.indexMap,
-                modifiedText: characters,  // Text with em-dash placeholders
-                matches: emojiMatches
+                modifiedText: characters,  // Text with placeholders (or emojis removed)
+                matches: emojiMatches,
+                emojisStripped: emojisStripped
             };
-            var currentPlaceholder = (typeof emojiPlaceholder !== 'undefined' && emojiPlaceholder.length === 3) ? emojiPlaceholder : '[e]';
-            console.log('[Styled Text] Replaced emojis with ' + currentPlaceholder + ' placeholders, index map: ' + JSON.stringify(emojiReplacement.indexMap));
+            if (!emojisStripped) {
+                var currentPlaceholder = (typeof emojiPlaceholder !== 'undefined' && emojiPlaceholder.length === 3) ? emojiPlaceholder : '[e]';
+                console.log('[Styled Text] Replaced emojis with ' + currentPlaceholder + ' placeholders, index map: ' + JSON.stringify(emojiReplacement.indexMap));
+            } else {
+                console.log('[Styled Text] Stripped ' + emojiMatches.length + ' emoji(s) from text');
+            }
         }
         
         console.log('[Styled Text] Creating text from Figma data: "' + characters.substring(0, 50) + '..."');
@@ -1495,9 +1542,9 @@ function createTextFromFigmaData(figmaData, parentId, vb, inheritedScale, fills,
                 
                 // IMPORTANT: Adjust indices for emoji replacements!
                 // Figma's indices are for the ORIGINAL text, but we need indices for the MODIFIED text
-                // where multi-codepoint emojis have been replaced with single em-dash characters.
-                var adjustedStart = adjustIndexForEmojiReplacements(seg.start, emojiMatches);
-                var adjustedEnd = adjustIndexForEmojiReplacements(seg.end, emojiMatches);
+                // where multi-codepoint emojis have been replaced with placeholders or stripped entirely.
+                var adjustedStart = adjustIndexForEmojiReplacements(seg.start, emojiMatches, emojisStripped);
+                var adjustedEnd = adjustIndexForEmojiReplacements(seg.end, emojiMatches, emojisStripped);
                 
                 // Build index range string: "start:end" (Cavalry uses inclusive end, Figma's end is exclusive)
                 var rangeStr = adjustedStart + ':' + (adjustedEnd - 1);

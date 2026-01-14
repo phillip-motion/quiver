@@ -130,15 +130,20 @@ function handleImportSVG(request) {
         
         // EMOJI IMPORT: Create image layers for emojis that Cavalry can't render
         // These overlay the invisible emoji characters in text, preserving spacing
+        // Only process if emoji import is enabled in settings
         if (request.emojiData && request.emojiData.length > 0) {
-            console.info("🏹 Quiver: Processing " + request.emojiData.length + " emoji(s)...");
-            
-            var viewBox = extractViewBox(request.svgCode);
-            if (!viewBox) {
-                viewBox = {x: 0, y: 0, width: request.frameWidth || 1000, height: request.frameHeight || 1000};
+            if (typeof importEmojisEnabled !== 'undefined' && !importEmojisEnabled) {
+                console.info("🏹 Quiver: Skipping " + request.emojiData.length + " emoji(s) - emoji import disabled");
+            } else {
+                console.info("🏹 Quiver: Processing " + request.emojiData.length + " emoji(s)...");
+                
+                var viewBox = extractViewBox(request.svgCode);
+                if (!viewBox) {
+                    viewBox = {x: 0, y: 0, width: request.frameWidth || 1000, height: request.frameHeight || 1000};
+                }
+                
+                processEmojiData(request.emojiData, viewBox);
             }
-            
-            processEmojiData(request.emojiData, viewBox);
         }
         
         // Clear text data, text shape registry, and emoji index maps after processing
