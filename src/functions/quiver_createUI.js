@@ -162,7 +162,9 @@ var importGradientsEnabled = true;
 var importLiveTextEnabled = true;
 var importImageryEnabled = true;
 var importEffectsEnabled = true;
+var importGroupsEnabled = true;
 var imageFilterQuality = 2; // 0=None, 1=Bilinear, 2=Mipmaps (default), 3=Bicubic
+var emojiPlaceholder = "[e]"; // Placeholder string for emoji positions (must be at least 2 chars)
 
 // Settings button
 var settingsButton = new ui.ImageButton(ui.scriptLocation+"/quiver_assets/quiver_icon-settings.png");
@@ -206,6 +208,82 @@ flattenShapeButton.setToolTip("Flatten Shape");
 flattenShapeButton.onClick = function() {
     flattenShape();
 };
+
+var cycleTextAlignButton = new ui.ImageButton(ui.scriptLocation+"/quiver_assets/quiver_icon-text-left.png");
+cycleTextAlignButton.setImageSize(22,22);
+cycleTextAlignButton.setSize(34, 34);
+cycleTextAlignButton.setToolTip("Text Alignment");
+cycleTextAlignButton.onClick = function() {
+    cycleTextAlignment();
+    // Update icon after cycling alignment
+    updateTextAlignIcon();
+};
+
+/**
+ * Update the Text Alignment button icon based on selected text's alignment.
+ * Uses api.getSelection(), api.getType(), api.get() to determine alignment.
+ * Uses setImage() to dynamically update the ImageButton icon.
+ * 
+ * Cavalry API used:
+ * - api.getSelection() - Get selected layers
+ * - api.getType(id) - Get layer type
+ * - api.get(id, attribute) - Get layer attributes
+ * - ImageButton.setImage(path) - Set button image
+ * 
+ * horizontalAlignment values: 0 = Left, 1 = Center, 2 = Right
+ */
+function updateTextAlignIcon() {
+    try {
+        var selection = api.getSelection();
+        
+        // Default to left-aligned icon when no text is selected
+        var iconPath = ui.scriptLocation + "/quiver_assets/quiver_icon-text-left.png";
+        
+        if (selection && selection.length > 0) {
+            // Check each selected layer for text shapes
+            for (var i = 0; i < selection.length; i++) {
+                var layerId = selection[i];
+                var isTextShape = false;
+                
+                // Check if this is a text shape by ID prefix
+                if (typeof layerId === 'string' && layerId.indexOf('textShape#') === 0) {
+                    isTextShape = true;
+                }
+                
+                // Also check by layer type
+                if (!isTextShape) {
+                    try {
+                        var layerType = api.getType(layerId);
+                        if (layerType === 'textShape' || layerType === 'text') {
+                            isTextShape = true;
+                        }
+                    } catch (e) {}
+                }
+                
+                if (isTextShape) {
+                    // Get the alignment of this text shape
+                    try {
+                        var alignment = api.get(layerId, 'horizontalAlignment');
+                        // 0 = Left, 1 = Center, 2 = Right
+                        if (alignment === 1) {
+                            iconPath = ui.scriptLocation + "/quiver_assets/quiver_icon-text-center.png";
+                        } else if (alignment === 2) {
+                            iconPath = ui.scriptLocation + "/quiver_assets/quiver_icon-text-right.png";
+                        } else {
+                            iconPath = ui.scriptLocation + "/quiver_assets/quiver_icon-text-left.png";
+                        }
+                    } catch (e) {}
+                    break; // Use first text shape found
+                }
+            }
+        }
+        
+        // Update the button image
+        cycleTextAlignButton.setImage(iconPath);
+    } catch (e) {
+        // Silently fail - don't disrupt UI
+    }
+}
 
 
 // Renamer
@@ -272,6 +350,17 @@ function createSettingsWindow() {
     autoSaveLayout.add(new ui.Label("Auto-save before import"));
     autoSaveLayout.setSpaceBetween(8);
     settingsLayout.add(autoSaveLayout);
+    
+    // Import groups checkbox
+    var groupsLayout = new ui.HLayout();
+    var importGroupsCheckbox = new ui.Checkbox(importGroupsEnabled);
+    importGroupsCheckbox.onValueChanged = function() {
+        importGroupsEnabled = importGroupsCheckbox.getValue();
+    };
+    groupsLayout.add(importGroupsCheckbox);
+    groupsLayout.add(new ui.Label("Import groups"));
+    groupsLayout.setSpaceBetween(8);
+    settingsLayout.add(groupsLayout);
 
     // Import gradients checkbox
     var gradientsLayout = new ui.HLayout();
@@ -281,7 +370,7 @@ function createSettingsWindow() {
     };
     gradientsLayout.add(importGradientsCheckbox);
     gradientsLayout.add(new ui.Label("Import gradients"));
-    gradientsLayout.setSpaceBetween(6);
+    gradientsLayout.setSpaceBetween(8);
     settingsLayout.add(gradientsLayout);
     
     // Import live text checkbox
@@ -334,6 +423,27 @@ function createSettingsWindow() {
     
     qualityLayout.add(filterQualityDropdown);
     settingsLayout.add(qualityLayout);
+    
+    // Emoji placeholder setting
+    var emojiPlaceholderLayout = new ui.HLayout();
+    emojiPlaceholderLayout.add(new ui.Label("Emoji placeholder"));
+    var emojiPlaceholderInput = new ui.LineEdit();
+    emojiPlaceholderInput.setText(emojiPlaceholder);
+    emojiPlaceholderInput.setPlaceholder("[e]");
+    emojiPlaceholderInput.setMaximumWidth(60);
+    emojiPlaceholderInput.onTextChanged = function() {
+        var newValue = emojiPlaceholderInput.getText();
+        // Require exactly 3 characters for the placeholder to work correctly with font style logic
+        if (newValue.length === 3) {
+            emojiPlaceholder = newValue;
+        } else if (newValue.length > 0 && newValue.length !== 3) {
+            // Show warning but don't update the value yet
+            console.warn("Emoji placeholder must be exactly 3 characters");
+        }
+    };
+    emojiPlaceholderLayout.addStretch();
+    emojiPlaceholderLayout.add(emojiPlaceholderInput);
+    settingsLayout.add(emojiPlaceholderLayout);
     
     settingsLayout.addSpacing(16);
     
@@ -389,7 +499,18 @@ var cornerRadiusInput = new ui.LineEdit();
         importLiveTextEnabled = importLiveTextCheckbox.getValue();
         importImageryEnabled = importImageryCheckbox.getValue();
         importEffectsEnabled = importEffectsCheckbox.getValue();
+        importGroupsEnabled = importGroupsCheckbox.getValue();
         imageFilterQuality = filterQualityDropdown.getValue();
+        
+        // Capture emoji placeholder with validation - must be exactly 3 characters
+        var emojiValue = emojiPlaceholderInput.getText();
+        if (emojiValue.length === 3) {
+            emojiPlaceholder = emojiValue;
+        } else {
+            console.warn("Emoji placeholder must be exactly 3 characters - keeping current value: " + emojiPlaceholder);
+            emojiPlaceholderInput.setText(emojiPlaceholder); // Reset to valid value
+        }
+        
         console.info("Settings applied");
     };
     
@@ -544,6 +665,7 @@ var toolButtonsLayout = new ui.HLayout();
 toolButtonsLayout.add(convertRectButton);
 toolButtonsLayout.add(dynamicAlignButton);
 toolButtonsLayout.add(flattenShapeButton);
+toolButtonsLayout.add(cycleTextAlignButton);
 toolButtonsLayout.addStretch();
 toolButtonsLayout.add(settingsButton);
 
@@ -567,6 +689,19 @@ mainLayout.addStretch();
 ui.add(mainLayout);
 ui.setMargins(0, 0, 0, 0);
 ui.setMinimumWidth(150);
+
+// --- Selection Change Callback ---
+// Register callback to update text alignment icon when selection changes
+// Cavalry API: ui.addCallbackObject() registers an object with callback functions
+// onSelectionChanged is called whenever the scene selection changes
+function SelectionCallbacks() {
+    this.onSelectionChanged = function() {
+        updateTextAlignIcon();
+    };
+}
+
+var selectionCallbackObj = new SelectionCallbacks();
+ui.addCallbackObject(selectionCallbackObj);
 
 // Register cleanup handler for window close to prevent heap corruption
 ui.onClose = function() {

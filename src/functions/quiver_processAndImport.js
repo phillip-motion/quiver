@@ -12,6 +12,14 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
             return null;
         }
         
+        // Skip groups with data-figma-skip-parse="true" (Figma gradient simulation workaround groups)
+        // These groups contain foreignObject elements used to render angular/diamond gradients
+        // Since we parse data-figma-gradient-fill directly, we don't need these simulation groups
+        if (node.type === 'g' && node.attrs && node.attrs['data-figma-skip-parse'] === 'true') {
+            console.log('[Figma Skip] Skipping gradient simulation group:', node.name || 'unnamed');
+            return null;
+        }
+        
         var rawGroupName = decodeEntitiesForName(node.name || 'group');
         
         // Number anonymous groups for better naming
@@ -115,6 +123,44 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
                     singleChild.attrs.opacity = node.attrs.opacity;
                 }
                 
+                // Transfer background blur attribute if present on the group
+                if (node.attrs['data-figma-bg-blur-radius'] && !singleChild.attrs['data-figma-bg-blur-radius']) {
+                    singleChild.attrs['data-figma-bg-blur-radius'] = node.attrs['data-figma-bg-blur-radius'];
+                    console.log('[Background Blur] Propagated blur radius ' + node.attrs['data-figma-bg-blur-radius'] + ' from group to child');
+                }
+                
+                // Transfer filter attribute if present on the group (for layer blur, etc.)
+                var groupFilterId = extractUrlRefId(node.attrs.filter);
+                if (!groupFilterId && node.attrs._inheritedFilterId) {
+                    groupFilterId = node.attrs._inheritedFilterId;
+                }
+                if (groupFilterId && !singleChild.attrs.filter && !singleChild.attrs._inheritedFilterId) {
+                    singleChild.attrs._inheritedFilterId = groupFilterId;
+                }
+                
+                // Transfer inherited masks to the child (nested clip intersection)
+                var parentMasks = node.attrs._inheritedMaskIds || [];
+                var groupClipPath = extractUrlRefId(node.attrs.mask) || extractUrlRefId(node.attrs['clip-path']);
+                
+                // Build full mask list: parent masks + this group's own mask
+                var allMasks = parentMasks.slice(); // clone
+                if (groupClipPath) {
+                    allMasks.push(groupClipPath);
+                }
+                
+                if (allMasks.length > 0) {
+                    if (!singleChild.attrs._inheritedMaskIds) {
+                        singleChild.attrs._inheritedMaskIds = [];
+                    }
+                    // Merge masks (avoid duplicates)
+                    for (var mIdx = 0; mIdx < allMasks.length; mIdx++) {
+                        if (singleChild.attrs._inheritedMaskIds.indexOf(allMasks[mIdx]) === -1) {
+                            singleChild.attrs._inheritedMaskIds.push(allMasks[mIdx]);
+                        }
+                    }
+                    console.log('[DEBUG MASK] Blend mode optimization: transferred masks [' + allMasks.join(', ') + '] from group "' + (node.name || 'unnamed') + '" to single child');
+                }
+                
                 // Transfer parent name if child has no meaningful name
                 var childName = (singleChild.name || '').toLowerCase();
                 var parentName = node.name || '';
@@ -133,8 +179,156 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
             }
         }
         
+        // STYLED TEXT GROUP DETECTION:
+        // Figma exports text with mixed styling (bold + regular) as a group containing multiple <text> elements.
+        // If we have Figma textData for this group, create ONE text shape from the Figma data
+        // instead of multiple text shapes from the SVG <text> elements.
+        if (node.type === 'g' && node.children && node.children.length > 0) {
+            // Check if ALL children are text elements
+            var allChildrenAreText = true;
+            for (var tci = 0; tci < node.children.length; tci++) {
+                if (node.children[tci].type !== 'text') {
+                    allChildrenAreText = false;
+                    break;
+                }
+            }
+            
+            if (allChildrenAreText && typeof getFigmaTextData === 'function') {
+                // Try to find Figma textData for this group's name
+                var figmaTextForGroup = getFigmaTextData(rawGroupName);
+                
+                if (figmaTextForGroup && figmaTextForGroup.characters) {
+                    console.log('[Styled Text] Found Figma data for group "' + rawGroupName + '" with ' + node.children.length + ' text children');
+                    console.log('[Styled Text] Creating single text shape from Figma data: "' + figmaTextForGroup.characters.substring(0, 50) + '..."');
+                    
+                    // Extract fills from the SVG text children for multi-fill support
+                    // Figma exports multiple <text> elements with the same geometry but different fills
+                    // After multi-fill optimization, additional fills are stored in _additionalFills
+                    var textFills = [];
+                    var seenFills = {};
+                    for (var fci = 0; fci < node.children.length; fci++) {
+                        var textChild = node.children[fci];
+                        
+                        // Get primary fill from this child
+                        var childFill = textChild.attrs && textChild.attrs.fill;
+                        var childOpacity = parseFloat(textChild.attrs && textChild.attrs['fill-opacity']) || 1;
+                        if (childFill && childFill !== 'none' && !seenFills[childFill]) {
+                            seenFills[childFill] = true;
+                            textFills.push({color: childFill, opacity: childOpacity});
+                            console.log('[Styled Text] Extracted fill from child ' + fci + ': ' + childFill + ' (opacity: ' + childOpacity + ')');
+                        }
+                        
+                        // Check for additional fills from multi-fill optimization
+                        if (textChild.attrs && textChild.attrs._additionalFills) {
+                            var addFills = textChild.attrs._additionalFills;
+                            for (var afi = 0; afi < addFills.length; afi++) {
+                                var addFill = addFills[afi].fill;
+                                var addOpacity = parseFloat(addFills[afi].fillOpacity) || 1;
+                                if (addFill && addFill !== 'none' && !seenFills[addFill]) {
+                                    seenFills[addFill] = true;
+                                    textFills.push({color: addFill, opacity: addOpacity});
+                                    console.log('[Styled Text] Extracted additional fill from child ' + fci + ': ' + addFill + ' (opacity: ' + addOpacity + ')');
+                                }
+                            }
+                        }
+                    }
+                    
+                    // Create text shape from Figma data, passing extracted fills
+                    // Also pass ALL SVG text children so we can analyze their tspans/Y positions for line spacing
+                    // For multi-line right-aligned text, lines may be in separate <text> elements
+                    var svgTextChildren = [];
+                    for (var sti = 0; sti < node.children.length; sti++) {
+                        if (node.children[sti].type === 'text' && node.children[sti].tspans && node.children[sti].tspans.length > 0) {
+                            svgTextChildren.push(node.children[sti]);
+                        }
+                    }
+                    var styledTextId = createTextFromFigmaData(figmaTextForGroup, parentId, vb, inheritedScale, textFills, svgTextChildren);
+                    
+                    if (styledTextId) {
+                        _registerChild(parentId, styledTextId);
+                        
+                        // Apply masks if inherited
+                        try {
+                            var styledMaskIds = node.attrs && node.attrs._inheritedMaskIds || [];
+                            var ownStyledMask = extractUrlRefId(node.attrs && node.attrs.mask) || extractUrlRefId(node.attrs && node.attrs['clip-path']);
+                            if (ownStyledMask) styledMaskIds = styledMaskIds.concat([ownStyledMask]);
+                            for (var smi = 0; smi < styledMaskIds.length; smi++) {
+                                createMaskShapeForTarget(styledMaskIds[smi], styledTextId, parentId, vb, model);
+                            }
+                        } catch (eStyledMask) {}
+                        
+                        // Apply blend mode from group
+                        applyBlendMode(styledTextId, node.attrs);
+                        
+                        // Apply filters (drop shadows, inner shadows, blur) from group, inherited, or text children
+                        try {
+                            var fIdStyled = extractUrlRefId(node.attrs && node.attrs.filter);
+                            if (!fIdStyled && node.attrs && node.attrs._inheritedFilterId) fIdStyled = node.attrs._inheritedFilterId;
+                            
+                            // Also check text children for filters (Figma may put drop shadow on the text element itself)
+                            if (!fIdStyled && node.children && node.children.length > 0) {
+                                for (var fcIdx = 0; fcIdx < node.children.length && !fIdStyled; fcIdx++) {
+                                    var filterChild = node.children[fcIdx];
+                                    if (filterChild.type === 'text' && filterChild.attrs) {
+                                        var childFilterId = extractUrlRefId(filterChild.attrs.filter);
+                                        if (!childFilterId) childFilterId = filterChild.attrs._inheritedFilterId;
+                                        if (childFilterId) {
+                                            fIdStyled = childFilterId;
+                                            console.log('[Styled Text] Found filter "' + fIdStyled + '" on text child ' + fcIdx);
+                                        }
+                                    }
+                                }
+                            }
+                            
+                            console.log('[Styled Text] Filter check: fIdStyled=' + fIdStyled + ', node.attrs.filter=' + (node.attrs && node.attrs.filter) + ', _inheritedFilterId=' + (node.attrs && node.attrs._inheritedFilterId));
+                            
+                            if (fIdStyled && __svgFilterMap && __svgFilterMap[fIdStyled]) {
+                                console.log('[Styled Text] Found filter "' + fIdStyled + '" for styled text, filter content length: ' + __svgFilterMap[fIdStyled].length);
+                                
+                                // Check for drop shadows
+                                var passesStyled = detectShadowPasses(__svgFilterMap[fIdStyled]);
+                                console.log('[Styled Text] Drop shadow passes: ' + passesStyled.length);
+                                for (var pStyled = 0; pStyled < passesStyled.length; pStyled++) {
+                                    createAndAttachDropShadow(styledTextId, passesStyled[pStyled]);
+                                }
+                                
+                                // Check for inner shadows
+                                var innerPassesStyled = detectInnerShadowPasses(__svgFilterMap[fIdStyled]);
+                                console.log('[Styled Text] Inner shadow passes: ' + innerPassesStyled.length);
+                                for (var inpStyled = 0; inpStyled < innerPassesStyled.length; inpStyled++) {
+                                    createAndAttachInnerShadow(styledTextId, innerPassesStyled[inpStyled]);
+                                }
+                                
+                                // Check for blur
+                                var blurAmtStyled = detectBlurAmount(__svgFilterMap[fIdStyled]);
+                                if (blurAmtStyled !== null) {
+                                    console.log('[Styled Text] Blur amount: ' + blurAmtStyled);
+                                    createAndAttachBlur(styledTextId, blurAmtStyled);
+                                }
+                            } else if (fIdStyled) {
+                                console.log('[Styled Text] Filter ID "' + fIdStyled + '" not found in __svgFilterMap');
+                                console.log('[Styled Text] Available filters: ' + Object.keys(__svgFilterMap || {}).join(', '));
+                            } else {
+                                console.log('[Styled Text] No filter found for styled text "' + rawGroupName + '"');
+                            }
+                        } catch (eStyledFilter) {
+                            console.warn('[Styled Text] Error applying filters: ' + (eStyledFilter.message || eStyledFilter));
+                        }
+                        
+                        if (stats) stats.texts = (stats.texts || 0) + 1;
+                        
+                        // Skip processing children - we've handled this group as a single styled text
+                        return styledTextId;
+                    }
+                }
+            }
+        }
+        
         if (node.type !== 'svg') {
+            // Always create groups during import to preserve correct layer order
+            // If importGroupsEnabled is false, we'll flatten AFTER import completes
             gid = createGroup(groupName, parentId);
+            _registerChild(parentId, gid); // Register group as child for sibling lookups (e.g., background blur)
             if (stats) stats.groups = (stats.groups || 0) + 1;
             applyBlendMode(gid, node.attrs);
         }
@@ -205,20 +399,92 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
                 }
             }
         }
-        // Propagate mask from this group to children if present (similar to filters)
-        var inheritedMaskId = extractUrlRefId(node.attrs && node.attrs.mask);
-        if (!inheritedMaskId && node.attrs && node.attrs._inheritedMaskId) inheritedMaskId = node.attrs._inheritedMaskId;
-        if (inheritedMaskId) {
-            // Propagate mask to all direct children (they'll handle it individually)
-            for (var mi = 0; mi < childTargets.length; mi++) {
-                var chM = childTargets[mi];
-                if (!chM.attrs) chM.attrs = {};
-                var hasOwnMask = !!extractUrlRefId(chM.attrs.mask);
-                if (!hasOwnMask) {
-                    chM.attrs._inheritedMaskId = inheritedMaskId;
+        
+        // Propagate background blur attribute from group to geometry children
+        var groupBgBlur = node.attrs && node.attrs['data-figma-bg-blur-radius'];
+        if (groupBgBlur) {
+            console.log('[Background Blur] Group "' + (node.name || 'unnamed') + '" has blur radius: ' + groupBgBlur);
+            // Find the first geometry child to apply blur to
+            for (var blurIdx = 0; blurIdx < childTargets.length; blurIdx++) {
+                var blurChild = childTargets[blurIdx];
+                var blurType = blurChild.type;
+                var isBlurGeom = (blurType==='path'||blurType==='rect'||blurType==='circle'||blurType==='ellipse'||blurType==='polygon'||blurType==='polyline');
+                if (isBlurGeom && !blurChild.attrs['data-figma-bg-blur-radius']) {
+                    if (!blurChild.attrs) blurChild.attrs = {};
+                    blurChild.attrs['data-figma-bg-blur-radius'] = groupBgBlur;
+                    console.log('[Background Blur] Propagated blur radius ' + groupBgBlur + ' to child "' + (blurChild.name || blurType) + '"');
+                    break; // Only apply to first geometry child
                 }
             }
         }
+        // Propagate mask/clip-path from this group to children if present (similar to filters)
+        // NESTED CLIPS: Use _inheritedMaskIds array to accumulate multiple masks
+        var groupName = node.attrs && node.attrs.id || node.name || 'unnamed';
+        var ownMaskId = extractUrlRefId(node.attrs && node.attrs.mask) || extractUrlRefId(node.attrs && node.attrs['clip-path']);
+        console.log('[DEBUG MASK] Group "' + groupName + '" clip-path attr: ' + (node.attrs && node.attrs['clip-path']));
+        console.log('[DEBUG MASK]   mask attr: ' + (node.attrs && node.attrs.mask) + ', extracted ownMaskId: ' + ownMaskId);
+        
+        // Build array of all masks to propagate (parent masks + this group's mask)
+        var parentMaskIds = (node.attrs && node.attrs._inheritedMaskIds) || [];
+        console.log('[DEBUG MASK]   _inheritedMaskIds from parent: [' + parentMaskIds.join(', ') + ']');
+        
+        // Combine: parent masks first, then this group's mask (order matters for intersection)
+        var masksToPropagate = parentMaskIds.slice(); // clone array
+        if (ownMaskId) {
+            masksToPropagate.push(ownMaskId);
+        }
+        console.log('[DEBUG MASK]   Final masksToPropagate: [' + masksToPropagate.join(', ') + ']');
+        console.log('[DEBUG MASK]   Children count: ' + childTargets.length);
+        
+        // Log all children for debugging
+        for (var dbgC = 0; dbgC < childTargets.length; dbgC++) {
+            var dbgChild = childTargets[dbgC];
+            console.log('[DEBUG MASK]   Child ' + dbgC + ': type=' + dbgChild.type + ', name="' + (dbgChild.attrs && dbgChild.attrs.id || dbgChild.name || 'unnamed') + '"');
+        }
+        
+        if (masksToPropagate.length > 0) {
+            console.log('[DEBUG MASK]   Propagating ' + masksToPropagate.length + ' mask(s) to ' + childTargets.length + ' children');
+            // Propagate ALL masks to all direct children
+            for (var mi = 0; mi < childTargets.length; mi++) {
+                var chM = childTargets[mi];
+                if (!chM.attrs) chM.attrs = {};
+                
+                // Check if child has own mask - if so, child will add it to the array when processing
+                var childOwnMask = extractUrlRefId(chM.attrs.mask) || extractUrlRefId(chM.attrs['clip-path']);
+                
+                // Always propagate parent masks (nested intersection)
+                chM.attrs._inheritedMaskIds = masksToPropagate.slice(); // clone array
+                
+                if (childOwnMask) {
+                    console.log('[DEBUG MASK]     -> Child "' + (chM.attrs && chM.attrs.id || chM.name || 'child-' + mi) + '" has own mask "' + childOwnMask + '", will add to inherited masks');
+                } else {
+                    console.log('[DEBUG MASK]     -> Set _inheritedMaskIds on child "' + (chM.attrs && chM.attrs.id || chM.name || 'child-' + mi) + '" (type: ' + chM.type + '): [' + masksToPropagate.join(', ') + ']');
+                }
+            }
+        } else {
+            console.log('[DEBUG MASK]   No mask to propagate for group "' + groupName + '"');
+        }
+        
+        // Propagate group opacity to children (Figma applies opacity to groups, not children)
+        // This must be inherited AND multiplied with any existing opacity
+        var groupOpacity = parseFloat(node.attrs && node.attrs.opacity);
+        var inheritedOpacity = parseFloat(node.attrs && node.attrs._inheritedOpacity);
+        if (isNaN(groupOpacity)) groupOpacity = 1;
+        if (isNaN(inheritedOpacity)) inheritedOpacity = 1;
+        var effectiveGroupOpacity = groupOpacity * inheritedOpacity;
+        
+        // Only propagate if opacity is less than 1 (something to inherit)
+        if (effectiveGroupOpacity < 0.999) {
+            console.log('[DEBUG OPACITY] Group "' + groupName + '" has opacity=' + groupOpacity + ', inherited=' + inheritedOpacity + ', effective=' + effectiveGroupOpacity);
+            for (var oi = 0; oi < childTargets.length; oi++) {
+                var chO = childTargets[oi];
+                if (!chO.attrs) chO.attrs = {};
+                // Store inherited opacity for children to use
+                chO.attrs._inheritedOpacity = effectiveGroupOpacity;
+                console.log('[DEBUG OPACITY]   -> Set _inheritedOpacity=' + effectiveGroupOpacity + ' on child "' + (chO.attrs && chO.attrs.id || chO.name || 'child-' + oi) + '"');
+            }
+        }
+        
         // Compose parent matrix with this group's matrix for nested transforms
         var composedMatrix = groupMatrix;
         if (parentMatrix && groupMatrix) {
@@ -246,6 +512,23 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
     }
 
     if (node.type === 'rect') {
+        // Skip gradient simulation helper shapes
+        // These are unnamed rects whose fill references Figma's diamond/angular gradient simulation IDs
+        // The actual user shape with data-figma-gradient-fill will handle the gradient natively
+        var rectFill = node.attrs && node.attrs.fill;
+        var hasFigmaGradientData = !!(node.attrs && node.attrs['data-figma-gradient-fill']);
+        var isGenericName = (node.name === 'rect' || !node.name);
+        if (rectFill && !hasFigmaGradientData && isGenericName) {
+            var fillIdMatch = /url\(#([^)]+)\)/.exec(rectFill);
+            if (fillIdMatch) {
+                var fillId = fillIdMatch[1].toLowerCase();
+                if (fillId.indexOf('_diamond_') !== -1 || fillId.indexOf('_angular_') !== -1) {
+                    console.log('[GRADIENT HELPER] Skipping gradient simulation rect: fill=' + rectFill);
+                    return null;
+                }
+            }
+        }
+        
         // Apply inherited translate to x/y before creation
         var clone = JSON.parse(JSON.stringify(node));
         var x = parseFloat(clone.attrs.x || '0');
@@ -253,29 +536,119 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
         var w = parseFloat(clone.attrs.width || '0');
         var h = parseFloat(clone.attrs.height || '0');
         
-        // Check if we have a matrix transform
-        if (node.attrs && node.attrs.transform && node.attrs.transform.indexOf('matrix') !== -1) {
-            // Apply matrix transform to all four corners and find new bounds
-            var tl = applyMatrixToPoint(node.attrs.transform, x, y);
-            var tr = applyMatrixToPoint(node.attrs.transform, x + w, y);
-            var bl = applyMatrixToPoint(node.attrs.transform, x, y + h);
-            var br = applyMatrixToPoint(node.attrs.transform, x + w, y + h);
+        // Debug logging for rect positioning
+        var rectName = node.name || 'unnamed rect';
+        console.log('[DEBUG RECT] Processing rect: ' + rectName);
+        console.log('[DEBUG RECT]   Original: x=' + x + ', y=' + y + ', w=' + w + ', h=' + h);
+        console.log('[DEBUG RECT]   nodeT (translate): x=' + nodeT.x + ', y=' + nodeT.y);
+        console.log('[DEBUG RECT]   inheritedTranslate: x=' + inheritedTranslate.x + ', y=' + inheritedTranslate.y);
+        console.log('[DEBUG RECT]   parentMatrix: ' + (parentMatrix ? 'a=' + parentMatrix.a + ',b=' + parentMatrix.b + ',c=' + parentMatrix.c + ',d=' + parentMatrix.d + ',e=' + parentMatrix.e + ',f=' + parentMatrix.f : 'null'));
+        console.log('[DEBUG RECT]   node.attrs.transform: ' + (node.attrs && node.attrs.transform || 'none'));
+        
+        // Apply parent matrix if it exists (inherited from parent group transform)
+        if (parentMatrix) {
+            // Transform all four corners to handle rotation/scale correctly
+            var tl = {x: parentMatrix.a * x + parentMatrix.c * y + parentMatrix.e,
+                      y: parentMatrix.b * x + parentMatrix.d * y + parentMatrix.f};
+            var tr = {x: parentMatrix.a * (x+w) + parentMatrix.c * y + parentMatrix.e,
+                      y: parentMatrix.b * (x+w) + parentMatrix.d * y + parentMatrix.f};
+            var bl = {x: parentMatrix.a * x + parentMatrix.c * (y+h) + parentMatrix.e,
+                      y: parentMatrix.b * x + parentMatrix.d * (y+h) + parentMatrix.f};
+            var br = {x: parentMatrix.a * (x+w) + parentMatrix.c * (y+h) + parentMatrix.e,
+                      y: parentMatrix.b * (x+w) + parentMatrix.d * (y+h) + parentMatrix.f};
             
-            // Find the new bounding box
-            var minX = Math.min(tl.x, tr.x, bl.x, br.x);
-            var maxX = Math.max(tl.x, tr.x, bl.x, br.x);
-            var minY = Math.min(tl.y, tr.y, bl.y, br.y);
-            var maxY = Math.max(tl.y, tr.y, bl.y, br.y);
+            // Find the bounding box of the transformed corners
+            var minXP = Math.min(tl.x, tr.x, bl.x, br.x);
+            var maxXP = Math.max(tl.x, tr.x, bl.x, br.x);
+            var minYP = Math.min(tl.y, tr.y, bl.y, br.y);
+            var maxYP = Math.max(tl.y, tr.y, bl.y, br.y);
             
-            clone.attrs.x = (minX + inheritedTranslate.x).toString();
-            clone.attrs.y = (minY + inheritedTranslate.y).toString();
-            clone.attrs.width = (maxX - minX).toString();
-            clone.attrs.height = (maxY - minY).toString();
+            clone.attrs.x = minXP.toString();
+            clone.attrs.y = minYP.toString();
+            clone.attrs.width = (maxXP - minXP).toString();
+            clone.attrs.height = (maxYP - minYP).toString();
+            // Clear transform to prevent double-application in createRect
+            delete clone.attrs.transform;
+            console.log('[DEBUG RECT]   -> parentMatrix applied: new x=' + minXP + ', y=' + minYP);
+        } else if (node.attrs && node.attrs.transform) {
+            // Check if transform contains non-trivial operations (rotation, scale, skew, or matrix)
+            // If so, use full matrix approach to compute the correct center position
+            var transformStr = node.attrs.transform;
+            var hasMatrix = transformStr.indexOf('matrix') !== -1;
+            var hasRotate = transformStr.indexOf('rotate') !== -1;
+            var hasScale = transformStr.indexOf('scale') !== -1;
+            var hasSkew = transformStr.indexOf('skew') !== -1;
+            var needsMatrixApproach = hasMatrix || hasRotate || hasScale || hasSkew;
+            
+            if (needsMatrixApproach) {
+                // Parse the full transform as a matrix and decompose it
+                var fullMatrix = parseTransformMatrixList(transformStr);
+                var decomposed = decomposeMatrix(fullMatrix);
+                var rotationDeg = decomposed.rotationDeg || 0;
+                
+                console.log('[DEBUG RECT]   -> Full transform detected: rotation=' + rotationDeg.toFixed(2) + '° scaleX=' + decomposed.scaleX.toFixed(4) + ' scaleY=' + decomposed.scaleY.toFixed(4));
+                
+                // Calculate the center of the original rect
+                var centerX = x + w / 2;
+                var centerY = y + h / 2;
+                
+                // Transform the center point through the full matrix to get final position
+                var transformedCenterX = fullMatrix.a * centerX + fullMatrix.c * centerY + fullMatrix.e;
+                var transformedCenterY = fullMatrix.b * centerX + fullMatrix.d * centerY + fullMatrix.f;
+                
+                // Keep original width/height (not bounding box)
+                clone.attrs.width = w.toString();
+                clone.attrs.height = h.toString();
+                
+                // Store rotation for application in createRect
+                clone.attrs._rotationDeg = rotationDeg;
+                
+                // Position will be set based on transformed center
+                clone.attrs._transformedCenterX = transformedCenterX + inheritedTranslate.x;
+                clone.attrs._transformedCenterY = transformedCenterY + inheritedTranslate.y;
+                
+                // Set x/y for now (createRect will recalculate based on center)
+                clone.attrs.x = (transformedCenterX - w / 2 + inheritedTranslate.x).toString();
+                clone.attrs.y = (transformedCenterY - h / 2 + inheritedTranslate.y).toString();
+                
+                // Store the LOCAL center (before transformation) for gradient offset calculation
+                // Gradient coordinates in Figma's SVG export are in local/pre-transform space
+                clone.attrs._localCenterX = x + w / 2;
+                clone.attrs._localCenterY = y + h / 2;
+                
+                // Store scaleY for gradient flip detection
+                // When scaleY is negative, the gradient direction needs to be reversed
+                clone.attrs._scaleY = decomposed.scaleY;
+                
+                // Clear transform to prevent double-application in createRect
+                delete clone.attrs.transform;
+                console.log('[DEBUG RECT]   -> Full transform applied: center=(' + transformedCenterX.toFixed(2) + ',' + transformedCenterY.toFixed(2) + ') rotation=' + rotationDeg.toFixed(2) + '°');
+            } else {
+                // Pure translation only - use simple translation
+                clone.attrs.x = (x + nodeT.x + inheritedTranslate.x).toString();
+                clone.attrs.y = (y + nodeT.y + inheritedTranslate.y).toString();
+                // Store the LOCAL center (before translation) for gradient offset calculation
+                // Gradient coordinates in Figma's SVG export are in local/pre-transform space
+                clone.attrs._localCenterX = x + w / 2;
+                clone.attrs._localCenterY = y + h / 2;
+                // Clear translate from transform to prevent double-application in createRect
+                if (clone.attrs.transform && (nodeT.x !== 0 || nodeT.y !== 0)) {
+                    clone.attrs.transform = clone.attrs.transform.replace(/translate\([^)]*\)\s*/g, '').trim();
+                    if (clone.attrs.transform === '') delete clone.attrs.transform;
+                }
+                console.log('[DEBUG RECT]   -> Simple translation applied');
+            }
         } else {
-            // Use simple translation
-            clone.attrs.x = (x + nodeT.x + inheritedTranslate.x).toString();
-            clone.attrs.y = (y + nodeT.y + inheritedTranslate.y).toString();
+            // No transform at all
+            clone.attrs.x = (x + inheritedTranslate.x).toString();
+            clone.attrs.y = (y + inheritedTranslate.y).toString();
+            // Store the LOCAL center for gradient offset calculation
+            clone.attrs._localCenterX = x + w / 2;
+            clone.attrs._localCenterY = y + h / 2;
+            console.log('[DEBUG RECT]   -> No transform, position unchanged');
         }
+        
+        console.log('[DEBUG RECT]   Final clone: x=' + clone.attrs.x + ', y=' + clone.attrs.y + ', w=' + clone.attrs.width + ', h=' + clone.attrs.height);
         
         var rid = createRect(clone, parentId, vb);
         _registerChild(parentId, rid);
@@ -310,6 +683,12 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
                     createAndAttachDropShadow(rid, passes[pi]);
                 }
                 
+                // Check for inner shadows
+                var innerPasses = detectInnerShadowPasses(__svgFilterMap[fId]);
+                for (var ipi = 0; ipi < innerPasses.length; ipi++) {
+                    createAndAttachInnerShadow(rid, innerPasses[ipi], ipi, innerPasses.length);
+                }
+                
                 // Check for blur
                 var blurAmount = detectBlurAmount(__svgFilterMap[fId]);
                 if (blurAmount !== null) {
@@ -318,12 +697,45 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
                 }
             } else {  }
         } catch (eDs) {  }
-        // Mask: if this node has mask url(#id) create and attach mask shape
+        
+        // Check for Figma Background Blur (frosted glass effect)
+        // Figma exports this as data-figma-bg-blur-radius attribute
+        // Queue for deferred processing so we can find underlying siblings
         try {
-            var maskId = extractUrlRefId(node.attrs && node.attrs.mask);
-            if (!maskId && node.attrs && node.attrs._inheritedMaskId) maskId = node.attrs._inheritedMaskId;
-            if (maskId) {
-                createMaskShapeForTarget(maskId, rid, parentId, vb, model);
+            var bgBlurRadius = node.attrs && node.attrs['data-figma-bg-blur-radius'];
+            if (bgBlurRadius) {
+                var bgBlurAmount = parseFloat(bgBlurRadius);
+                if (!isNaN(bgBlurAmount) && bgBlurAmount > 0) {
+                    queueBackgroundBlur(rid, bgBlurAmount, parentId);
+                }
+            }
+        } catch (eBgBlur) {
+            console.warn('[Background Blur] Error processing rect: ' + eBgBlur.message);
+        }
+        // Mask/Clip: apply ALL masks (nested clip intersection)
+        try {
+            var allMaskIds = (node.attrs && node.attrs._inheritedMaskIds) ? node.attrs._inheritedMaskIds.slice() : [];
+            var ownMask = extractUrlRefId(node.attrs && node.attrs.mask) || extractUrlRefId(node.attrs && node.attrs['clip-path']);
+            if (ownMask && allMaskIds.indexOf(ownMask) === -1) {
+                allMaskIds.push(ownMask);
+            }
+            
+            // Build geometry for redundancy check
+            var svgGeometry = {
+                x: x,  // Original x before nodeT transform
+                y: y,  // Original y before nodeT transform
+                width: w,
+                height: h
+            };
+            
+            // Apply all inherited masks - Clipping Masks naturally intersect
+            if (allMaskIds.length > 0) {
+                for (var mri = 0; mri < allMaskIds.length; mri++) {
+                    createMaskShapeForTarget(allMaskIds[mri], rid, parentId, vb, model, svgGeometry);
+                }
+                if (allMaskIds.length > 1) {
+                    console.log('[NESTED CLIP] Applied ' + allMaskIds.length + ' masks to rect: [' + allMaskIds.join(', ') + ']');
+                }
             }
         } catch (eMask) {  }
         var rotDegR = getRotationDegFromTransform(node.attrs && node.attrs.transform || '');
@@ -333,19 +745,50 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
     }
     if (node.type === 'circle') {
         var cloneC = JSON.parse(JSON.stringify(node));
-        var cx = parseFloat(cloneC.attrs.cx || '0');
-        var cy = parseFloat(cloneC.attrs.cy || '0');
+        var cxCircle = parseFloat(cloneC.attrs.cx || '0');
+        var cyCircle = parseFloat(cloneC.attrs.cy || '0');
         
         // Check if we have a matrix transform
         if (node.attrs && node.attrs.transform && node.attrs.transform.indexOf('matrix') !== -1) {
             // Apply the full matrix transform to the center point
-            var transformed = applyMatrixToPoint(node.attrs.transform, cx, cy);
+            var transformed = applyMatrixToPoint(node.attrs.transform, cxCircle, cyCircle);
             cloneC.attrs.cx = (transformed.x + inheritedTranslate.x).toString();
             cloneC.attrs.cy = (transformed.y + inheritedTranslate.y).toString();
+            
+            // Store the LOCAL center (before transformation) for gradient offset calculation
+            // Gradient coordinates in Figma's SVG export are in local/pre-transform space
+            cloneC.attrs._localCenterX = cxCircle;
+            cloneC.attrs._localCenterY = cyCircle;
+            
+            // Parse the full matrix and decompose to get rotation and scale
+            var fullMatrixC = parseTransformMatrixList(node.attrs.transform);
+            var decomposedC = decomposeMatrix(fullMatrixC);
+            
+            // Store rotation for application in createCircle
+            if (Math.abs(decomposedC.rotationDeg) > 0.0001) {
+                cloneC.attrs._rotationDeg = decomposedC.rotationDeg;
+            }
+            
+            // Store scaleY for gradient flip detection
+            // When scaleY is negative (Y-flip), the gradient direction needs to be reversed
+            cloneC.attrs._scaleY = decomposedC.scaleY;
+            
+            // Clear transform to prevent double-application in createCircle
+            delete cloneC.attrs.transform;
         } else {
             // Use simple translation
-            cloneC.attrs.cx = (cx + nodeT.x + inheritedTranslate.x).toString();
-            cloneC.attrs.cy = (cy + nodeT.y + inheritedTranslate.y).toString();
+            cloneC.attrs.cx = (cxCircle + nodeT.x + inheritedTranslate.x).toString();
+            cloneC.attrs.cy = (cyCircle + nodeT.y + inheritedTranslate.y).toString();
+            
+            // Store the LOCAL center for gradient offset calculation
+            cloneC.attrs._localCenterX = cxCircle;
+            cloneC.attrs._localCenterY = cyCircle;
+            
+            // Clear translate from transform to prevent double-application in createCircle
+            if (cloneC.attrs.transform && nodeT.x !== 0 || nodeT.y !== 0) {
+                cloneC.attrs.transform = cloneC.attrs.transform.replace(/translate\([^)]*\)\s*/g, '').trim();
+                if (cloneC.attrs.transform === '') delete cloneC.attrs.transform;
+            }
         }
         
         var cid = createCircle(cloneC, parentId, vb);
@@ -359,6 +802,10 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
                 
                 for (var pC = 0; pC < passesC.length; pC++) createAndAttachDropShadow(cid, passesC[pC]);
                 
+                // Check for inner shadows
+                var innerPassesC = detectInnerShadowPasses(__svgFilterMap[fIdC]);
+                for (var ipC = 0; ipC < innerPassesC.length; ipC++) createAndAttachInnerShadow(cid, innerPassesC[ipC], ipC, innerPassesC.length);
+                
                 // Check for blur
                 var blurAmountC = detectBlurAmount(__svgFilterMap[fIdC]);
                 if (blurAmountC !== null) {
@@ -367,12 +814,44 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
                 }
             }
         } catch (eDsC) {  }
-        // Mask: if this node has mask url(#id) create and attach mask shape
+        
+        // Check for Figma Background Blur (frosted glass effect)
+        // Queue for deferred processing so we can find underlying siblings
         try {
-            var maskIdC = extractUrlRefId(node.attrs && node.attrs.mask);
-            if (!maskIdC && node.attrs && node.attrs._inheritedMaskId) maskIdC = node.attrs._inheritedMaskId;
-            if (maskIdC) {
-                createMaskShapeForTarget(maskIdC, cid, parentId, vb, model);
+            var bgBlurRadiusC = node.attrs && node.attrs['data-figma-bg-blur-radius'];
+            if (bgBlurRadiusC) {
+                var bgBlurAmountC = parseFloat(bgBlurRadiusC);
+                if (!isNaN(bgBlurAmountC) && bgBlurAmountC > 0) {
+                    queueBackgroundBlur(cid, bgBlurAmountC, parentId);
+                }
+            }
+        } catch (eBgBlurC) {
+            console.warn('[Background Blur] Error processing circle: ' + eBgBlurC.message);
+        }
+        
+        // Mask/Clip: apply ALL masks (nested clip intersection)
+        try {
+            var allMaskIdsC = (node.attrs && node.attrs._inheritedMaskIds) ? node.attrs._inheritedMaskIds.slice() : [];
+            var ownMaskC = extractUrlRefId(node.attrs && node.attrs.mask) || extractUrlRefId(node.attrs && node.attrs['clip-path']);
+            if (ownMaskC && allMaskIdsC.indexOf(ownMaskC) === -1) {
+                allMaskIdsC.push(ownMaskC);
+            }
+            
+            // Build geometry for redundancy check
+            var svgGeometryC = {
+                cx: cx,
+                cy: cy,
+                r: parseFloat(node.attrs.r || '0')
+            };
+            
+            // Apply all inherited masks - Clipping Masks naturally intersect
+            if (allMaskIdsC.length > 0) {
+                for (var mci = 0; mci < allMaskIdsC.length; mci++) {
+                    createMaskShapeForTarget(allMaskIdsC[mci], cid, parentId, vb, model, svgGeometryC);
+                }
+                if (allMaskIdsC.length > 1) {
+                    console.log('[NESTED CLIP] Applied ' + allMaskIdsC.length + ' masks to circle: [' + allMaskIdsC.join(', ') + ']');
+                }
             }
         } catch (eMaskC) {  }
         var rotDegC = getRotationDegFromTransform(node.attrs && node.attrs.transform || '');
@@ -384,6 +863,8 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
         var cloneE = JSON.parse(JSON.stringify(node));
         var cx = parseFloat(cloneE.attrs.cx || '0');
         var cy = parseFloat(cloneE.attrs.cy || '0');
+        var rxE = parseFloat(cloneE.attrs.rx || '0');
+        var ryE = parseFloat(cloneE.attrs.ry || '0');
         
         // Check if we have a matrix transform
         if (node.attrs && node.attrs.transform && node.attrs.transform.indexOf('matrix') !== -1) {
@@ -391,10 +872,43 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
             var transformed = applyMatrixToPoint(node.attrs.transform, cx, cy);
             cloneE.attrs.cx = (transformed.x + inheritedTranslate.x).toString();
             cloneE.attrs.cy = (transformed.y + inheritedTranslate.y).toString();
+            
+            // Store the LOCAL center (before transformation) for gradient offset calculation
+            // Gradient coordinates in Figma's SVG export are in local/pre-transform space
+            cloneE.attrs._localCenterX = cx;
+            cloneE.attrs._localCenterY = cy;
+            
+            // Parse the full matrix and decompose to get rotation and scale
+            var fullMatrixE = parseTransformMatrixList(node.attrs.transform);
+            var decomposedE = decomposeMatrix(fullMatrixE);
+            
+            // Store rotation for application in createEllipse
+            if (Math.abs(decomposedE.rotationDeg) > 0.0001) {
+                cloneE.attrs._rotationDeg = decomposedE.rotationDeg;
+            }
+            
+            // Store scaleY for gradient flip detection
+            // When scaleY is negative (Y-flip), the gradient direction needs to be reversed
+            cloneE.attrs._scaleY = decomposedE.scaleY;
+            
+            // Clear transform to prevent double-application in createEllipse
+            delete cloneE.attrs.transform;
+            
+            console.log('[DEBUG ELLIPSE] Matrix transform applied: local center (' + cx.toFixed(2) + ', ' + cy.toFixed(2) + ') -> world center (' + transformed.x.toFixed(2) + ', ' + transformed.y.toFixed(2) + ') scaleY=' + decomposedE.scaleY.toFixed(4));
         } else {
             // Use simple translation
             cloneE.attrs.cx = (cx + nodeT.x + inheritedTranslate.x).toString();
             cloneE.attrs.cy = (cy + nodeT.y + inheritedTranslate.y).toString();
+            
+            // Store the LOCAL center for gradient offset calculation
+            cloneE.attrs._localCenterX = cx;
+            cloneE.attrs._localCenterY = cy;
+            
+            // Clear translate from transform to prevent double-application in createEllipse
+            if (cloneE.attrs.transform && nodeT.x !== 0 || nodeT.y !== 0) {
+                cloneE.attrs.transform = cloneE.attrs.transform.replace(/translate\([^)]*\)\s*/g, '').trim();
+                if (cloneE.attrs.transform === '') delete cloneE.attrs.transform;
+            }
         }
         
         var eid = createEllipse(cloneE, parentId, vb);
@@ -408,6 +922,10 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
                 
                 for (var pE = 0; pE < passesE.length; pE++) createAndAttachDropShadow(eid, passesE[pE]);
                 
+                // Check for inner shadows
+                var innerPassesE = detectInnerShadowPasses(__svgFilterMap[fIdE]);
+                for (var ipE = 0; ipE < innerPassesE.length; ipE++) createAndAttachInnerShadow(eid, innerPassesE[ipE], ipE, innerPassesE.length);
+                
                 // Check for blur
                 var blurAmountE = detectBlurAmount(__svgFilterMap[fIdE]);
                 if (blurAmountE !== null) {
@@ -416,12 +934,45 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
                 }
             }
         } catch (eDsE) {  }
-        // Mask: if this node has mask url(#id) create and attach mask shape
+        
+        // Check for Figma Background Blur (frosted glass effect)
+        // Queue for deferred processing so we can find underlying siblings
         try {
-            var maskIdE = extractUrlRefId(node.attrs && node.attrs.mask);
-            if (!maskIdE && node.attrs && node.attrs._inheritedMaskId) maskIdE = node.attrs._inheritedMaskId;
-            if (maskIdE) {
-                createMaskShapeForTarget(maskIdE, eid, parentId, vb, model);
+            var bgBlurRadiusE = node.attrs && node.attrs['data-figma-bg-blur-radius'];
+            if (bgBlurRadiusE) {
+                var bgBlurAmountE = parseFloat(bgBlurRadiusE);
+                if (!isNaN(bgBlurAmountE) && bgBlurAmountE > 0) {
+                    queueBackgroundBlur(eid, bgBlurAmountE, parentId);
+                }
+            }
+        } catch (eBgBlurE) {
+            console.warn('[Background Blur] Error processing ellipse: ' + eBgBlurE.message);
+        }
+        
+        // Mask/Clip: apply ALL masks (nested clip intersection)
+        try {
+            var allMaskIdsE = (node.attrs && node.attrs._inheritedMaskIds) ? node.attrs._inheritedMaskIds.slice() : [];
+            var ownMaskE = extractUrlRefId(node.attrs && node.attrs.mask) || extractUrlRefId(node.attrs && node.attrs['clip-path']);
+            if (ownMaskE && allMaskIdsE.indexOf(ownMaskE) === -1) {
+                allMaskIdsE.push(ownMaskE);
+            }
+            
+            // Build geometry for redundancy check
+            var svgGeometryE = {
+                cx: cx,
+                cy: cy,
+                rx: parseFloat(node.attrs.rx || '0'),
+                ry: parseFloat(node.attrs.ry || '0')
+            };
+            
+            // Apply all inherited masks - Clipping Masks naturally intersect
+            if (allMaskIdsE.length > 0) {
+                for (var mei = 0; mei < allMaskIdsE.length; mei++) {
+                    createMaskShapeForTarget(allMaskIdsE[mei], eid, parentId, vb, model, svgGeometryE);
+                }
+                if (allMaskIdsE.length > 1) {
+                    console.log('[NESTED CLIP] Applied ' + allMaskIdsE.length + ' masks to ellipse: [' + allMaskIdsE.join(', ') + ']');
+                }
             }
         } catch (eMaskE) {  }
         var rotDegE = getRotationDegFromTransform(node.attrs && node.attrs.transform || '');
@@ -444,6 +995,10 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
                 cloneT.tspans[k].x = newX;
                 cloneT.tspans[k].y = newY;
             }
+            // Extract scaleY from parent matrix for gradient flip detection
+            var decomposedParentT = decomposeMatrix(parentMatrix);
+            if (!cloneT.attrs) cloneT.attrs = {};
+            cloneT.attrs._scaleY = decomposedParentT.scaleY;
         }
         
         // Then apply node's own transform if it has one
@@ -454,6 +1009,12 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
                 cloneT.tspans[k].x = transformed.x + inheritedTranslate.x;
                 cloneT.tspans[k].y = transformed.y + inheritedTranslate.y;
             }
+            
+            // Extract and store scaleY from matrix for gradient flip detection
+            var fullMatrixT = parseTransformMatrixList(node.attrs.transform);
+            var decomposedT = decomposeMatrix(fullMatrixT);
+            cloneT.attrs._scaleY = decomposedT.scaleY;
+            console.log('[DEBUG TEXT] Matrix transform applied: scaleY=' + decomposedT.scaleY.toFixed(2));
         } else if (!parentMatrix) {
             // Only apply simple translation if we didn't already apply parent matrix
             for (var k = 0; k < cloneT.tspans.length; k++) {
@@ -477,6 +1038,10 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
                 
                 for (var pT = 0; pT < passesT.length; pT++) createAndAttachDropShadow(tid, passesT[pT]);
                 
+                // Check for inner shadows
+                var innerPassesT = detectInnerShadowPasses(__svgFilterMap[fIdT]);
+                for (var ipT = 0; ipT < innerPassesT.length; ipT++) createAndAttachInnerShadow(tid, innerPassesT[ipT], ipT, innerPassesT.length);
+                
                 // Check for blur
                 var blurAmountT = detectBlurAmount(__svgFilterMap[fIdT]);
                 if (blurAmountT !== null) {
@@ -485,12 +1050,19 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
                 }
             }
         } catch (eDsT) {  }
-        // Mask: if this node has mask url(#id) create and attach mask shape
+        // Mask/Clip: apply ALL masks (nested clip intersection)
         try {
-            var maskIdT = extractUrlRefId(node.attrs && node.attrs.mask);
-            if (!maskIdT && node.attrs && node.attrs._inheritedMaskId) maskIdT = node.attrs._inheritedMaskId;
-            if (maskIdT) {
-                createMaskShapeForTarget(maskIdT, tid, parentId, vb, model);
+            var allMaskIdsT = (node.attrs && node.attrs._inheritedMaskIds) ? node.attrs._inheritedMaskIds.slice() : [];
+            var ownMaskT = extractUrlRefId(node.attrs && node.attrs.mask) || extractUrlRefId(node.attrs && node.attrs['clip-path']);
+            if (ownMaskT && allMaskIdsT.indexOf(ownMaskT) === -1) {
+                allMaskIdsT.push(ownMaskT);
+            }
+            
+            // Apply all inherited masks - Clipping Masks naturally intersect
+            if (allMaskIdsT.length > 0) {
+                for (var mti = 0; mti < allMaskIdsT.length; mti++) {
+                    createMaskShapeForTarget(allMaskIdsT[mti], tid, parentId, vb, model);
+                }
             }
         } catch (eMaskT) {  }
         var rotDegT = getRotationDegFromTransform(node.attrs && node.attrs.transform || '');
@@ -540,6 +1112,10 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
                 
                 for (var pI = 0; pI < passesI.length; pI++) createAndAttachDropShadow(idImg, passesI[pI]);
                 
+                // Check for inner shadows
+                var innerPassesI = detectInnerShadowPasses(__svgFilterMap[fIdI]);
+                for (var ipI = 0; ipI < innerPassesI.length; ipI++) createAndAttachInnerShadow(idImg, innerPassesI[ipI], ipI, innerPassesI.length);
+                
                 // Check for blur
                 var blurAmountI = detectBlurAmount(__svgFilterMap[fIdI]);
                 if (blurAmountI !== null) {
@@ -558,12 +1134,22 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
                 api.set(idImg, { 'position.x': newPosI.x, 'position.y': newPosI.y });
             }
         } catch (ePI) {}
-        // Mask: if this node has mask url(#id) create and attach mask shape
+        // Mask/Clip: apply ALL masks (nested clip intersection)
         try {
-            var maskIdI = extractUrlRefId(node.attrs && node.attrs.mask);
-            if (!maskIdI && node.attrs && node.attrs._inheritedMaskId) maskIdI = node.attrs._inheritedMaskId;
-            if (maskIdI) {
-                createMaskShapeForTarget(maskIdI, idImg, parentId, vb, model);
+            var allMaskIdsI = (node.attrs && node.attrs._inheritedMaskIds) ? node.attrs._inheritedMaskIds.slice() : [];
+            var ownMaskI = extractUrlRefId(node.attrs && node.attrs.mask) || extractUrlRefId(node.attrs && node.attrs['clip-path']);
+            if (ownMaskI && allMaskIdsI.indexOf(ownMaskI) === -1) {
+                allMaskIdsI.push(ownMaskI);
+            }
+            
+            // Build geometry for redundancy check
+            var svgGeometryI = { x: x, y: y, width: w, height: h };
+            
+            // Apply all inherited masks - Clipping Masks naturally intersect
+            if (allMaskIdsI.length > 0) {
+                for (var mii = 0; mii < allMaskIdsI.length; mii++) {
+                    createMaskShapeForTarget(allMaskIdsI[mii], idImg, parentId, vb, model);
+                }
             }
         } catch (eMaskI) {}
         if (stats) stats.images = (stats.images || 0) + 1;
@@ -696,6 +1282,21 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
         return rectId;
     }
     if (node.type === 'path' || node.type === 'polygon' || node.type === 'polyline' || node.type === 'line') {
+        // Skip gradient simulation helper shapes (same check as for rects)
+        var pathFill = node.attrs && node.attrs.fill;
+        var pathHasFigmaGradientData = !!(node.attrs && node.attrs['data-figma-gradient-fill']);
+        var pathIsGenericName = (node.name === node.type || !node.name);
+        if (pathFill && !pathHasFigmaGradientData && pathIsGenericName) {
+            var pathFillIdMatch = /url\(#([^)]+)\)/.exec(pathFill);
+            if (pathFillIdMatch) {
+                var pathFillId = pathFillIdMatch[1].toLowerCase();
+                if (pathFillId.indexOf('_diamond_') !== -1 || pathFillId.indexOf('_angular_') !== -1) {
+                    console.log('[GRADIENT HELPER] Skipping gradient simulation path: fill=' + pathFill);
+                    return null;
+                }
+            }
+        }
+        
         var translateAll = {x: nodeT.x + inheritedTranslate.x, y: nodeT.y + inheritedTranslate.y};
         
         // Check if we have a matrix transform - if so, we need to transform all points
@@ -758,6 +1359,10 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
                     
                     for (var pL = 0; pL < passesL.length; pL++) createAndAttachDropShadow(vecId, passesL[pL]);
                     
+                    // Check for inner shadows
+                    var innerPassesL = detectInnerShadowPasses(__svgFilterMap[fIdL]);
+                    for (var ipL = 0; ipL < innerPassesL.length; ipL++) createAndAttachInnerShadow(vecId, innerPassesL[ipL], ipL, innerPassesL.length);
+                    
                     // Check for blur
                     var blurAmountL = detectBlurAmount(__svgFilterMap[fIdL]);
                     if (blurAmountL !== null) {
@@ -768,14 +1373,36 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
             } catch (eDsL) {  }
             var rotDegL = getRotationDegFromTransform(node.attrs && node.attrs.transform || '');
             if (Math.abs(rotDegL) > 0.0001) api.set(vecId, {"rotation": -rotDegL});
-            // Mask: if this node has mask url(#id) create and attach mask shape
+            // Mask/Clip: apply ALL masks (nested clip intersection)
             try {
-                var maskIdL = extractUrlRefId(node.attrs && node.attrs.mask);
-                if (!maskIdL && node.attrs && node.attrs._inheritedMaskId) maskIdL = node.attrs._inheritedMaskId;
-                if (maskIdL) {
-                    createMaskShapeForTarget(maskIdL, vecId, parentId, vb, model);
+                var allMaskIdsL = (node.attrs && node.attrs._inheritedMaskIds) ? node.attrs._inheritedMaskIds.slice() : [];
+                var ownMaskL = extractUrlRefId(node.attrs && node.attrs.mask) || extractUrlRefId(node.attrs && node.attrs['clip-path']);
+                if (ownMaskL && allMaskIdsL.indexOf(ownMaskL) === -1) {
+                    allMaskIdsL.push(ownMaskL);
+                }
+                
+                // Apply all inherited masks - Clipping Masks naturally intersect
+                if (allMaskIdsL.length > 0) {
+                    for (var mli = 0; mli < allMaskIdsL.length; mli++) {
+                        createMaskShapeForTarget(allMaskIdsL[mli], vecId, parentId, vb, model);
+                    }
                 }
             } catch (eMaskL) {}
+            
+            // Check for Figma Background Blur (frosted glass effect)
+            // Queue for deferred processing so we can find underlying siblings
+            try {
+                var bgBlurRadiusL = node.attrs && node.attrs['data-figma-bg-blur-radius'];
+                if (bgBlurRadiusL) {
+                    var bgBlurAmountL = parseFloat(bgBlurRadiusL);
+                    if (!isNaN(bgBlurAmountL) && bgBlurAmountL > 0) {
+                        queueBackgroundBlur(vecId, bgBlurAmountL, parentId);
+                    }
+                }
+            } catch (eBgBlurL) {
+                console.warn('[Background Blur] Error processing line: ' + eBgBlurL.message);
+            }
+            
             if (stats) stats.paths = (stats.paths || 0) + 1;
             return vecId;
         }
@@ -886,6 +1513,10 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
                 
                 for (var pP = 0; pP < passesP.length; pP++) createAndAttachDropShadow(vecId, passesP[pP]);
                 
+                // Check for inner shadows
+                var innerPassesP = detectInnerShadowPasses(__svgFilterMap[fIdP]);
+                for (var ipP = 0; ipP < innerPassesP.length; ipP++) createAndAttachInnerShadow(vecId, innerPassesP[ipP], ipP, innerPassesP.length);
+                
                 // Check for blur
                 var blurAmountP = detectBlurAmount(__svgFilterMap[fIdP]);
                 if (blurAmountP !== null) {
@@ -894,6 +1525,21 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
                 }
             }
         } catch (eDsP) {  }
+        
+        // Check for Figma Background Blur (frosted glass effect)
+        // Queue for deferred processing so we can find underlying siblings
+        try {
+            var bgBlurRadiusP = node.attrs && node.attrs['data-figma-bg-blur-radius'];
+            if (bgBlurRadiusP) {
+                var bgBlurAmountP = parseFloat(bgBlurRadiusP);
+                if (!isNaN(bgBlurAmountP) && bgBlurAmountP > 0) {
+                    queueBackgroundBlur(vecId, bgBlurAmountP, parentId);
+                }
+            }
+        } catch (eBgBlurP) {
+            console.warn('[Background Blur] Error processing path: ' + eBgBlurP.message);
+        }
+        
         var rotDegP = getRotationDegFromTransform(node.attrs && node.attrs.transform || '');
         if (Math.abs(rotDegP) > 0.0001) api.set(vecId, {"rotation": -rotDegP});
         // rotate(cx,cy) compensation for paths: rotate geometric centre around pivot
@@ -923,20 +1569,48 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
                 }
             }
         } catch (ePP) {}
-        var gradId2 = extractUrlRefId(node.attrs.fill || (node.attrs.style && extractStyleProperty(node.attrs.style, 'fill')));
-        if (gradId2) {
-            
-            var shader2 = getGradientShader(gradId2);
-            if (shader2) connectShaderToShape(shader2, vecId);
-        }
-        // Mask: if this node has mask url(#id) create and attach mask shape
+        // Note: Gradient connection is already handled by applyFillAndStroke called from createEditableFromPathSegments
+        // No need for duplicate gradient connection here
+        
+        // Mask/Clip: apply ALL masks (nested clip intersection)
         try {
-            var maskIdP = extractUrlRefId(node.attrs && node.attrs.mask);
-            if (!maskIdP && node.attrs && node.attrs._inheritedMaskId) maskIdP = node.attrs._inheritedMaskId;
-            if (maskIdP) {
-                createMaskShapeForTarget(maskIdP, vecId, parentId, vb, model);
+            console.log('[DEBUG MASK PATH] Processing path "' + (node.attrs && node.attrs.id || node.name || 'unnamed') + '" (Cavalry ID: ' + vecId + ')');
+            console.log('[DEBUG MASK PATH]   node.attrs.mask: ' + (node.attrs && node.attrs.mask));
+            console.log('[DEBUG MASK PATH]   node.attrs.clip-path: ' + (node.attrs && node.attrs['clip-path']));
+            console.log('[DEBUG MASK PATH]   node.attrs._inheritedMaskIds: [' + ((node.attrs && node.attrs._inheritedMaskIds) || []).join(', ') + ']');
+            
+            // Build list of all masks to apply: inherited masks + own mask
+            var allMaskIdsP = (node.attrs && node.attrs._inheritedMaskIds) ? node.attrs._inheritedMaskIds.slice() : [];
+            var ownMaskP = extractUrlRefId(node.attrs && node.attrs.mask) || extractUrlRefId(node.attrs && node.attrs['clip-path']);
+            if (ownMaskP && allMaskIdsP.indexOf(ownMaskP) === -1) {
+                allMaskIdsP.push(ownMaskP);
             }
-        } catch (eMaskP) {}
+            
+            // Build geometry for redundancy check (paths don't have simple bbox)
+            var svgGeometryP = null;
+            if (node.type === 'path' && node.attrs && node.attrs.d) {
+                svgGeometryP = { d: node.attrs.d };
+            }
+            
+            // Apply all inherited masks - Clipping Masks naturally intersect
+            console.log('[DEBUG MASK PATH]   Masks to apply: [' + allMaskIdsP.join(', ') + ']');
+            
+            if (allMaskIdsP.length > 0) {
+                
+                for (var mpi = 0; mpi < allMaskIdsP.length; mpi++) {
+                    console.log('[DEBUG MASK PATH]   CALLING createMaskShapeForTarget for path with maskId: ' + allMaskIdsP[mpi]);
+                    createMaskShapeForTarget(allMaskIdsP[mpi], vecId, parentId, vb, model, svgGeometryP);
+                }
+                
+                if (allMaskIdsP.length > 1) {
+                    console.log('[NESTED CLIP] Applied ' + allMaskIdsP.length + ' masks to path: [' + allMaskIdsP.join(', ') + ']');
+            }
+            } else {
+                console.log('[DEBUG MASK PATH]   No mask to apply for this path');
+            }
+        } catch (eMaskP) {
+            console.error('[DEBUG MASK PATH] Error applying mask: ' + (eMaskP.message || eMaskP));
+        }
         if (stats) stats.paths = (stats.paths || 0) + 1;
         return vecId;
     }
@@ -1018,6 +1692,113 @@ function unifyPathStrokePairsAfterImport() {
     }
 }
 
+// --- Flatten Groups After Import ---
+/**
+ * Flattens all groups that were created during import.
+ * Processes groups from innermost to outermost to preserve layer order.
+ * 
+ * Cavalry API used:
+ * - api.getChildren(groupId) - Get children of a group
+ * - api.getParent(groupId) - Get parent of a group  
+ * - api.parent(childId, parentId) - Re-parent a layer
+ * - api.sendBackward(layerId) - Move layer backward in stack
+ * - api.deleteLayer(groupId) - Delete the empty group
+ * - api.getNiceName(id) - Get layer name for logging
+ */
+function flattenAllGroupsAfterImport() {
+    var groupIds = getImportedGroupIds();
+    if (!groupIds || groupIds.length === 0) {
+        console.info('[Flatten] No groups to flatten');
+        return 0;
+    }
+    
+    console.info('[Flatten] Processing ' + groupIds.length + ' group(s) for flattening...');
+    var flattenedCount = 0;
+    var unparentedCount = 0;
+    
+    // Process in reverse order (deepest nested groups first)
+    // This ensures children are moved before their parent group is processed
+    for (var i = groupIds.length - 1; i >= 0; i--) {
+        var groupId = groupIds[i];
+        
+        try {
+            // Check if group still exists
+            var groupName = '';
+            try { 
+                groupName = api.getNiceName(groupId); 
+            } catch (e) { 
+                // Group may have been deleted, skip it
+                console.info('[Flatten] Group ' + groupId + ' no longer exists, skipping');
+                continue; 
+            }
+            
+            // Get the group's parent
+            var parentId = null;
+            try { 
+                parentId = api.getParent(groupId); 
+            } catch (e) {
+                parentId = null;
+            }
+            
+            // Get children of the group
+            var children = [];
+            try { 
+                children = api.getChildren(groupId); 
+            } catch (e) { 
+                children = []; 
+            }
+            
+            console.info('[Flatten] Group "' + groupName + '" (' + groupId + ') has ' + children.length + ' children');
+            
+            if (children.length === 0) {
+                // Empty group, just delete it
+                try { 
+                    api.deleteLayer(groupId); 
+                    console.info('[Flatten] Deleted empty group: ' + groupName);
+                } catch (e) {}
+                flattenedCount++;
+                continue;
+            }
+            
+            // For each child, unparent it (move up one level in hierarchy)
+            // Process in reverse order to maintain layer stacking order
+            for (var c = children.length - 1; c >= 0; c--) {
+                var childId = children[c];
+                var childName = '';
+                try { childName = api.getNiceName(childId); } catch (e) { childName = childId; }
+                
+                try {
+                    // Use api.unParent to move child up one level in hierarchy
+                    // This detaches the child from its current parent (the group)
+                    api.unParent(childId);
+                    unparentedCount++;
+                    console.info('[Flatten] Unparented "' + childName + '" from "' + groupName + '"');
+                } catch (eUnparent) {
+                    // Failed to unparent, continue with other children
+                    console.warn('[Flatten] Failed to unparent "' + childName + '": ' + eUnparent.message);
+                }
+            }
+            
+            // Delete the now-empty group
+            try {
+                api.deleteLayer(groupId);
+                flattenedCount++;
+                console.info('[Flatten] Deleted group: ' + groupName);
+            } catch (eDelete) {
+                // Group deletion failed, it may still have children
+                console.warn('[Flatten] Failed to delete group "' + groupName + '": ' + eDelete.message);
+            }
+            
+        } catch (eGroup) {
+            // Error processing group, continue with others
+            console.warn('[Flatten] Error processing group: ' + eGroup.message);
+        }
+    }
+    
+    console.info('[Flatten] Complete: flattened ' + flattenedCount + ' groups, unparented ' + unparentedCount + ' children');
+    return flattenedCount;
+}
+
 // --- Save Scene Function ---
 function saveSceneBeforeImport() {
     try {
@@ -1048,12 +1829,18 @@ function processAndImportSVG(svgCode) {
         var vb = extractViewBox(svgCode);
         if (!vb) vb = {x:0,y:0,width:1000,height:1000};
         
+        // Store viewBox globally for gradient offset calculations
+        __svgViewBox = vb;
+        
         // Reset image counter for consistent numbering per import
         __imageCounter = 0;
         __imageNamingContext = {};
         
         // Reset group counter for consistent numbering per import
         __groupCounter = 0;
+        
+        // Reset imported group tracking for post-import flattening
+        resetImportedGroupIds();
 
         var model = parseSVGStructure(svgCode);
         // Normalize: merge separate fill/stroke siblings before creating layers
@@ -1072,7 +1859,8 @@ function processAndImportSVG(svgCode) {
         try {
             var masks = extractMasks(svgCode) || {};
             setMaskContext(masks);
-        } catch (eMask) { setMaskContext({}); }
+            resetMaskShapeCache(); // Clear cache for new import to avoid stale references
+        } catch (eMask) { setMaskContext({}); resetMaskShapeCache(); }
         // Use the proven gradient extractor logic pattern
         var gradientMap = {};
         var gradsArr = extractGradients(svgCode);
@@ -1081,6 +1869,9 @@ function processAndImportSVG(svgCode) {
             if (gid) gradientMap[gid] = gradsArr[gi];
         }
         setGradientContext(gradientMap);
+        
+        // Clear any previous deferred background blur queue
+        clearDeferredBackgroundBlurs();
 
         console.info('Creating layers…');
 
@@ -1111,10 +1902,31 @@ function processAndImportSVG(svgCode) {
 
         // After creating layers, unify any path-based fill/stroke pairs to single shapes
         try { unifyPathStrokePairsAfterImport(); } catch (eUP) {  }
+        
+        // Process deferred background blurs now that all shapes are created
+        // This finds underlying overlapping siblings and applies blur filters
+        try { processDeferredBackgroundBlurs(); } catch (eBgBlurPost) { 
+            console.warn('[Background Blur] Post-processing error: ' + eBgBlurPost.message);
+        }
 
         // No scene group creation - imports go directly to scene root
+        
+        // Flatten groups after import if the setting is disabled
+        // This preserves layer order while removing the group hierarchy
+        var finalGroupCount = stats.groups;
+        if (typeof importGroupsEnabled !== 'undefined' && !importGroupsEnabled) {
+            try {
+                var flattened = flattenAllGroupsAfterImport();
+                if (flattened > 0) {
+                    finalGroupCount = 0;
+                    console.info('🏹 Flattened ' + flattened + ' group(s)');
+                }
+            } catch (eFlatten) {
+                console.warn('[Flatten] Error: ' + eFlatten.message);
+            }
+        }
 
-        console.info('🏹 Import complete — groups: ' + stats.groups + ', rects: ' + stats.rects + ', circles: ' + stats.circles + ', ellipses: ' + stats.ellipses + ', texts: ' + stats.texts + ', paths: ' + stats.paths);
+        console.info('🏹 Import complete — groups: ' + finalGroupCount + ', rects: ' + stats.rects + ', circles: ' + stats.circles + ', ellipses: ' + stats.ellipses + ', texts: ' + stats.texts + ', paths: ' + stats.paths);
     } catch (e) {
         var errorMsg = e && e.message ? e.message : 'Import failed';
         // Skip undefined/null error messages

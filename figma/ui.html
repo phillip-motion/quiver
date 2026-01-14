@@ -171,18 +171,75 @@
 
     
     
-    // Send SVG to Cavalry
-    async function sendToCavalry(svgCode, nodeName) {
+    // Send SVG (and optional vector/text/emoji data) to Cavalry
+    async function sendToCavalry(svgCode, nodeName, frameWidth, frameHeight, vectorData, textData, emojiData) {
+      console.log('sendToCavalry called:');
+      console.log('  svgCode length:', svgCode ? svgCode.length : 'null');
+      console.log('  nodeName:', nodeName);
+      console.log('  vectorData:', vectorData ? vectorData.length + ' nodes' : 'none');
+      console.log('  textData:', textData ? textData.length + ' nodes' : 'none');
+      console.log('  emojiData:', emojiData ? emojiData.length + ' emojis' : 'none');
+      
       try {
+        // Build payload - include vector/text data for hybrid approach if available
+        const payload = {
+          action: 'importSVG',
+          svgCode: svgCode
+        };
+        
+        // Add hybrid vector data if present (for stroke gradients)
+        if (vectorData && vectorData.length > 0) {
+          payload.vectorData = vectorData;
+          payload.frameWidth = frameWidth;
+          payload.frameHeight = frameHeight;
+          console.log('Sending hybrid data with', vectorData.length, 'stroke gradient node(s)');
+          // Debug: log the first vector data node
+          if (vectorData[0]) {
+            console.log('First vector node:', vectorData[0].name);
+            console.log('  Has vectorPaths:', vectorData[0].vectorPaths ? vectorData[0].vectorPaths.length : 0);
+            console.log('  Has strokes:', vectorData[0].strokes ? vectorData[0].strokes.length : 0);
+          }
+        }
+        
+        // Add hybrid text data if present (for accurate alignment)
+        if (textData && textData.length > 0) {
+          payload.textData = textData;
+          payload.frameWidth = frameWidth;
+          payload.frameHeight = frameHeight;
+          console.log('Sending hybrid text data with', textData.length, 'text node(s)');
+          // Debug: log the first text data node
+          if (textData[0]) {
+            console.log('First text node:', textData[0].name);
+            console.log('  Align:', textData[0].textAlignHorizontal, '/', textData[0].textAlignVertical);
+          }
+        }
+        
+        // Add emoji data if present (emojis exported as PNG images)
+        if (emojiData && emojiData.length > 0) {
+          payload.emojiData = emojiData;
+          payload.frameWidth = frameWidth;
+          payload.frameHeight = frameHeight;
+          console.log('Sending emoji data with', emojiData.length, 'emoji(s)');
+          // Debug: log the first emoji
+          if (emojiData[0]) {
+            console.log('First emoji:', emojiData[0].emojiChar, 'from', emojiData[0].textNodeName);
+            console.log('  Position:', emojiData[0].x, ',', emojiData[0].y);
+            console.log('  Base64 length:', emojiData[0].base64 ? emojiData[0].base64.length : 'missing');
+          }
+        }
+        
+        const payloadStr = JSON.stringify(payload);
+        console.log('Payload JSON length:', payloadStr.length);
+        
         // Use text/plain to avoid CORS preflight
+        console.log('Sending to:', QUIVER_URL);
         const response = await fetch(QUIVER_URL, {
           method: 'POST',
           headers: { 'Content-Type': 'text/plain' },
-          body: JSON.stringify({
-            action: 'importSVG',
-            svgCode: svgCode
-          })
+          body: payloadStr
         });
+        
+        console.log('Fetch response status:', response.status);
         
         if (response.ok) {
           // Tell code.js to show success toast
@@ -222,15 +279,49 @@
       parent.postMessage({ pluginMessage: { type: 'send-to-cavalry' } }, '*');
     };
     
+    // Update selection info display (optional - currently just logs)
+    function updateSelectionInfo(msg) {
+      // This function handles selection-info messages from the plugin
+      // Currently we don't display selection info in the UI, but this prevents the error
+      if (msg.hasSelection) {
+        console.log('Selection:', msg.name, '(' + msg.type + ')');
+      } else {
+        console.log('No valid selection:', msg.message);
+      }
+    }
+    
     // Listen for messages from main thread
     window.onmessage = async (event) => {
+      console.log('UI received message:', event.data);
+      
+      if (!event.data || !event.data.pluginMessage) {
+        console.log('No pluginMessage in event data');
+        return;
+      }
+      
       const msg = event.data.pluginMessage;
+      console.log('Message type:', msg.type);
       
       if (msg.type === 'selection-info') {
         updateSelectionInfo(msg);
       } 
       else if (msg.type === 'send-svg') {
-        await sendToCavalry(msg.svgCode, msg.nodeName);
+        console.log('Received send-svg message');
+        console.log('  svgCode length:', msg.svgCode ? msg.svgCode.length : 'missing');
+        console.log('  vectorData:', msg.vectorData ? msg.vectorData.length + ' items' : 'none');
+        console.log('  textData:', msg.textData ? msg.textData.length + ' items' : 'none');
+        console.log('  emojiData:', msg.emojiData ? msg.emojiData.length + ' items' : 'none');
+        
+        // Pass all data including hybrid vector/text/emoji data
+        await sendToCavalry(
+          msg.svgCode, 
+          msg.nodeName, 
+          msg.frameWidth, 
+          msg.frameHeight, 
+          msg.vectorData,
+          msg.textData,
+          msg.emojiData
+        );
       }
     };
     

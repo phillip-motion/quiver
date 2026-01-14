@@ -23,7 +23,7 @@ function parseSVGStructure(svgCode) {
                 var node = makeNode({ type: tag, name: decodeEntitiesForName(extractAttribute(opening, 'id') || tag), attrs: {}, opening: opening, children: [], tspans: [], transformChain: [] });
                 node.attrs.transform = extractAttribute(opening, 'transform');
                 // Store direct attributes commonly used
-                var directAttrs = ['id','fill','fill-opacity','stroke','stroke-width','stroke-opacity','stroke-dasharray','stroke-dashoffset','stroke-linecap','stroke-linejoin','opacity','font-family','font-size','font-weight','font-style','letter-spacing','x','y','mask','clip-path','filter','mix-blend-mode'];
+                var directAttrs = ['id','fill','fill-opacity','stroke','stroke-width','stroke-opacity','stroke-dasharray','stroke-dashoffset','stroke-linecap','stroke-linejoin','opacity','font-family','font-size','font-weight','font-style','letter-spacing','x','y','mask','clip-path','filter','mix-blend-mode','data-figma-bg-blur-radius','data-figma-gradient-fill','data-figma-skip-parse'];
                 for (var d = 0; d < directAttrs.length; d++) {
                     var key = directAttrs[d];
                     var val = extractAttribute(opening, key);
@@ -67,7 +67,7 @@ function parseSVGStructure(svgCode) {
                 }
             } else if (tag === 'rect' || tag === 'circle' || tag === 'ellipse') {
                 var leaf = makeNode({ type: tag, name: decodeEntitiesForName(extractAttribute(opening, 'id') || tag), attrs: {}, opening: opening, children: [], transformChain: [] });
-                var keys = ['id','x','y','width','height','rx','ry','cx','cy','r','rx','ry','fill','fill-opacity','stroke','stroke-width','stroke-opacity','stroke-dasharray','stroke-dashoffset','stroke-linecap','stroke-linejoin','opacity','transform','mask','clip-path','filter','mix-blend-mode'];
+                var keys = ['id','x','y','width','height','rx','ry','cx','cy','r','rx','ry','fill','fill-opacity','stroke','stroke-width','stroke-opacity','stroke-dasharray','stroke-dashoffset','stroke-linecap','stroke-linejoin','opacity','transform','mask','clip-path','filter','mix-blend-mode','data-figma-bg-blur-radius','data-figma-gradient-fill'];
                 for (var j = 0; j < keys.length; j++) {
                     var kk = keys[j];
                     var vv = extractAttribute(opening, kk);
@@ -118,7 +118,7 @@ function parseSVGStructure(svgCode) {
             } else if (tag === 'path') {
                 // Record path as a node (M1: placeholder only)
                 var pnode = makeNode({ type: tag, name: decodeEntitiesForName(extractAttribute(opening, 'id') || tag), attrs: {}, opening: opening, children: [], transformChain: [] });
-                var pkeys = ['id','d','fill','fill-opacity','stroke','stroke-width','stroke-opacity','stroke-dasharray','stroke-dashoffset','stroke-linecap','stroke-linejoin','opacity','transform','fill-rule','clip-rule','mask','clip-path','filter','mix-blend-mode'];
+                var pkeys = ['id','d','fill','fill-opacity','stroke','stroke-width','stroke-opacity','stroke-dasharray','stroke-dashoffset','stroke-linecap','stroke-linejoin','opacity','transform','fill-rule','clip-rule','mask','clip-path','filter','mix-blend-mode','data-figma-bg-blur-radius','data-figma-gradient-fill'];
                 for (var pj = 0; pj < pkeys.length; pj++) {
                     var pk = pkeys[pj];
                     var pv = extractAttribute(opening, pk);
@@ -129,7 +129,7 @@ function parseSVGStructure(svgCode) {
                 stack[stack.length - 1].children.push(pnode);
             } else if (tag === 'polygon' || tag === 'polyline') {
                 var vnode = makeNode({ type: tag, name: decodeEntitiesForName(extractAttribute(opening, 'id') || tag), attrs: {}, opening: opening, children: [], transformChain: [] });
-                var vkeys = ['id','points','fill','fill-opacity','stroke','stroke-width','stroke-opacity','stroke-dasharray','stroke-dashoffset','stroke-linecap','stroke-linejoin','opacity','transform','mask','clip-path','filter','mix-blend-mode'];
+                var vkeys = ['id','points','fill','fill-opacity','stroke','stroke-width','stroke-opacity','stroke-dasharray','stroke-dashoffset','stroke-linecap','stroke-linejoin','opacity','transform','mask','clip-path','filter','mix-blend-mode','data-figma-bg-blur-radius','data-figma-gradient-fill'];
                 for (var vj = 0; vj < vkeys.length; vj++) {
                     var vk = vkeys[vj];
                     var vv2 = extractAttribute(opening, vk);
@@ -140,7 +140,7 @@ function parseSVGStructure(svgCode) {
                 stack[stack.length - 1].children.push(vnode);
             } else if (tag === 'line') {
                 var lnode = makeNode({ type: tag, name: decodeEntitiesForName(extractAttribute(opening, 'id') || tag), attrs: {}, opening: opening, children: [], transformChain: [] });
-                var lkeys = ['id','x1','y1','x2','y2','fill','fill-opacity','stroke','stroke-width','stroke-opacity','stroke-dasharray','stroke-dashoffset','stroke-linecap','stroke-linejoin','opacity','transform','mask','clip-path','filter','mix-blend-mode'];
+                var lkeys = ['id','x1','y1','x2','y2','fill','fill-opacity','stroke','stroke-width','stroke-opacity','stroke-dasharray','stroke-dashoffset','stroke-linecap','stroke-linejoin','opacity','transform','mask','clip-path','filter','mix-blend-mode','data-figma-bg-blur-radius','data-figma-gradient-fill'];
                 for (var lj = 0; lj < lkeys.length; lj++) {
                     var lk = lkeys[lj];
                     var lv = extractAttribute(opening, lk);
@@ -187,43 +187,17 @@ function parseSVGStructure(svgCode) {
     return tree;
 }
 
-// --- Extract mask definitions from SVG ---
+// --- Extract mask and clipPath definitions from SVG ---
 function extractMasks(svgCode) {
     var masks = {};
     
-    // Find all <mask> elements with their content
-    var maskRegex = /<mask([^>]*)>([\s\S]*?)<\/mask>/g;
-    var match;
-    
-    while ((match = maskRegex.exec(svgCode)) !== null) {
-        var maskAttrs = match[1];
-        var maskContent = match[2];
-        
-        // Extract mask ID
-        var idMatch = /id\s*=\s*["']([^"']+)["']/.exec(maskAttrs);
-        if (!idMatch) continue;
-        var maskId = idMatch[1];
-        
-        // Determine mask type (alpha or luminance)
-        var maskType = 'alpha'; // default
-        
-        // Check style attribute for mask-type
-        var styleMatch = /style\s*=\s*["']([^"']+)["']/.exec(maskAttrs);
-        if (styleMatch) {
-            var styleContent = styleMatch[1];
-            if (/mask-type\s*:\s*luminance/i.test(styleContent)) {
-                maskType = 'luminance';
-            }
-        }
-        
-        // Parse child elements within the mask
+    // Helper function to parse child shapes within a mask or clipPath
+    function parseChildShapes(content) {
         var children = [];
-        
-        // Parse simple shapes within mask (circle, ellipse, rect, path)
         var childRegex = /<(circle|ellipse|rect|path)([^>]*)\/?>(?:[\s\S]*?<\/\1>)?/g;
         var childMatch;
         
-        while ((childMatch = childRegex.exec(maskContent)) !== null) {
+        while ((childMatch = childRegex.exec(content)) !== null) {
             var childType = childMatch[1];
             var childAttrsStr = childMatch[2];
             var childOpening = '<' + childType + childAttrsStr + '>';
@@ -256,12 +230,62 @@ function extractMasks(svgCode) {
             
             children.push(childNode);
         }
+        return children;
+    }
+    
+    // Find all <mask> elements with their content
+    var maskRegex = /<mask([^>]*)>([\s\S]*?)<\/mask>/g;
+    var match;
+    
+    while ((match = maskRegex.exec(svgCode)) !== null) {
+        var maskAttrs = match[1];
+        var maskContent = match[2];
+        
+        // Extract mask ID
+        var idMatch = /id\s*=\s*["']([^"']+)["']/.exec(maskAttrs);
+        if (!idMatch) continue;
+        var maskId = idMatch[1];
+        
+        // Determine mask type (alpha or luminance)
+        var maskType = 'alpha'; // default
+        
+        // Check style attribute for mask-type
+        var styleMatch = /style\s*=\s*["']([^"']+)["']/.exec(maskAttrs);
+        if (styleMatch) {
+            var styleContent = styleMatch[1];
+            if (/mask-type\s*:\s*luminance/i.test(styleContent)) {
+                maskType = 'luminance';
+            }
+        }
         
         masks[maskId] = {
             type: maskType,
-            children: children,
+            children: parseChildShapes(maskContent),
             attrs: {}
         };
+    }
+    
+    // Find all <clipPath> elements with their content
+    var clipPathRegex = /<clipPath([^>]*)>([\s\S]*?)<\/clipPath>/g;
+    var clipMatch;
+    
+    while ((clipMatch = clipPathRegex.exec(svgCode)) !== null) {
+        var clipAttrs = clipMatch[1];
+        var clipContent = clipMatch[2];
+        
+        // Extract clipPath ID
+        var clipIdMatch = /id\s*=\s*["']([^"']+)["']/.exec(clipAttrs);
+        if (!clipIdMatch) continue;
+        var clipId = clipIdMatch[1];
+        
+        // clipPath is always alpha-based (uses shape boundaries)
+        masks[clipId] = {
+            type: 'clip',
+            children: parseChildShapes(clipContent),
+            attrs: {}
+        };
+        
+        console.log('[Quiver] Extracted clipPath: ' + clipId + ' with ' + masks[clipId].children.length + ' child shapes');
     }
     
     return masks;
@@ -384,6 +408,27 @@ function mergeFillStrokePairs(node) {
         strokeEl.__remove = true;
         return true;
     }
+    function tryMergeCirclePair(fillEl, strokeEl) {
+        // Similar to tryMergeEllipsePair but for circles (single radius)
+        var fcx = parseFloat(fillEl.attrs.cx||0), fcy = parseFloat(fillEl.attrs.cy||0);
+        var fr = parseFloat(fillEl.attrs.r||0);
+        var scx = parseFloat(strokeEl.attrs.cx||0), scy = parseFloat(strokeEl.attrs.cy||0);
+        var sr = parseFloat(strokeEl.attrs.r||0);
+        var w = parseFloat(strokeEl.attrs['stroke-width']||0);
+        if (!(w>0)) return false;
+        // Inner stroke: stroke circle radius = fill radius - strokeWidth/2
+        var inner = nearly(scx, fcx) && nearly(scy, fcy) && nearly(sr, fr - w/2);
+        // Outer stroke: stroke circle radius = fill radius + strokeWidth/2
+        var outer = nearly(scx, fcx) && nearly(scy, fcy) && nearly(sr, fr + w/2);
+        if (!inner && !outer) return false;
+        console.log('[CIRCLE MERGE] Detected ' + (inner ? 'inner' : 'outer') + ' stroke circle (fill r=' + fr + ', stroke r=' + sr + ', strokeWidth=' + w + ')');
+        fillEl.attrs.stroke = strokeEl.attrs.stroke;
+        if (strokeEl.attrs['stroke-width'] !== undefined) fillEl.attrs['stroke-width'] = strokeEl.attrs['stroke-width'];
+        if (strokeEl.attrs['stroke-opacity'] !== undefined) fillEl.attrs['stroke-opacity'] = strokeEl.attrs['stroke-opacity'];
+        fillEl.attrs._stroke_align = inner ? 'inner' : 'outer';
+        strokeEl.__remove = true;
+        return true;
+    }
     // Search rect/ellipse pairs (include one-level nested groups without transforms, e.g. clip wrappers)
     function buildEntries(kind) {
         var out = [];
@@ -415,15 +460,300 @@ function mergeFillStrokePairs(node) {
                 var b = bEnt.node;
                 if (!_hasStrokeOnly(b.attrs)) continue;
                 var ok = false;
-                if (kind === 'rect') ok = tryMergeRectPair(a,b); else ok = tryMergeEllipsePair(a,b);
+                if (kind === 'rect') ok = tryMergeRectPair(a,b); 
+                else if (kind === 'circle') ok = tryMergeCirclePair(a,b);
+                else ok = tryMergeEllipsePair(a,b);
                 if (ok) break;
             }
         }
     }
     var rectEntries = buildEntries('rect');
     var ellipseEntries = buildEntries('ellipse');
+    var circleEntries = buildEntries('circle');
     mergeForTypeEntries(rectEntries, 'rect');
     mergeForTypeEntries(ellipseEntries, 'ellipse');
+    mergeForTypeEntries(circleEntries, 'circle');
+    
+    // MULTI-FILL OPTIMIZATION: Merge identical sibling shapes with different fills
+    // Figma exports multiple fills as separate identical shapes - combine into one shape with multiple shaders
+    function areRectsIdentical(a, b) {
+        var ax = parseFloat(a.attrs.x||0), ay = parseFloat(a.attrs.y||0);
+        var aw = parseFloat(a.attrs.width||0), ah = parseFloat(a.attrs.height||0);
+        var arx = parseFloat(a.attrs.rx||0), ary = parseFloat(a.attrs.ry||0);
+        var bx = parseFloat(b.attrs.x||0), by = parseFloat(b.attrs.y||0);
+        var bw = parseFloat(b.attrs.width||0), bh = parseFloat(b.attrs.height||0);
+        var brx = parseFloat(b.attrs.rx||0), bry = parseFloat(b.attrs.ry||0);
+        return nearly(ax, bx) && nearly(ay, by) && nearly(aw, bw) && nearly(ah, bh) && nearly(arx, brx) && nearly(ary, bry);
+    }
+    function areEllipsesIdentical(a, b) {
+        var acx = parseFloat(a.attrs.cx||0), acy = parseFloat(a.attrs.cy||0);
+        var arx = parseFloat(a.attrs.rx||0), ary = parseFloat(a.attrs.ry||0);
+        var bcx = parseFloat(b.attrs.cx||0), bcy = parseFloat(b.attrs.cy||0);
+        var brx = parseFloat(b.attrs.rx||0), bry = parseFloat(b.attrs.ry||0);
+        return nearly(acx, bcx) && nearly(acy, bcy) && nearly(arx, brx) && nearly(ary, bry);
+    }
+    function arePathsIdentical(a, b) {
+        // Compare path 'd' attribute and transform
+        var aD = (a.attrs.d || '').trim();
+        var bD = (b.attrs.d || '').trim();
+        var aTransform = (a.attrs.transform || '').trim();
+        var bTransform = (b.attrs.transform || '').trim();
+        return aD === bD && aTransform === bTransform;
+    }
+    function areCirclesIdentical(a, b) {
+        var acx = parseFloat(a.attrs.cx||0), acy = parseFloat(a.attrs.cy||0);
+        var ar = parseFloat(a.attrs.r||0);
+        var bcx = parseFloat(b.attrs.cx||0), bcy = parseFloat(b.attrs.cy||0);
+        var br = parseFloat(b.attrs.r||0);
+        // Also compare transforms for consistency with arePathsIdentical
+        var aTransform = (a.attrs.transform || '').trim();
+        var bTransform = (b.attrs.transform || '').trim();
+        return nearly(acx, bcx) && nearly(acy, bcy) && nearly(ar, br) && aTransform === bTransform;
+    }
+    function arePolygonsIdentical(a, b) {
+        // Compare points attribute and transform
+        var aPoints = (a.attrs.points || '').trim();
+        var bPoints = (b.attrs.points || '').trim();
+        var aTransform = (a.attrs.transform || '').trim();
+        var bTransform = (b.attrs.transform || '').trim();
+        return aPoints === bPoints && aTransform === bTransform;
+    }
+    function areLinesIdentical(a, b) {
+        var ax1 = parseFloat(a.attrs.x1||0), ay1 = parseFloat(a.attrs.y1||0);
+        var ax2 = parseFloat(a.attrs.x2||0), ay2 = parseFloat(a.attrs.y2||0);
+        var bx1 = parseFloat(b.attrs.x1||0), by1 = parseFloat(b.attrs.y1||0);
+        var bx2 = parseFloat(b.attrs.x2||0), by2 = parseFloat(b.attrs.y2||0);
+        return nearly(ax1, bx1) && nearly(ay1, by1) && nearly(ax2, bx2) && nearly(ay2, by2);
+    }
+    function areTextsIdentical(a, b) {
+        // Compare text position, transform, and content
+        var ax = parseFloat(a.attrs.x||0), ay = parseFloat(a.attrs.y||0);
+        var bx = parseFloat(b.attrs.x||0), by = parseFloat(b.attrs.y||0);
+        if (!nearly(ax, bx) || !nearly(ay, by)) return false;
+        
+        var aTransform = (a.attrs.transform || '').trim();
+        var bTransform = (b.attrs.transform || '').trim();
+        if (aTransform !== bTransform) return false;
+        
+        // Compare text content by serializing tspans
+        // NOTE: The SVG parser stores tspan content in node.tspans array (not node.children)
+        function getTextContent(node) {
+            // Check node.tspans first (where the SVG parser stores tspan data)
+            if (node.tspans && node.tspans.length > 0) {
+                var content = '';
+                for (var i = 0; i < node.tspans.length; i++) {
+                    var tspan = node.tspans[i];
+                    content += (tspan.x || 0) + ',' + (tspan.y || 0) + ':' + (tspan.text || '') + '|';
+                }
+                return content;
+            }
+            // Fallback: check children (for other parsers that might use child nodes)
+            if (node.children && node.children.length > 0) {
+                var contentFromChildren = '';
+                for (var j = 0; j < node.children.length; j++) {
+                    var child = node.children[j];
+                    if (child.type === 'tspan') {
+                        var tspanX = child.attrs && child.attrs.x || '';
+                        var tspanY = child.attrs && child.attrs.y || '';
+                        var tspanText = child.text || '';
+                        if (!tspanText && child.children) {
+                            for (var ti = 0; ti < child.children.length; ti++) {
+                                var tc = child.children[ti];
+                                if (tc.text) tspanText += tc.text;
+                            }
+                        }
+                        contentFromChildren += tspanX + ',' + tspanY + ':' + tspanText + '|';
+                    }
+                }
+                if (contentFromChildren) return contentFromChildren;
+            }
+            // Final fallback: direct text property
+            return node.text || '';
+        }
+        
+        var aContent = getTextContent(a);
+        var bContent = getTextContent(b);
+        var identical = (aContent === bContent);
+        
+        // Debug logging for text comparison
+        console.log('[MULTI-FILL TEXT] Comparing texts:');
+        console.log('  A: name="' + (a.name || 'unnamed') + '", content="' + (aContent || '(empty)').substring(0, 80) + '"');
+        console.log('  B: name="' + (b.name || 'unnamed') + '", content="' + (bContent || '(empty)').substring(0, 80) + '"');
+        console.log('  Identical: ' + identical);
+        
+        // CRITICAL: If both contents are empty, texts should NOT be considered identical
+        // This prevents merging different texts that failed content extraction
+        if (aContent === '' && bContent === '') {
+            console.log('[MULTI-FILL TEXT] WARNING: Both texts have empty content - NOT merging');
+            return false;
+        }
+        
+        return identical;
+    }
+    function hasMergeableFill(attrs) {
+        var fill = attrs.fill || '';
+        // Mergeable: url(#...) references OR solid colors (not 'none' or empty)
+        if (fill.indexOf('url(') === 0) return true;
+        if (fill && fill !== 'none') return true;
+        // Also mergeable: Figma gradient fill marker (angular/diamond gradients)
+        if (attrs['data-figma-gradient-fill']) return true;
+        return false;
+    }
+    function mergeIdenticalFillShapes(entries, isIdenticalFn) {
+        // Group identical shapes together
+        var groups = [];
+        var used = {};
+        for (var i = 0; i < entries.length; i++) {
+            if (used[i]) continue;
+            var aEnt = entries[i];
+            if (!aEnt || !aEnt.node || aEnt.node.__remove) continue;
+            var a = aEnt.node;
+            if (!hasMergeableFill(a.attrs)) continue;
+            
+            // Include holder (parent group) for filter checking
+            var group = [{ idx: i, node: a, holder: aEnt.holder }];
+            used[i] = true;
+            
+            for (var j = i + 1; j < entries.length; j++) {
+                if (used[j]) continue;
+                var bEnt = entries[j];
+                if (!bEnt || !bEnt.node || bEnt.node.__remove) continue;
+                var b = bEnt.node;
+                if (!hasMergeableFill(b.attrs)) continue;
+                
+                // CRITICAL: Only merge shapes that are SIBLINGS (same parent holder)
+                // This prevents incorrectly merging shapes from different groups
+                if (aEnt.holder !== bEnt.holder) continue;
+                
+                if (isIdenticalFn(a, b)) {
+                    group.push({ idx: j, node: b, holder: bEnt.holder });
+                    used[j] = true;
+                }
+            }
+            
+            if (group.length > 1) {
+                groups.push(group);
+            }
+        }
+        
+        // Helper function to detect Figma gradient simulation helper shapes
+        // These are shapes that Figma creates to simulate diamond/angular gradients in SVG
+        // The fill references gradient IDs like "paint0_diamond_81_199" or "paint0_angular_81_199"
+        function isGradientSimulationFill(fill) {
+            if (!fill || typeof fill !== 'string') return false;
+            // Extract gradient ID from url(#id)
+            var match = /url\(#([^)]+)\)/.exec(fill);
+            if (!match) return false;
+            var gradId = match[1].toLowerCase();
+            // Figma uses patterns like "paint0_diamond_81_199" or "paint0_angular_81_199"
+            return gradId.indexOf('_diamond_') !== -1 || gradId.indexOf('_angular_') !== -1;
+        }
+        
+        // Merge each group: keep first, store additional fills, mark others for removal
+        for (var gi = 0; gi < groups.length; gi++) {
+            var g = groups[gi];
+            var primaryEntry = g[0];
+            var primary = primaryEntry.node;
+            
+            // Check if ALL shapes in this group are gradient simulation helpers
+            // If so, skip the entire group - the actual user shape with data-figma-gradient-fill will handle the gradient
+            var allAreGradientSimulation = true;
+            for (var gsi = 0; gsi < g.length; gsi++) {
+                var gNode = g[gsi].node;
+                var gFill = gNode.attrs && gNode.attrs.fill;
+                if (!isGradientSimulationFill(gFill)) {
+                    allAreGradientSimulation = false;
+                    break;
+                }
+            }
+            
+            if (allAreGradientSimulation) {
+                // Mark ALL shapes in this group for removal - they're gradient simulation helpers
+                console.log('[MULTI-FILL] Skipping gradient simulation helper shapes (count: ' + g.length + ')');
+                for (var gri = 0; gri < g.length; gri++) {
+                    g[gri].node.__remove = true;
+                }
+                continue; // Skip the normal merge logic for this group
+            }
+            
+            if (!primary.attrs._additionalFills) {
+                primary.attrs._additionalFills = [];
+            }
+            console.log('[MULTI-FILL] Merging ' + g.length + ' identical shapes into one');
+            for (var si = 1; si < g.length; si++) {
+                var secondaryEntry = g[si];
+                var secondary = secondaryEntry.node;
+                var secondaryHolder = secondaryEntry.holder;
+                
+                // Store fill info: for solid colors, include opacity
+                var fillInfo = {
+                    fill: secondary.attrs.fill,
+                    fillOpacity: secondary.attrs['fill-opacity'] || '1',
+                    opacity: secondary.attrs.opacity || '1'
+                };
+                
+                // Also check for Figma gradient marker (angular/diamond gradients)
+                if (secondary.attrs['data-figma-gradient-fill']) {
+                    fillInfo['data-figma-gradient-fill'] = secondary.attrs['data-figma-gradient-fill'];
+                }
+                
+                primary.attrs._additionalFills.push(fillInfo);
+                console.log('[MULTI-FILL]   -> Added fill: ' + (fillInfo.fill || 'gradient-fill') + ' (opacity: ' + fillInfo.fillOpacity + ')');
+                
+                // NOTE: data-figma-gradient-fill is stored in fillInfo and processed via _additionalFills
+                // Do NOT transfer to primary.attrs to avoid duplicate gradient creation
+                
+                // IMPORTANT: Transfer inherited filter from secondary to primary
+                // This ensures filters from parent groups (like inner shadows) aren't lost
+                if (secondary.attrs._inheritedFilterId && !primary.attrs._inheritedFilterId) {
+                    primary.attrs._inheritedFilterId = secondary.attrs._inheritedFilterId;
+                    console.log('[MULTI-FILL]   -> Transferred _inheritedFilterId: ' + secondary.attrs._inheritedFilterId);
+                }
+                
+                // Also transfer any direct filter attribute from the secondary shape
+                if (secondary.attrs.filter && !primary.attrs.filter) {
+                    primary.attrs.filter = secondary.attrs.filter;
+                    console.log('[MULTI-FILL]   -> Transferred direct filter: ' + secondary.attrs.filter);
+                }
+                
+                // CRITICAL: Check if the secondary's PARENT GROUP has a filter (e.g., inner shadow)
+                // This is the common case: Figma exports <g filter="..."><rect fill="..."/></g>
+                if (secondaryHolder && secondaryHolder.attrs && secondaryHolder.attrs.filter && !primary.attrs.filter) {
+                    primary.attrs.filter = secondaryHolder.attrs.filter;
+                    console.log('[MULTI-FILL]   -> Transferred filter from parent group: ' + secondaryHolder.attrs.filter);
+                }
+                
+                // Mark for removal
+                secondary.__remove = true;
+            }
+        }
+    }
+    mergeIdenticalFillShapes(rectEntries, areRectsIdentical);
+    mergeIdenticalFillShapes(ellipseEntries, areEllipsesIdentical);
+    
+    // Also handle paths - Figma exports multi-fill paths as identical <path> elements with same 'd' attribute
+    var pathEntries = buildEntries('path');
+    mergeIdenticalFillShapes(pathEntries, arePathsIdentical);
+    
+    // Handle circles
+    var circleEntries = buildEntries('circle');
+    mergeIdenticalFillShapes(circleEntries, areCirclesIdentical);
+    
+    // Handle polygons and polylines (both use 'points' attribute)
+    var polygonEntries = buildEntries('polygon');
+    mergeIdenticalFillShapes(polygonEntries, arePolygonsIdentical);
+    
+    var polylineEntries = buildEntries('polyline');
+    mergeIdenticalFillShapes(polylineEntries, arePolygonsIdentical); // Same comparison logic
+    
+    // Handle lines (less common for multi-fill, but included for completeness)
+    var lineEntries = buildEntries('line');
+    mergeIdenticalFillShapes(lineEntries, areLinesIdentical);
+    
+    // Handle text elements - Figma can export multi-fill text as identical <text> elements
+    var textEntries = buildEntries('text');
+    mergeIdenticalFillShapes(textEntries, areTextsIdentical);
+    
     // Remove any stroke-only nodes marked for deletion after inner/outer merge (recursively)
     function pruneRemovedRecursively(n) {
         if (!n || !n.children) return;
@@ -477,28 +807,157 @@ function applyFillAndStroke(layerId, attrs) {
         var strokeDashOffset = attrs['stroke-dashoffset'] || (attrs.style && extractStyleProperty(attrs.style, 'stroke-dashoffset'));
         var strokeLinecap = attrs['stroke-linecap'] || (attrs.style && extractStyleProperty(attrs.style, 'stroke-linecap'));
         var strokeLinejoin = attrs['stroke-linejoin'] || (attrs.style && extractStyleProperty(attrs.style, 'stroke-linejoin'));
+        
+        // Inherited opacity from parent groups (Figma exports opacity on groups, not children)
+        var inheritedOpacity = parseFloat(attrs._inheritedOpacity);
+        if (isNaN(inheritedOpacity)) inheritedOpacity = 1;
 
         var gradientId = extractUrlRefId(fill);
         var strokeGradientId = extractUrlRefId(stroke);
+        
+        // Check for Figma gradient fill data attribute (for Angular/Sweep gradients that SVG can't represent natively)
+        var figmaGradientFill = attrs['data-figma-gradient-fill'];
+        if (figmaGradientFill && !gradientId) {
+            try {
+                console.log('[ANGULAR GRADIENT] Found data-figma-gradient-fill attribute, length=' + figmaGradientFill.length);
+                console.log('[ANGULAR GRADIENT] Raw attribute (first 200 chars): ' + figmaGradientFill.substring(0, 200));
+                
+                // Parse the JSON data from the attribute (HTML entities need decoding)
+                // Handle both named entities (&quot;) and numeric entities (&#34;)
+                var decodedJson = figmaGradientFill
+                    .replace(/&#34;/g, '"')      // Numeric entity for "
+                    .replace(/&#39;/g, "'")      // Numeric entity for '
+                    .replace(/&quot;/g, '"')     // Named entity for "
+                    .replace(/&apos;/g, "'")     // Named entity for '
+                    .replace(/&lt;/g, '<')       // Named entity for <
+                    .replace(/&gt;/g, '>')       // Named entity for >
+                    .replace(/&amp;/g, '&');     // Named entity for & (must be last!)
+                
+                console.log('[ANGULAR GRADIENT] Decoded JSON (first 200 chars): ' + decodedJson.substring(0, 200));
+                
+                var figmaGradData = JSON.parse(decodedJson);
+                console.log('[ANGULAR GRADIENT] Parsed Figma gradient data: type=' + figmaGradData.type);
+                console.log('[ANGULAR GRADIENT] Stops count: ' + ((figmaGradData.stops || figmaGradData.stopsVar || []).length));
+                
+                // Handle GRADIENT_ANGULAR (maps to Cavalry's Sweep gradient)
+                if (figmaGradData.type === 'GRADIENT_ANGULAR') {
+                    // Create a sweep gradient shader
+                    var sweepShaderId = createSweepGradientFromFigma(figmaGradData, layerId, attrs);
+                    if (sweepShaderId) {
+                        // Skip the normal fill processing - gradient is already applied
+                        gradientId = '__figma_angular__'; // Mark as handled
+                    }
+                }
+                
+                // Handle GRADIENT_DIAMOND (maps to Cavalry's Shape gradient with 4 sides)
+                if (figmaGradData.type === 'GRADIENT_DIAMOND') {
+                    console.log('[DIAMOND GRADIENT] Detected GRADIENT_DIAMOND type, creating diamond gradient');
+                    // Create a diamond (shape) gradient shader
+                    var diamondShaderId = createDiamondGradientFromFigma(figmaGradData, layerId, attrs);
+                    if (diamondShaderId) {
+                        // Skip the normal fill processing - gradient is already applied
+                        gradientId = '__figma_diamond__'; // Mark as handled
+                    }
+                }
+            } catch (eFigmaGrad) {
+                console.warn('[ANGULAR GRADIENT] Failed to parse Figma gradient data: ' + eFigmaGrad.message);
+            }
+        }
 
         // Fill
         if (!fill || fill === 'none') {
-            api.setFill(layerId, false);
+            // Check if we have a Figma gradient that should override the 'none' fill
+            if (gradientId === '__figma_angular__' || gradientId === '__figma_diamond__') {
+                // Already handled above - special Figma gradient was applied
+            } else {
+                api.setFill(layerId, false);
+            }
         } else {
             api.setFill(layerId, true);
             var fo = parseOpacityValue(fillOpacity); if (fo === null) fo = 1;
             var o = parseOpacityValue(opacity); if (o === null) o = 1;
-            var effectiveAlpha = clamp01(fo * o);
-            // If gradient fill, don't set base material color to an invalid string; just set alpha
+            
+            // Separate opacity concerns:
+            // - fill-opacity (fo) → affects material.alpha / shader alpha
+            // - opacity (o) + inheritedOpacity → affects shape's opacity attribute
+            var shapeOpacity = clamp01(o * inheritedOpacity);
+            var fillAlpha = fo; // fill-opacity only affects fill, not shape
+            
+            // Apply shape-level opacity (0-100 percentage)
+            if (shapeOpacity < 0.999) {
+                var shapeOpacityPercent = Math.round(shapeOpacity * 100);
+                try {
+                    api.set(layerId, { 'opacity': shapeOpacityPercent });
+                    console.log('[OPACITY] Set shape opacity=' + shapeOpacityPercent + '% on ' + api.getNiceName(layerId));
+                } catch (eShapeOp) {
+                    console.log('[OPACITY] Could not set shape opacity: ' + eShapeOp.message);
+                }
+            }
+            
+            // Debug log when inherited opacity is applied
+            if (inheritedOpacity < 0.999) {
+                console.log('[OPACITY] Applied inherited opacity=' + inheritedOpacity + ' to layer ' + api.getNiceName(layerId));
+            }
+            // If gradient fill, pass fill-opacity to shader (not material.alpha)
             if (gradientId) {
                 // Let shader show through: base color alpha 0
+                // Note: material.alpha is set to 100% in connectShaderToShape
+                // fill-opacity is applied to the shader's alpha property instead
                 try { api.set(layerId, {"material.materialColor.a": 0}); } catch (e0) {}
-                try { api.set(layerId, { "material.alpha": Math.round(effectiveAlpha * 100) }); } catch (e1) {}
-                // Attempt gradient connect first
+                
+                // Calculate SVG center from attrs for gradient offset calculation
+                // NOTE: For gradient offset, we need the LOCAL center (before translation)
+                // because Figma exports gradient coordinates in local/pre-transform space
+                var svgShapeCenter = null;
+                try {
+                    // Check for local center first (for rects with simple translate transforms)
+                    // This is the center BEFORE translation - needed because gradient coords are local
+                    if (attrs._localCenterX !== undefined && attrs._localCenterY !== undefined) {
+                        svgShapeCenter = { x: attrs._localCenterX, y: attrs._localCenterY };
+                        console.log('[GRADIENT] Using local center for offset: (' + svgShapeCenter.x + ', ' + svgShapeCenter.y + ')');
+                    }
+                    // Check for transformed center (from matrix transforms - rotation/scale)
+                    else if (attrs._transformedCenterX !== undefined && attrs._transformedCenterY !== undefined) {
+                        svgShapeCenter = { x: attrs._transformedCenterX, y: attrs._transformedCenterY };
+                    }
+                    // Check for path SVG center (calculated from path segments)
+                    else if (attrs._pathSvgCenterX !== undefined && attrs._pathSvgCenterY !== undefined) {
+                        svgShapeCenter = { x: attrs._pathSvgCenterX, y: attrs._pathSvgCenterY };
+                        console.log('[RADIAL GRADIENT] Using path SVG center from segments: (' + svgShapeCenter.x + ', ' + svgShapeCenter.y + ')');
+                    }
+                    // For rect: x + width/2, y + height/2
+                    else if (attrs.x !== undefined && attrs.width !== undefined) {
+                        var rectX = parseFloat(attrs.x || '0');
+                        var rectY = parseFloat(attrs.y || '0');
+                        var rectW = parseFloat(attrs.width || '0');
+                        var rectH = parseFloat(attrs.height || '0');
+                        svgShapeCenter = { x: rectX + rectW / 2, y: rectY + rectH / 2 };
+                    }
+                    // For circle: cx, cy
+                    else if (attrs.cx !== undefined && attrs.cy !== undefined) {
+                        svgShapeCenter = { x: parseFloat(attrs.cx), y: parseFloat(attrs.cy) };
+                    }
+                    // For ellipse: cx, cy
+                    else if (attrs.r !== undefined || attrs.rx !== undefined) {
+                        svgShapeCenter = { x: parseFloat(attrs.cx || '0'), y: parseFloat(attrs.cy || '0') };
+                    }
+                } catch (eSvgCenter) {
+                    // Couldn't calculate SVG center, offset may be inaccurate
+                }
+                
+                // Extract scaleY and rotation for gradient flip/rotation compensation
+                // When scaleY is negative (Y-flip), gradient direction needs to be adjusted
+                // Shape rotation also affects userSpaceOnUse gradient appearance
+                var shapeScaleY = (attrs._scaleY !== undefined) ? attrs._scaleY : 1;
+                var shapeRotationDeg = (attrs._rotationDeg !== undefined) ? attrs._rotationDeg : 0;
+                
+                // Attempt gradient connect first (pass fillAlpha for shader opacity)
                 var shaderOk = false;
                 try {
                     var sh = getGradientShader(gradientId);
-                    if (sh) { shaderOk = connectShaderToShape(sh, layerId); }
+                    if (sh) { 
+                        shaderOk = connectShaderToShape(sh, layerId, svgShapeCenter, fillAlpha, shapeScaleY, shapeRotationDeg); 
+                    }
                 } catch (eSh) {}
                 // If not a known gradient but a pattern with image, connect an imageShader
                 if (!shaderOk && __svgPatternMap && __svgPatternMap[gradientId]) {
@@ -581,10 +1040,119 @@ function applyFillAndStroke(layerId, attrs) {
                             }
                             try { api.connect(shaderNode, 'id', layerId, 'material.colorShaders'); } catch (eConn) {}
                             try { if (!api.getParent(shaderNode)) api.parent(shaderNode, layerId); } catch (ePar) {}
+                            
+                            // Set alpha on the image shader based on fill-opacity only (0-100 percentage)
+                            // Shape-level opacity is handled separately via shape's 'opacity' attribute
+                            try {
+                                var imgShaderAlpha = Math.round(fillAlpha * 100);
+                                api.set(shaderNode, { 'alpha': imgShaderAlpha });
+                                if (imgShaderAlpha < 100) {
+                                    console.log('[Quiver Image] Set image shader alpha to ' + imgShaderAlpha + '% (fill-opacity)');
+                                }
+                            } catch (eImgAlpha) {
+                                console.log('[Quiver Image] Could not set image shader alpha: ' + eImgAlpha.message);
+                            }
+                            
                             // Align and scale inside the target shape
                             try {
                                 // Prefer centre alignment behaviour (only if attribute exists)
                                 try { if (_hasAttr(shaderNode, 'legacyGraph')) api.set(shaderNode, { 'legacyGraph': false }); } catch (eLG) {}
+                                
+                                // Check if we have transform matrix data for precise positioning
+                                var patternData = __svgPatternMap[pid];
+                                var useTransform = patternData && patternData.useTransform;
+                                var isObjectBoundingBox = patternData && patternData.attrs && patternData.attrs.patternContentUnits === 'objectBoundingBox';
+                                
+                                if (useTransform && isObjectBoundingBox) {
+                                    // PRECISE MODE: Use scaleMode None and calculate exact scale/offset
+                                    // The transform matrix is in objectBoundingBox coordinates (0-1 range)
+                                    console.log('[Quiver Image] Applying precise transform for pattern ' + pid);
+                                    
+                                    // Set scaleMode to None (0) for manual positioning
+                                    var smSet = false;
+                                    try { api.set(shaderNode, { 'scaleMode': 0 }); smSet = true; } catch (eSM0) { smSet = false; }
+                                    if (!smSet) { try { api.set(shaderNode, { 'generator.scaleMode': 0 }); } catch (eSM0b) {} }
+                                    
+                                    // Get the target shape's dimensions using api.getBoundingBox
+                                    var shapeW = 100, shapeH = 100;
+                                    try { 
+                                        var bbox = api.getBoundingBox(layerId, true);
+                                        if (bbox) {
+                                            shapeW = bbox.width || 100;
+                                            shapeH = bbox.height || 100;
+                                        }
+                                    } catch (eBB) {
+                                        // Fallback: try to get generator.dimensions
+                                        try {
+                                            var dims = api.get(layerId, 'generator.dimensions');
+                                            if (dims && dims.length >= 2) {
+                                                shapeW = dims[0] || 100;
+                                                shapeH = dims[1] || 100;
+                                            }
+                                        } catch (eDims) {}
+                                    }
+                                    
+                                    // Get source image dimensions from pattern metadata
+                                    var imgMeta = patternData.image;
+                                    var imgW = parseFloat(imgMeta && imgMeta.width) || 100;
+                                    var imgH = parseFloat(imgMeta && imgMeta.height) || 100;
+                                    
+                                    // Debug: log all input values
+                                    console.log('[Quiver Image] Pattern: ' + pid);
+                                    console.log('[Quiver Image]   Shape dimensions: ' + shapeW + ' x ' + shapeH);
+                                    console.log('[Quiver Image]   Image dimensions: ' + imgW + ' x ' + imgH);
+                                    console.log('[Quiver Image]   Transform matrix: a=' + useTransform.a + ', d=' + useTransform.d + ', e=' + useTransform.e + ', f=' + useTransform.f);
+                                    
+                                    // Calculate scale for Cavalry (where 1.0 = 100% = native image size)
+                                    // In objectBoundingBox with patternContentUnits="objectBoundingBox":
+                                    // - matrix.a and matrix.d are scale factors in the 0-1 coordinate space
+                                    // - The visible portion of image = a * imgW (as fraction of shape width)
+                                    // - Visible pixels = a * imgW * shapeW
+                                    // - Cavalry scale = (visible pixels / native pixels)
+                                    //                 = (a * imgW * shapeW / imgW)
+                                    //                 = a * shapeW
+                                    var cavalryScaleX = useTransform.a * shapeW;
+                                    var cavalryScaleY = useTransform.d * shapeH;
+                                    
+                                    console.log('[Quiver Image]   Cavalry scale: ' + cavalryScaleX.toFixed(4) + ' x ' + cavalryScaleY.toFixed(4) + ' (1.0 = 100%)');
+                                    
+                                    // Apply scale
+                                    _setFirstSupported(shaderNode, ['scale','generator.scale'], [cavalryScaleX, cavalryScaleY]);
+                                    
+                                    // Calculate offset in pixels
+                                    // e and f are in objectBoundingBox 0-1 coordinates (origin = top-left of shape)
+                                    // Cavalry offset is from center of shape
+                                    // 
+                                    // The transform positions the image such that:
+                                    // - Image top-left corner is at (e * shapeW, f * shapeH) from shape's top-left
+                                    // - The visible image size is (a * imgW * shapeW, d * imgH * shapeH)
+                                    //
+                                    // To convert to Cavalry's center-based offset:
+                                    // - Shape center is at (shapeW/2, shapeH/2)
+                                    // - Image center should be at: (e * shapeW + visibleW/2, f * shapeH + visibleH/2)
+                                    // - Cavalry offset = image center - shape center
+                                    
+                                    var visibleW = useTransform.a * imgW * shapeW;
+                                    var visibleH = useTransform.d * imgH * shapeH;
+                                    
+                                    var imgCenterX = useTransform.e * shapeW + visibleW / 2;
+                                    var imgCenterY = useTransform.f * shapeH + visibleH / 2;
+                                    
+                                    var offsetX = imgCenterX - shapeW / 2;
+                                    var offsetY = imgCenterY - shapeH / 2;
+                                    
+                                    // Cavalry Y axis is inverted (positive = up, negative = down)
+                                    var cavalryOffsetX = offsetX;
+                                    var cavalryOffsetY = -offsetY;
+                                    
+                                    console.log('[Quiver Image]   Visible size: ' + visibleW.toFixed(2) + ' x ' + visibleH.toFixed(2));
+                                    console.log('[Quiver Image]   Image center: (' + imgCenterX.toFixed(2) + ', ' + imgCenterY.toFixed(2) + ')');
+                                    console.log('[Quiver Image]   Cavalry offset: (' + cavalryOffsetX.toFixed(2) + ', ' + cavalryOffsetY.toFixed(2) + ')');
+                                    
+                                    _setFirstSupported(shaderNode, ['offset','generator.offset'], [cavalryOffsetX, cavalryOffsetY]);
+                                    
+                                } else {
+                                    // FALLBACK MODE: Use Fit Cover (legacy behavior)
                                 // Set Scale Mode using numeric enums only to avoid parse errors
                                 var modes = [4,3,2,1];
                                 var setDone = false;
@@ -592,6 +1160,10 @@ function applyFillAndStroke(layerId, attrs) {
                                     try { api.set(shaderNode, { 'scaleMode': modes[mi] }); setDone = true; } catch (eSMA) { setDone = false; }
                                     if (!setDone) { try { api.set(shaderNode, { 'generator.scaleMode': modes[mi] }); setDone = true; } catch (eSMB) { setDone = false; } }
                                 }
+                                    // Reset offset to centre
+                                    _setFirstSupported(shaderNode, ['offset','generator.offset'], [0,0]);
+                                }
+                                
                                 // Set tiling to Decal via enum index only (avoid string parse errors). Likely 0=Clamp,1=Repeat,2=Mirror,3=Decal
                                 try { api.set(shaderNode, { 'tilingX': 3 }); } catch (eTX1) { try { api.set(shaderNode, { 'generator.tilingX': 3 }); } catch (eTX2) {} }
                                 try { api.set(shaderNode, { 'tilingY': 3 }); } catch (eTY1) { try { api.set(shaderNode, { 'generator.tilingY': 3 }); } catch (eTY2) {} }
@@ -599,9 +1171,9 @@ function applyFillAndStroke(layerId, attrs) {
                                 var fqOk = false;
                                 try { api.set(shaderNode, { 'filterQuality': imageFilterQuality }); fqOk = true; } catch (eFQ1) { fqOk = false; }
                                 if (!fqOk) { try { api.set(shaderNode, { 'generator.filterQuality': imageFilterQuality }); } catch (eFQ2) {} }
-                                // Reset offset to centre
-                                _setFirstSupported(shaderNode, ['offset','generator.offset'], [0,0]);
-                            } catch (eAlign) {}
+                            } catch (eAlign) {
+                                console.log('[Quiver Image] Error applying image transform: ' + (eAlign.message || eAlign));
+                            }
                             __patternImageShaderCache[pid] = shaderNode;
                             }
                         }
@@ -609,10 +1181,312 @@ function applyFillAndStroke(layerId, attrs) {
                 }
             } else {
                 var color = parseColor(fill) || "#000000";
+                
+                // If there are additional fills to stack, create the primary as a colorShader too
+                // This ensures proper stacking (colorShaders stack, materialColor does not)
+                if (attrs._additionalFills && attrs._additionalFills.length > 0) {
+                    try {
+                        // Use clean name with color hex for easy identification
+                        var primaryColorShaderName = 'Fill 1 ' + color.toUpperCase();
+                        var primaryColorShaderId = api.create('colorShader', primaryColorShaderName);
+                        if (primaryColorShaderId) {
+                            var hexCleanP = color.replace('#', '');
+                            var rValP = parseInt(hexCleanP.substring(0, 2), 16) || 0;
+                            var gValP = parseInt(hexCleanP.substring(2, 4), 16) || 0;
+                            var bValP = parseInt(hexCleanP.substring(4, 6), 16) || 0;
+                            // Use fillAlpha for shader color, not effectiveAlpha (shape opacity is separate)
+                            var aValP = Math.round(fillAlpha * 255);
+                            
+                            api.set(primaryColorShaderId, { 
+                                'shaderColor.r': rValP,
+                                'shaderColor.g': gValP,
+                                'shaderColor.b': bValP,
+                                'shaderColor.a': aValP
+                            });
+                            api.set(primaryColorShaderId, { 'alpha': Math.round(fillAlpha * 100) });
+                            api.connect(primaryColorShaderId, 'id', layerId, 'material.colorShaders');
+                            try { api.parent(primaryColorShaderId, layerId); } catch (eParP) {}
+                            console.log('[MULTI-FILL] Created primary colorShader: ' + color + ' (stacking mode)');
+                        }
+                    } catch (ePrimaryShader) {
+                        // Fallback to materialColor
                 api.set(layerId, {
                     "material.materialColor": color,
-                    "material.alpha": Math.round(effectiveAlpha * 100)
-                });
+                            "material.alpha": Math.round(fillAlpha * 100)
+                        });
+                    }
+                } else {
+                    // No stacking needed, use materialColor directly
+                    api.set(layerId, {
+                        "material.materialColor": color,
+                        "material.alpha": Math.round(fillAlpha * 100)
+                    });
+                }
+            }
+        }
+        
+        // MULTI-FILL: Connect additional fills (from merged identical shapes)
+        // These are stacked on top of the primary fill
+        if (attrs._additionalFills && attrs._additionalFills.length > 0) {
+            console.log('[MULTI-FILL] Connecting ' + attrs._additionalFills.length + ' additional fill(s) to ' + api.getNiceName(layerId));
+            
+            // Calculate SVG center for gradient offset calculation (if not already calculated)
+            // NOTE: Use local center for gradient offset (gradient coords are in local space)
+            var svgShapeCenterMulti = null;
+            try {
+                // Check for local center first (for rects with simple translate transforms)
+                if (attrs._localCenterX !== undefined && attrs._localCenterY !== undefined) {
+                    svgShapeCenterMulti = { x: attrs._localCenterX, y: attrs._localCenterY };
+                }
+                // Check for transformed center (from matrix transforms - rotation/scale)
+                else if (attrs._transformedCenterX !== undefined && attrs._transformedCenterY !== undefined) {
+                    svgShapeCenterMulti = { x: attrs._transformedCenterX, y: attrs._transformedCenterY };
+                }
+                // Check for path SVG center (calculated from path segments)
+                else if (attrs._pathSvgCenterX !== undefined && attrs._pathSvgCenterY !== undefined) {
+                    svgShapeCenterMulti = { x: attrs._pathSvgCenterX, y: attrs._pathSvgCenterY };
+                }
+                // For rect: x + width/2, y + height/2
+                else if (attrs.x !== undefined && attrs.width !== undefined) {
+                    var rectXM = parseFloat(attrs.x || '0');
+                    var rectYM = parseFloat(attrs.y || '0');
+                    var rectWM = parseFloat(attrs.width || '0');
+                    var rectHM = parseFloat(attrs.height || '0');
+                    svgShapeCenterMulti = { x: rectXM + rectWM / 2, y: rectYM + rectHM / 2 };
+                }
+                // For circle/ellipse: cx, cy
+                else if (attrs.cx !== undefined && attrs.cy !== undefined) {
+                    svgShapeCenterMulti = { x: parseFloat(attrs.cx), y: parseFloat(attrs.cy) };
+                }
+            } catch (eSvgCenterM) {}
+            
+            for (var afi = 0; afi < attrs._additionalFills.length; afi++) {
+                var addFillInfo = attrs._additionalFills[afi];
+                // Handle both old string format and new object format
+                var addFillValue = (typeof addFillInfo === 'object') ? addFillInfo.fill : addFillInfo;
+                var addFillOpacity = (typeof addFillInfo === 'object') ? parseFloat(addFillInfo.fillOpacity || '1') : 1;
+                var addOpacity = (typeof addFillInfo === 'object') ? parseFloat(addFillInfo.opacity || '1') : 1;
+                var addEffectiveOpacity = clamp01(addFillOpacity * addOpacity);
+                
+                // Check for Figma gradient fill marker (angular/diamond gradients)
+                var addFigmaGradFill = (typeof addFillInfo === 'object') ? addFillInfo['data-figma-gradient-fill'] : null;
+                if (addFigmaGradFill) {
+                    try {
+                        console.log('[MULTI-FILL]   -> Processing Figma gradient fill from additional fill');
+                        
+                        // Decode HTML entities in the JSON
+                        var decodedJsonAdd = addFigmaGradFill
+                            .replace(/&#34;/g, '"')
+                            .replace(/&#39;/g, "'")
+                            .replace(/&quot;/g, '"')
+                            .replace(/&apos;/g, "'")
+                            .replace(/&lt;/g, '<')
+                            .replace(/&gt;/g, '>')
+                            .replace(/&amp;/g, '&');
+                        
+                        var figmaGradDataAdd = JSON.parse(decodedJsonAdd);
+                        console.log('[MULTI-FILL]   -> Figma gradient type: ' + figmaGradDataAdd.type);
+                        
+                        // Handle GRADIENT_ANGULAR (Sweep gradient)
+                        if (figmaGradDataAdd.type === 'GRADIENT_ANGULAR') {
+                            var sweepShaderIdAdd = createSweepGradientFromFigma(figmaGradDataAdd, layerId, attrs);
+                            if (sweepShaderIdAdd) {
+                                console.log('[MULTI-FILL]   -> Created sweep gradient from additional fill');
+                            }
+                        }
+                        
+                        // Handle GRADIENT_DIAMOND (Shape gradient with 4 sides)
+                        if (figmaGradDataAdd.type === 'GRADIENT_DIAMOND') {
+                            var diamondShaderIdAdd = createDiamondGradientFromFigma(figmaGradDataAdd, layerId, attrs);
+                            if (diamondShaderIdAdd) {
+                                console.log('[MULTI-FILL]   -> Created diamond gradient from additional fill');
+                            }
+                        }
+                        
+                        // Skip further processing for this fill - gradient is handled
+                        continue;
+                    } catch (eFigmaGradAdd) {
+                        console.log('[MULTI-FILL]   -> Error processing Figma gradient: ' + eFigmaGradAdd.message);
+                    }
+                }
+                
+                var addFillId = extractUrlRefId(addFillValue);
+                
+                if (addFillId) {
+                    // URL fill: gradient or pattern
+                    var addShaderConnected = false;
+                    try {
+                        var addGradShader = getGradientShader(addFillId);
+                        if (addGradShader) {
+                            connectShaderToShape(addGradShader, layerId, svgShapeCenterMulti);
+                            addShaderConnected = true;
+                            
+                            // Set the alpha on the gradient shader based on fill-opacity only (0-100 percentage)
+                            var gradAlphaPercent = Math.round(addFillOpacity * 100);
+                            try {
+                                api.set(addGradShader, { 'alpha': gradAlphaPercent });
+                                console.log('[MULTI-FILL]   -> Connected gradient: ' + addFillId + ' with alpha=' + gradAlphaPercent + '% (fill-opacity)');
+                            } catch (eGradAlpha) {
+                                console.log('[MULTI-FILL]   -> Connected gradient: ' + addFillId + ' (alpha set failed: ' + eGradAlpha.message + ')');
+                            }
+                        }
+                    } catch (eAddGrad) {}
+                    
+                    // Try pattern (image shader) - with FULL configuration
+                    if (!addShaderConnected && __svgPatternMap && __svgPatternMap[addFillId]) {
+                        try {
+                            var addPid = addFillId;
+                            var addShaderName = api.getNiceName(layerId) + '_' + (afi + 2);
+                            __imageCounter++;
+                            addShaderName = addShaderName + '_' + __imageCounter;
+                            
+                            var addCached = __patternImageShaderCache[addPid];
+                            var addShaderNode = addCached || api.create('imageShader', addShaderName);
+                            if (addShaderNode && !addCached) {
+                                var addMeta = __svgPatternMap[addPid] && __svgPatternMap[addPid].image;
+                                var addTarget = (addMeta && addMeta.href) ? addMeta.href : null;
+                                var addPatternContext = { attrs: { id: addShaderName } };
+                                var addSaved = addTarget ? _resolveImageHrefToAsset(addTarget, addPatternContext) : null;
+                                var addLinkVal = addSaved || addTarget;
+                                if (addLinkVal) {
+                                    var addAssetId = null;
+                                    try { if (addSaved && api.loadAsset) addAssetId = api.loadAsset(addSaved, false); } catch (eLoad2) { addAssetId = null; }
+                                    if (!addAssetId) { try { if (addSaved && api.importAsset) addAssetId = api.importAsset(addSaved); } catch (eImp2) { addAssetId = null; } }
+                                    if (addAssetId) {
+                                        try { api.connect(addAssetId, 'id', addShaderNode, 'image'); } catch (eConA2) {}
+                                        var quiverGroup2 = _ensureQuiverAssetGroup();
+                                        if (quiverGroup2 && api.parent) {
+                                            try { api.parent(addAssetId, quiverGroup2); } catch (eParent2) {}
+                                        }
+                                    }
+                                }
+                                try { api.connect(addShaderNode, 'id', layerId, 'material.colorShaders'); } catch (eConn2) {}
+                                try { if (!api.getParent(addShaderNode)) api.parent(addShaderNode, layerId); } catch (ePar2) {}
+                                
+                                // Set alpha on the additional image shader based on fill-opacity only (0-100 percentage)
+                                try {
+                                    var addImgAlphaPercent = Math.round(addFillOpacity * 100);
+                                    api.set(addShaderNode, { 'alpha': addImgAlphaPercent });
+                                    if (addImgAlphaPercent < 100) {
+                                        console.log('[MULTI-FILL] Set image shader alpha to ' + addImgAlphaPercent + '% (fill-opacity)');
+                                    }
+                                } catch (eAddImgAlpha) {}
+                                
+                                // APPLY FULL IMAGE SHADER CONFIGURATION
+                                try {
+                                    try { if (_hasAttr(addShaderNode, 'legacyGraph')) api.set(addShaderNode, { 'legacyGraph': false }); } catch (eLG2) {}
+                                    
+                                    var addPatternData = __svgPatternMap[addPid];
+                                    var addUseTransform = addPatternData && addPatternData.useTransform;
+                                    var addIsObjectBoundingBox = addPatternData && addPatternData.attrs && addPatternData.attrs.patternContentUnits === 'objectBoundingBox';
+                                    
+                                    if (addUseTransform && addIsObjectBoundingBox) {
+                                        console.log('[MULTI-FILL] Applying precise transform for pattern ' + addPid);
+                                        var addSmSet = false;
+                                        try { api.set(addShaderNode, { 'scaleMode': 0 }); addSmSet = true; } catch (eSM02) { addSmSet = false; }
+                                        if (!addSmSet) { try { api.set(addShaderNode, { 'generator.scaleMode': 0 }); } catch (eSM0b2) {} }
+                                        
+                                        var addShapeW = 100, addShapeH = 100;
+                                        try {
+                                            var addBbox = api.getBoundingBox(layerId, true);
+                                            if (addBbox) { addShapeW = addBbox.width || 100; addShapeH = addBbox.height || 100; }
+                                        } catch (eBB2) {
+                                            try {
+                                                var addDims = api.get(layerId, 'generator.dimensions');
+                                                if (addDims && addDims.length >= 2) { addShapeW = addDims[0] || 100; addShapeH = addDims[1] || 100; }
+                                            } catch (eDims2) {}
+                                        }
+                                        
+                                        var addImgMeta = addPatternData.image;
+                                        var addImgW = parseFloat(addImgMeta && addImgMeta.width) || 100;
+                                        var addImgH = parseFloat(addImgMeta && addImgMeta.height) || 100;
+                                        
+                                        var addCavScaleX = addUseTransform.a * addShapeW;
+                                        var addCavScaleY = addUseTransform.d * addShapeH;
+                                        _setFirstSupported(addShaderNode, ['scale','generator.scale'], [addCavScaleX, addCavScaleY]);
+                                        
+                                        var addVisibleW = addUseTransform.a * addImgW * addShapeW;
+                                        var addVisibleH = addUseTransform.d * addImgH * addShapeH;
+                                        var addImgCenterX = addUseTransform.e * addShapeW + addVisibleW / 2;
+                                        var addImgCenterY = addUseTransform.f * addShapeH + addVisibleH / 2;
+                                        var addCavOffsetX = addImgCenterX - addShapeW / 2;
+                                        var addCavOffsetY = -(addImgCenterY - addShapeH / 2);
+                                        _setFirstSupported(addShaderNode, ['offset','generator.offset'], [addCavOffsetX, addCavOffsetY]);
+                                    } else {
+                                        var addModes = [4,3,2,1];
+                                        var addSetDone = false;
+                                        for (var ami = 0; ami < addModes.length && !addSetDone; ami++) {
+                                            try { api.set(addShaderNode, { 'scaleMode': addModes[ami] }); addSetDone = true; } catch (eSMA2) {}
+                                            if (!addSetDone) { try { api.set(addShaderNode, { 'generator.scaleMode': addModes[ami] }); addSetDone = true; } catch (eSMB2) {} }
+                                        }
+                                        _setFirstSupported(addShaderNode, ['offset','generator.offset'], [0,0]);
+                                    }
+                                    
+                                    try { api.set(addShaderNode, { 'tilingX': 3 }); } catch (eTX12) { try { api.set(addShaderNode, { 'generator.tilingX': 3 }); } catch (eTX22) {} }
+                                    try { api.set(addShaderNode, { 'tilingY': 3 }); } catch (eTY12) { try { api.set(addShaderNode, { 'generator.tilingY': 3 }); } catch (eTY22) {} }
+                                    
+                                    var addFqOk = false;
+                                    try { api.set(addShaderNode, { 'filterQuality': imageFilterQuality }); addFqOk = true; } catch (eFQ12) {}
+                                    if (!addFqOk) { try { api.set(addShaderNode, { 'generator.filterQuality': imageFilterQuality }); } catch (eFQ22) {} }
+                                } catch (eAddAlign) {
+                                    console.log('[MULTI-FILL] Error applying image transform: ' + (eAddAlign.message || eAddAlign));
+                                }
+                                
+                                __patternImageShaderCache[addPid] = addShaderNode;
+                                console.log('[MULTI-FILL]   -> Connected pattern/image: ' + addFillId);
+                            } else if (addCached) {
+                                try { api.connect(addCached, 'id', layerId, 'material.colorShaders'); } catch (eConnCached) {}
+                                console.log('[MULTI-FILL]   -> Connected cached pattern/image: ' + addFillId);
+                            }
+                        } catch (eAddPat) {
+                            console.log('[MULTI-FILL]   -> Error connecting pattern: ' + eAddPat.message);
+                        }
+                    }
+                } else if (addFillValue && addFillValue !== 'none') {
+                    // SOLID COLOR fill: create a colorShader
+                    try {
+                        // Use clean name with fill number and color hex
+                        var solidColorHexForName = parseColor(addFillValue) || '#000000';
+                        var colorShaderName = 'Fill ' + (afi + 2) + ' ' + solidColorHexForName.toUpperCase();
+                        var colorShaderId = api.create('colorShader', colorShaderName);
+                        if (colorShaderId) {
+                            // Parse the color to hex, then convert to RGB components
+                            var solidColorHex = parseColor(addFillValue) || '#000000';
+                            var hexClean = solidColorHex.replace('#', '');
+                            var rVal = parseInt(hexClean.substring(0, 2), 16) || 0;
+                            var gVal = parseInt(hexClean.substring(2, 4), 16) || 0;
+                            var bVal = parseInt(hexClean.substring(4, 6), 16) || 0;
+                            // Alpha is 0-255 based on fill-opacity
+                            var aVal = Math.round(addEffectiveOpacity * 255);
+                            
+                            // Set shaderColor with RGBA (the correct attribute path!)
+                            try { 
+                                api.set(colorShaderId, { 
+                                    'shaderColor.r': rVal,
+                                    'shaderColor.g': gVal,
+                                    'shaderColor.b': bVal,
+                                    'shaderColor.a': aVal
+                                }); 
+                            } catch (eSetColor) {
+                                console.log('[MULTI-FILL]   -> shaderColor set failed: ' + eSetColor.message);
+                            }
+                            
+                            // Also set alpha attribute (0-100 percentage) for shader opacity
+                            var alphaPercent = Math.round(addEffectiveOpacity * 100);
+                            try { api.set(colorShaderId, { 'alpha': alphaPercent }); } catch (eA1) {}
+                            
+                            // Connect to shape's colorShaders
+                            try { api.connect(colorShaderId, 'id', layerId, 'material.colorShaders'); } catch (eConnColor) {}
+                            
+                            // Parent under the shape
+                            try { api.parent(colorShaderId, layerId); } catch (eParColor) {}
+                            
+                            console.log('[MULTI-FILL]   -> Created colorShader: rgb(' + rVal + ',' + gVal + ',' + bVal + ') alpha=' + aVal + ' (' + alphaPercent + '%)');
+                        }
+                    } catch (eColorShader) {
+                        console.log('[MULTI-FILL]   -> Error creating colorShader: ' + eColorShader.message);
+                    }
+                }
             }
         }
 
@@ -626,11 +1500,36 @@ function applyFillAndStroke(layerId, attrs) {
             if (isNaN(sw)) sw = 1;
             var so = parseOpacityValue(strokeOpacity); if (so === null) so = 1;
             var o2 = parseOpacityValue(opacity); if (o2 === null) o2 = 1;
-            var effA = clamp01(so * o2);
+            // Multiply by inherited opacity from parent groups
+            var effA = clamp01(so * o2 * inheritedOpacity);
             if (strokeGradientId) {
                 api.set(layerId, { "stroke.strokeColor": scolor, "stroke.strokeColor.a": 0, "stroke.width": sw, "stroke.alpha": Math.round(effA * 100) });
                 var shStroke = getGradientShader(strokeGradientId);
-                if (shStroke) connectShaderToStroke(shStroke, layerId);
+                if (shStroke) {
+                    // Calculate SVG center for stroke gradient offset calculation
+                    // NOTE: Use local center for gradient offset (gradient coords are in local space)
+                    var svgShapeCenterStroke = null;
+                    try {
+                        // Check for local center first (for rects with simple translate transforms)
+                        if (attrs._localCenterX !== undefined && attrs._localCenterY !== undefined) {
+                            svgShapeCenterStroke = { x: attrs._localCenterX, y: attrs._localCenterY };
+                        } else if (attrs._transformedCenterX !== undefined && attrs._transformedCenterY !== undefined) {
+                            svgShapeCenterStroke = { x: attrs._transformedCenterX, y: attrs._transformedCenterY };
+                        } else if (attrs._pathSvgCenterX !== undefined && attrs._pathSvgCenterY !== undefined) {
+                            svgShapeCenterStroke = { x: attrs._pathSvgCenterX, y: attrs._pathSvgCenterY };
+                            console.log('[RADIAL GRADIENT STROKE] Using path SVG center: (' + svgShapeCenterStroke.x + ', ' + svgShapeCenterStroke.y + ')');
+                        } else if (attrs.x !== undefined && attrs.width !== undefined) {
+                            var rectXS = parseFloat(attrs.x || '0');
+                            var rectYS = parseFloat(attrs.y || '0');
+                            var rectWS = parseFloat(attrs.width || '0');
+                            var rectHS = parseFloat(attrs.height || '0');
+                            svgShapeCenterStroke = { x: rectXS + rectWS / 2, y: rectYS + rectHS / 2 };
+                        } else if (attrs.cx !== undefined && attrs.cy !== undefined) {
+                            svgShapeCenterStroke = { x: parseFloat(attrs.cx), y: parseFloat(attrs.cy) };
+                        }
+                    } catch (eSvgCenterS) {}
+                    connectShaderToStroke(shStroke, layerId, svgShapeCenterStroke);
+                }
             } else {
                 api.set(layerId, { "stroke.strokeColor": scolor, "stroke.width": sw, "stroke.alpha": Math.round(effA * 100) });
             }
@@ -720,9 +1619,22 @@ function applyFillAndStroke(layerId, attrs) {
 }
 
 // --- Create Cavalry layers ---
+// Track created groups for potential ungrouping after import
+var __importedGroupIds = [];
+
+function resetImportedGroupIds() {
+    __importedGroupIds = [];
+}
+
+function getImportedGroupIds() {
+    return __importedGroupIds;
+}
+
 function createGroup(name, parentId) {
     var id = api.create('group', name);
     if (parentId) api.parent(id, parentId);
+    // Track this group for potential ungrouping
+    __importedGroupIds.push(id);
     return id;
 }
 
@@ -1028,6 +1940,55 @@ function createEditableFromPathSegments(segments, nodeName, parentId, vb, transl
     if (centre) {
         api.set(id, {"position.x": centre.x, "position.y": centre.y});
     }
+    
+    // Calculate SVG bounding box center from original segments for gradient offset calculation
+    // This is done BEFORE coordinate conversion so we have accurate SVG coordinates
+    if (attrs && segments && segments.length > 0) {
+        var minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        for (var si = 0; si < segments.length; si++) {
+            var seg = segments[si];
+            // Include main point
+            if (seg.x !== undefined && seg.y !== undefined) {
+                var px = seg.x + (translate ? translate.x : 0);
+                var py = seg.y + (translate ? translate.y : 0);
+                if (px < minX) minX = px;
+                if (py < minY) minY = py;
+                if (px > maxX) maxX = px;
+                if (py > maxY) maxY = py;
+            }
+            // Include control points for curves
+            if (seg.cp1x !== undefined && seg.cp1y !== undefined) {
+                var cp1x = seg.cp1x + (translate ? translate.x : 0);
+                var cp1y = seg.cp1y + (translate ? translate.y : 0);
+                if (cp1x < minX) minX = cp1x;
+                if (cp1y < minY) minY = cp1y;
+                if (cp1x > maxX) maxX = cp1x;
+                if (cp1y > maxY) maxY = cp1y;
+            }
+            if (seg.cp2x !== undefined && seg.cp2y !== undefined) {
+                var cp2x = seg.cp2x + (translate ? translate.x : 0);
+                var cp2y = seg.cp2y + (translate ? translate.y : 0);
+                if (cp2x < minX) minX = cp2x;
+                if (cp2y < minY) minY = cp2y;
+                if (cp2x > maxX) maxX = cp2x;
+                if (cp2y > maxY) maxY = cp2y;
+            }
+            if (seg.cpx !== undefined && seg.cpy !== undefined) {
+                var cpx = seg.cpx + (translate ? translate.x : 0);
+                var cpy = seg.cpy + (translate ? translate.y : 0);
+                if (cpx < minX) minX = cpx;
+                if (cpy < minY) minY = cpy;
+                if (cpx > maxX) maxX = cpx;
+                if (cpy > maxY) maxY = cpy;
+            }
+        }
+        // Store SVG center in attrs for gradient offset calculation
+        if (minX !== Infinity && maxX !== -Infinity) {
+            attrs._pathSvgCenterX = (minX + maxX) / 2;
+            attrs._pathSvgCenterY = (minY + maxY) / 2;
+        }
+    }
+    
     if (attrs) {
         applyFillAndStroke(id, attrs);
         applyBlendMode(id, attrs);

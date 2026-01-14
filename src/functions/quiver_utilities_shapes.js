@@ -4,7 +4,15 @@ function createRect(node, parentId, vb) {
     var w = parseFloat(node.attrs.width || '0');
     var h = parseFloat(node.attrs.height || '0');
     
+    // Apply translate transform if present (e.g., transform="translate(970)")
+    var translateOffset = parseTranslate(node.attrs && node.attrs.transform || '');
+    x += translateOffset.x;
+    y += translateOffset.y;
+    
     // Detect background rectangle: matches viewBox dimensions at origin with generic name
+    // This auto-names full-frame rects as "Background" for convenience
+    // NOTE: The hybrid processing conflict was fixed by improving mightGetStrokeFlattened()
+    // to skip simple closed shapes (like radio button circles) with INSIDE-aligned strokes
     var isBackgroundRect = false;
     if (vb && vb.width && vb.height) {
         var matchesViewBox = (Math.abs(w - vb.width) < 0.1 && Math.abs(h - vb.height) < 0.1);
@@ -39,8 +47,13 @@ function createRect(node, parentId, vb) {
         ellipseNode.attrs.cy = y + halfH;
         ellipseNode.attrs.rx = halfW;
         ellipseNode.attrs.ry = halfH;
-        // carry styles/transform, including our precomputed stroke alignment hint
-        var styleKeys = ['fill','fill-opacity','stroke','stroke-width','stroke-opacity','opacity','transform','_stroke_align','mix-blend-mode'];
+        // carry styles/transform, including our precomputed stroke alignment hint and internal tracking
+        var styleKeys = [
+            'fill', 'fill-opacity', 'stroke', 'stroke-width', 'stroke-opacity', 'opacity', 
+            'transform', '_stroke_align', 'mix-blend-mode', 'filter',
+            // Internal tracking attributes
+            '_additionalFills', '_inheritedFilterId', '_inheritedMaskIds', 'data-figma-bg-blur-radius'
+        ];
         for (var si = 0; si < styleKeys.length; si++) {
             var k = styleKeys[si];
             if (node.attrs[k] !== undefined) ellipseNode.attrs[k] = node.attrs[k];
@@ -50,25 +63,36 @@ function createRect(node, parentId, vb) {
     var rCorner = (rxv && ryv) ? Math.min(rxv, ryv) : (rxv || ryv || 0);
     var cr = Math.max(0, Math.min(rCorner, Math.min(w, h) / 2));
 
-    var centre = svgToCavalryPosition(x + w/2, y + h/2, vb);
+    // Use transformed center if available (from matrix transform), otherwise calculate from x,y
+    var centre;
+    if (node.attrs._transformedCenterX !== undefined && node.attrs._transformedCenterY !== undefined) {
+        centre = svgToCavalryPosition(node.attrs._transformedCenterX, node.attrs._transformedCenterY, vb);
+    } else {
+        centre = svgToCavalryPosition(x + w/2, y + h/2, vb);
+    }
+    
     api.set(id, {
         "generator.dimensions": [w, h],
         "position.x": centre.x,
         "position.y": centre.y
     });
     if (cr > 0) api.set(id, {"generator.cornerRadius": cr});
+    
+    // Apply rotation from matrix transform if present
+    // SVG rotation is clockwise, Cavalry is counter-clockwise, so negate
+    if (node.attrs._rotationDeg !== undefined && node.attrs._rotationDeg !== 0) {
+        var cavalryRotation = -node.attrs._rotationDeg;
+        try {
+            api.set(id, { "rotation": cavalryRotation });
+            console.log('[Quiver] Applied rotation ' + cavalryRotation.toFixed(2) + '° to rect "' + name + '"');
+        } catch (eRot) {
+            console.log('[Quiver] Could not apply rotation: ' + eRot.message);
+        }
+    }
 
     applyFillAndStroke(id, node.attrs);
     applyBlendMode(id, node.attrs);
-    // Gradient hookup
-    try {
-        var gradId = extractUrlRefId(node.attrs.fill || (node.attrs.style && extractStyleProperty(node.attrs.style, 'fill')));
-        if (gradId) {
-            
-            var shader = getGradientShader(gradId);
-            if (shader) connectShaderToShape(shader, id);
-        }
-    } catch (eG) {}
+    // Note: Gradient hookup is handled inside applyFillAndStroke - no duplicate connection needed
     // Compensate position when rotate(a cx cy) is used: rotate the centre around (cx,cy) and set position
     try {
         var rotPivot = parseRotatePivot(node.attrs && node.attrs.transform || '');
@@ -88,6 +112,12 @@ function createCircle(node, parentId, vb) {
     var cx = parseFloat(node.attrs.cx || '0');
     var cy = parseFloat(node.attrs.cy || '0');
     var r = parseFloat(node.attrs.r || '0');
+    
+    // Apply translate transform if present
+    var translateOffset = parseTranslate(node.attrs && node.attrs.transform || '');
+    cx += translateOffset.x;
+    cy += translateOffset.y;
+    
     api.set(id, {
         "generator.radius": [r, r]
     });
@@ -95,14 +125,7 @@ function createCircle(node, parentId, vb) {
     api.set(id, {"position.x": pos.x, "position.y": pos.y});
     applyFillAndStroke(id, node.attrs);
     applyBlendMode(id, node.attrs);
-    try {
-        var gradId = extractUrlRefId(node.attrs.fill || (node.attrs.style && extractStyleProperty(node.attrs.style, 'fill')));
-        if (gradId) {
-            
-            var shader = getGradientShader(gradId);
-            if (shader) connectShaderToShape(shader, id);
-        }
-    } catch (eG) {}
+    // Note: Gradient hookup is handled inside applyFillAndStroke - no duplicate connection needed
     // rotate(cx,cy) compensation: move position to rotated centre
     try {
         var rotPivotC = parseRotatePivot(node.attrs && node.attrs.transform || '');
@@ -123,6 +146,12 @@ function createEllipse(node, parentId, vb) {
     var cy = parseFloat(node.attrs.cy || '0');
     var rx = parseFloat(node.attrs.rx || '0');
     var ry = parseFloat(node.attrs.ry || '0');
+    
+    // Apply translate transform if present (only if transform still exists)
+    var translateOffset = parseTranslate(node.attrs && node.attrs.transform || '');
+    cx += translateOffset.x;
+    cy += translateOffset.y;
+    
     api.set(id, {
         "generator.radius": [rx, ry]
     });
@@ -130,15 +159,17 @@ function createEllipse(node, parentId, vb) {
     api.set(id, {"position.x": pos.x, "position.y": pos.y});
     applyFillAndStroke(id, node.attrs);
     applyBlendMode(id, node.attrs);
+    // Note: Gradient hookup is handled inside applyFillAndStroke - no duplicate connection needed
+    
+    // Apply rotation from matrix transform (stored as _rotationDeg during pre-processing)
     try {
-        var gradId = extractUrlRefId(node.attrs.fill || (node.attrs.style && extractStyleProperty(node.attrs.style, 'fill')));
-        if (gradId) {
-            
-            var shader = getGradientShader(gradId);
-            if (shader) connectShaderToShape(shader, id);
+        if (node.attrs._rotationDeg !== undefined && Math.abs(node.attrs._rotationDeg) > 0.0001) {
+            api.set(id, {"rotation": -node.attrs._rotationDeg});
+            console.log('[Quiver] Applied rotation ' + Math.abs(node.attrs._rotationDeg).toFixed(2) + '° to ellipse "' + name + '"');
         }
-    } catch (eG) {}
-    // rotate(cx,cy) compensation
+    } catch (eRotE) {}
+    
+    // rotate(cx,cy) compensation for explicit rotate() transforms
     try {
         var rotPivotE = parseRotatePivot(node.attrs && node.attrs.transform || '');
         if (rotPivotE && rotPivotE.cx !== null && rotPivotE.cy !== null) {

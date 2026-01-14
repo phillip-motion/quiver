@@ -71,6 +71,513 @@ function parseFontFamilyVariant(fontFamilyStr) {
     };
 }
 
+/**
+ * Replace emoji characters with a placeholder for Cavalry text rendering.
+ * Cavalry doesn't render emoji glyphs, so we need characters that create geometry
+ * for Get Sub-Mesh Transform to query. Using the emojiPlaceholder setting (default: [e])
+ * ensures it's counted as a "word" and matches what Apply Text Material will hide.
+ * 
+ * Also builds an index mapping from original emoji positions to new positions,
+ * since multi-codepoint emojis become single characters and shift indices.
+ * 
+ * The emoji images will overlay these positions, and Apply Text Material will hide them.
+ * 
+ * @param {string} text - The text string that may contain emojis
+ * @returns {Object} - {text: modified string, indexMap: {originalIndex -> newIndex}}
+ */
+function replaceEmojisWithPlaceholder(text) {
+    if (!text) return { text: text, indexMap: {} };
+    
+    // Comprehensive emoji regex pattern matching:
+    // - Emoji presentation sequences
+    // - Skin tone modifiers  
+    // - ZWJ sequences (family, flags, etc.)
+    // - Regional indicators (flags)
+    // - Various emoji ranges
+    var emojiPattern = /(?:\u{1F3F4}(?:\u{E0067}\u{E0062}(?:\u{E0065}\u{E006E}\u{E0067}|\u{E0073}\u{E0063}\u{E0074}|\u{E0077}\u{E006C}\u{E0073})\u{E007F})?|[\u{1F1E0}-\u{1F1FF}]{2}|[\u{1F300}-\u{1F5FF}]|[\u{1F600}-\u{1F64F}]|[\u{1F680}-\u{1F6FF}]|[\u{1F700}-\u{1F77F}]|[\u{1F780}-\u{1F7FF}]|[\u{1F800}-\u{1F8FF}]|[\u{1F900}-\u{1F9FF}]|[\u{1FA00}-\u{1FA6F}]|[\u{1FA70}-\u{1FAFF}]|[\u{2600}-\u{26FF}]|[\u{2700}-\u{27BF}]|[\u{231A}-\u{231B}]|[\u{23E9}-\u{23F3}]|[\u{23F8}-\u{23FA}]|[\u{25AA}-\u{25AB}]|[\u{25B6}]|[\u{25C0}]|[\u{25FB}-\u{25FE}]|[\u{2614}-\u{2615}]|[\u{2648}-\u{2653}]|[\u{267F}]|[\u{2693}]|[\u{26A1}]|[\u{26AA}-\u{26AB}]|[\u{26BD}-\u{26BE}]|[\u{26C4}-\u{26C5}]|[\u{26CE}]|[\u{26D4}]|[\u{26EA}]|[\u{26F2}-\u{26F3}]|[\u{26F5}]|[\u{26FA}]|[\u{26FD}]|[\u{2702}]|[\u{2705}]|[\u{2708}-\u{270D}]|[\u{270F}]|[\u{2712}]|[\u{2714}]|[\u{2716}]|[\u{271D}]|[\u{2721}]|[\u{2728}]|[\u{2733}-\u{2734}]|[\u{2744}]|[\u{2747}]|[\u{274C}]|[\u{274E}]|[\u{2753}-\u{2755}]|[\u{2757}]|[\u{2763}-\u{2764}]|[\u{2795}-\u{2797}]|[\u{27A1}]|[\u{27B0}]|[\u{27BF}]|[\u{2934}-\u{2935}]|[\u{2B05}-\u{2B07}]|[\u{2B1B}-\u{2B1C}]|[\u{2B50}]|[\u{2B55}]|[\u{3030}]|[\u{303D}]|[\u{3297}]|[\u{3299}])(?:\u{FE0F})?(?:\u{200D}(?:\u{1F3F4}(?:\u{E0067}\u{E0062}(?:\u{E0065}\u{E006E}\u{E0067}|\u{E0073}\u{E0063}\u{E0074}|\u{E0077}\u{E006C}\u{E0073})\u{E007F})?|[\u{1F1E0}-\u{1F1FF}]{2}|[\u{1F300}-\u{1F5FF}]|[\u{1F600}-\u{1F64F}]|[\u{1F680}-\u{1F6FF}]|[\u{1F700}-\u{1F77F}]|[\u{1F780}-\u{1F7FF}]|[\u{1F800}-\u{1F8FF}]|[\u{1F900}-\u{1F9FF}]|[\u{1FA00}-\u{1FA6F}]|[\u{1FA70}-\u{1FAFF}]|[\u{2600}-\u{26FF}]|[\u{2700}-\u{27BF}])(?:\u{FE0F})?)*/gu;
+    
+    // Placeholder for emoji positions - must be recognized as a "word" by Cavalry
+    // Using the global emojiPlaceholder setting (default: [e]) for consistency with Apply Text Material
+    // The placeholder must match what the regex in quiver_utilities_webserver.js looks for
+    // Placeholder must be exactly 3 characters for font style logic to work correctly
+    var placeholder = (typeof emojiPlaceholder !== 'undefined' && emojiPlaceholder.length === 3) ? emojiPlaceholder : '[e]';
+    var placeholderLength = placeholder.length;
+    
+    // Build index mapping: track how indices shift after replacement
+    var indexMap = {};
+    var matches = [];
+    var match;
+    
+    // Find all emoji matches with their positions and lengths
+    while ((match = emojiPattern.exec(text)) !== null) {
+        matches.push({
+            originalIndex: match.index,
+            originalLength: match[0].length,
+            emoji: match[0]
+        });
+    }
+    
+    // Determine which spaces need to be added around each emoji
+    // Each emoji placeholder must be its own "word" for word-level positioning
+    // We need spaces BEFORE and AFTER each em-dash placeholder
+    // 
+    // IMPORTANT: For consecutive emojis, we only insert ONE space between them
+    // (either as "after" for the first or "before" for the second, not both)
+    for (var i = 0; i < matches.length; i++) {
+        var m = matches[i];
+        m.needsSpaceBefore = false;
+        m.needsSpaceAfter = false;
+        
+        // Check if we need a space BEFORE this emoji
+        // But first check if the previous emoji already has a space AFTER it
+        // (in which case we don't need a space before this one)
+        var prevEmoji = (i > 0) ? matches[i - 1] : null;
+        var prevEmojiEnd = prevEmoji ? (prevEmoji.originalIndex + prevEmoji.originalLength) : -1;
+        
+        if (m.originalIndex > 0) {
+            // If this emoji immediately follows the previous one, check if prev has spaceAfter
+            if (prevEmoji && prevEmojiEnd === m.originalIndex && prevEmoji.needsSpaceAfter) {
+                // Previous emoji already inserted space after - we don't need space before
+                m.needsSpaceBefore = false;
+            } else {
+                var charBefore = text.charAt(m.originalIndex - 1);
+                // If the previous character is not whitespace, we need a space
+                if (charBefore !== ' ' && charBefore !== '\t' && charBefore !== '\n' && charBefore !== '\r') {
+                    m.needsSpaceBefore = true;
+                }
+            }
+        }
+        
+        // Check if we need a space AFTER this emoji
+        var endIndex = m.originalIndex + m.originalLength;
+        if (endIndex < text.length) {
+            var charAfter = text.charAt(endIndex);
+            // If the next character is not whitespace, we need a space
+            if (charAfter !== ' ' && charAfter !== '\t' && charAfter !== '\n' && charAfter !== '\r') {
+                m.needsSpaceAfter = true;
+            }
+        }
+    }
+    
+    // Calculate new indices accounting for:
+    // - Emoji length reduction (emoji -> single em-dash)
+    // - Added spaces before/after each emoji
+    // 
+    // Track the net offset: positive = text grew, negative = text shrank
+    // For each emoji position, we calculate where the em-dash ends up
+    var netOffset = 0;  // Tracks cumulative change in text length
+    
+    for (var i = 0; i < matches.length; i++) {
+        var m = matches[i];
+        
+        // Space added BEFORE this emoji increases the position
+        if (m.needsSpaceBefore) {
+            netOffset += 1;
+        }
+        
+        // The placeholder position = original index + current offset
+        var newIndex = m.originalIndex + netOffset;
+        indexMap[m.originalIndex] = newIndex;
+        
+        // Emoji replacement: multi-codepoint becomes placeholder (3 chars)
+        // This changes subsequent positions by (emojiLength - placeholderLength)
+        // Can be negative (text grows) if emoji is shorter than placeholder
+        netOffset -= (m.originalLength - placeholderLength);
+        
+        // Space added AFTER this emoji increases subsequent positions
+        if (m.needsSpaceAfter) {
+            netOffset += 1;
+        }
+    }
+    
+    // Build the modified text manually
+    // Insert spaces before/after each emoji to make it a standalone word
+    var modifiedText = '';
+    var lastEnd = 0;
+    
+    for (var i = 0; i < matches.length; i++) {
+        var m = matches[i];
+        
+        // Add text between last position and this emoji
+        modifiedText += text.substring(lastEnd, m.originalIndex);
+        
+        // Add space before if needed
+        if (m.needsSpaceBefore) {
+            modifiedText += ' ';
+        }
+        
+        // Add the [#] placeholder
+        modifiedText += placeholder;
+        
+        // Add space after if needed
+        if (m.needsSpaceAfter) {
+            modifiedText += ' ';
+        }
+        
+        lastEnd = m.originalIndex + m.originalLength;
+    }
+    
+    // Add any remaining text after the last emoji
+    modifiedText += text.substring(lastEnd);
+    
+    // Log space insertion
+    var spacesBefore = matches.filter(function(m) { return m.needsSpaceBefore; }).length;
+    var spacesAfter = matches.filter(function(m) { return m.needsSpaceAfter; }).length;
+    if (spacesBefore > 0 || spacesAfter > 0) {
+        console.log('[Emoji Replace] Inserted ' + spacesBefore + ' space(s) before and ' + spacesAfter + ' space(s) after emojis to ensure standalone words');
+    }
+    
+    return {
+        text: modifiedText,
+        indexMap: indexMap,
+        // Also return the matches array for adjusting arbitrary indices (not just emoji positions)
+        matches: matches
+    };
+}
+
+// Global storage for emoji index mappings per text node
+// Used by processEmojiData to get correct indices after emoji replacement
+// Format: { textNodeName: { indexMap: {...}, modifiedText: "...", matches: [...] } }
+var __emojiIndexMaps = {};
+
+/**
+ * Adjust any character index for emoji replacements.
+ * Unlike getStringEmojiIndex which only works for emoji positions,
+ * this function can adjust ANY index based on:
+ * 1. How many emoji characters were removed before that position
+ * 2. How many spaces were INSERTED before/after emojis to ensure standalone words
+ * 
+ * IMPORTANT: When we insert spaces around emojis, ALL subsequent indices shift.
+ * This function accounts for both the emoji shrinking (multi-codepoint -> single em-dash)
+ * AND the space insertions.
+ * 
+ * @param {number} originalIndex - The original character index in Figma's text
+ * @param {Array} matches - Array of {originalIndex, originalLength, needsSpaceBefore, needsSpaceAfter} from replaceEmojisWithPlaceholder
+ * @returns {number} - The adjusted index in the modified text
+ */
+function adjustIndexForEmojiReplacements(originalIndex, matches) {
+    if (!matches || matches.length === 0) return originalIndex;
+    
+    // Placeholder is 3 characters: [#]
+    var placeholderLength = 3;
+    
+    // Track how indices shift:
+    // - Emoji replacement: changes by (emojiLength - placeholderLength)
+    //   Can be negative (text grows) if emoji is shorter than placeholder
+    // - Space before emoji: INCREASES by 1 (inserted character)
+    // - Space after emoji: INCREASES by 1 (inserted character)
+    var netOffset = 0;  // Positive = text got longer, Negative = text got shorter
+    
+    for (var i = 0; i < matches.length; i++) {
+        var m = matches[i];
+        var emojiStart = m.originalIndex;
+        var emojiEnd = emojiStart + m.originalLength;
+        
+        // Only process emojis that START before our target index
+        if (emojiStart < originalIndex) {
+            // Space inserted BEFORE this emoji (shifts all indices after it by +1)
+            if (m.needsSpaceBefore) {
+                netOffset += 1;
+            }
+            
+            // Emoji was replaced: changes by (emojiLength - placeholderLength)
+            // The emoji takes (originalLength) chars, replaced by placeholder (3 chars)
+            netOffset -= (m.originalLength - placeholderLength);
+            
+            // Space inserted AFTER this emoji (shifts all indices at or after emojiEnd by +1)
+            // Count if our target index is AT or AFTER the emoji ends
+            if (m.needsSpaceAfter && originalIndex >= emojiEnd) {
+                netOffset += 1;
+            }
+        } else if (emojiStart === originalIndex) {
+            // Index is exactly AT the start of an emoji
+            // Account for space before (if any)
+            if (m.needsSpaceBefore) {
+                netOffset += 1;
+            }
+            // The index points to the start of the placeholder now
+            break;
+        } else {
+            // All remaining emojis are after this index, stop
+            break;
+        }
+    }
+    
+    return originalIndex + netOffset;
+}
+
+/**
+ * Get the STRING index for an emoji (used by applyTextMaterial).
+ * This is the position in the actual text string after emoji replacement.
+ * 
+ * @param {string} textNodeName - The Figma text node name
+ * @param {number} originalIndex - The original emoji character index from Figma
+ * @returns {number} - The string index in the modified text
+ */
+function getStringEmojiIndex(textNodeName, originalIndex) {
+    var data = __emojiIndexMaps[textNodeName];
+    if (!data || !data.indexMap || !data.indexMap.hasOwnProperty(originalIndex)) {
+        return originalIndex;
+    }
+    return data.indexMap[originalIndex];
+}
+
+/**
+ * Count characters that have visual geometry in Cavalry.
+ * Skips whitespace and zero-width characters that don't render glyphs.
+ * Used to calculate total visual chars for scaling ratio.
+ * 
+ * @param {string} text - The text to analyze
+ * @returns {number} - Count of characters with geometry
+ */
+function countVisualChars(text) {
+    if (!text) return 0;
+    var count = 0;
+    for (var i = 0; i < text.length; i++) {
+        var ch = text.charAt(i);
+        var code = text.charCodeAt(i);
+        
+        // Skip characters without geometry
+        var hasNoGeometry = (
+            ch === ' ' || 
+            ch === '\t' || 
+            ch === '\n' || 
+            ch === '\r' ||
+            code === 0x200B ||  // Zero-width space
+            code === 0x200C ||  // Zero-width non-joiner
+            code === 0x200D ||  // Zero-width joiner
+            code === 0x2060 ||  // Word joiner
+            code === 0xFEFF ||  // BOM / Zero-width no-break space
+            code === 0x00AD ||  // Soft hyphen
+            code === 0xFE0E ||  // Variation selector-15 (text style)
+            code === 0xFE0F     // Variation selector-16 (emoji style)
+        );
+        
+        if (!hasNoGeometry) {
+            count++;
+        }
+    }
+    return count;
+}
+
+/**
+ * Calculate the WORD index for an emoji placeholder position.
+ * Word-level indexing is more stable than character-level because:
+ * - Ligatures only affect characters within words, not word count
+ * - Zero-width characters don't affect word boundaries
+ * 
+ * NOTE: Consecutive emojis now have spaces inserted between them during
+ * replacement, so each emoji is guaranteed to be in its own word.
+ * 
+ * @param {string} textNodeName - The Figma text node name
+ * @param {number} originalIndex - The original emoji character index from Figma
+ * @returns {Object} - { wordIndex: number }
+ */
+function getWordIndexForEmoji(textNodeName, originalIndex) {
+    var data = __emojiIndexMaps[textNodeName];
+    if (!data || !data.indexMap || !data.modifiedText) {
+        console.log('[Emoji Word] No data for "' + textNodeName + '"');
+        return { wordIndex: -1 };
+    }
+    
+    var stringIndex = data.indexMap[originalIndex];
+    var text = data.modifiedText;
+    
+    if (stringIndex === undefined) {
+        console.log('[Emoji Word] No mapping for original index ' + originalIndex);
+        return { wordIndex: -1 };
+    }
+    
+    // Count which word contains the character at stringIndex
+    // Each emoji placeholder is now guaranteed to be its own word
+    // (consecutive emojis have spaces inserted between them)
+    var wordIndex = 0;
+    var inWord = false;
+    
+    for (var i = 0; i < text.length; i++) {
+        var ch = text.charAt(i);
+        var isWhitespace = (ch === ' ' || ch === '\t' || ch === '\n' || ch === '\r');
+        
+        if (isWhitespace) {
+            if (inWord) {
+                inWord = false;
+            }
+        } else {
+            if (!inWord) {
+                // Starting a new word
+                inWord = true;
+            }
+            
+            // Check if this is our target position
+            if (i === stringIndex) {
+                console.log('[Emoji Word] Found emoji at wordIndex=' + wordIndex);
+                return { wordIndex: wordIndex };
+            }
+        }
+        
+        // Increment word count when we finish a word (transition from word to whitespace)
+        // OR when we're about to start a new word (but we handle that above)
+        if (!isWhitespace && i + 1 < text.length) {
+            var nextCh = text.charAt(i + 1);
+            var nextIsWhitespace = (nextCh === ' ' || nextCh === '\t' || nextCh === '\n' || nextCh === '\r');
+            if (nextIsWhitespace) {
+                wordIndex++;
+            }
+        } else if (!isWhitespace && i + 1 === text.length) {
+            // Last character of text, still in a word
+            // Don't increment - we've already found or passed our target
+        }
+    }
+    
+    console.log('[Emoji Word] Position ' + stringIndex + ' not found in text');
+    return { wordIndex: -1 };
+}
+
+/**
+ * Store the actual glyph count from Cavalry's Count Sub-Meshes.
+ * This is the ground truth for index calibration - no guessing about ligatures!
+ * 
+ * Call this AFTER creating the text shape and BEFORE processing emojis.
+ * 
+ * @param {string} textNodeName - The Figma text node name
+ * @param {number} actualGlyphCount - The count from Count Sub-Meshes (Characters level)
+ */
+function setActualGlyphCount(textNodeName, actualGlyphCount) {
+    if (typeof __emojiIndexMaps === 'undefined' || !__emojiIndexMaps[textNodeName]) {
+        console.warn('[Emoji Index] No emoji data for "' + textNodeName + '" to set glyph count');
+        return;
+    }
+    
+    var data = __emojiIndexMaps[textNodeName];
+    data.actualGlyphCount = actualGlyphCount;
+    
+    // Calculate total visual chars (non-whitespace) for scaling ratio
+    if (data.modifiedText) {
+        data.totalVisualChars = countVisualChars(data.modifiedText);
+        
+        // Calculate the scaling factor: actual glyphs / expected chars
+        // This accounts for ligatures automatically - no pattern matching needed!
+        if (data.totalVisualChars > 0) {
+            data.glyphScaleFactor = actualGlyphCount / data.totalVisualChars;
+            console.log('[Emoji Index] Calibration for "' + textNodeName.substring(0, 40) + '...": ' +
+                        'actualGlyphs=' + actualGlyphCount + ', totalVisualChars=' + data.totalVisualChars + 
+                        ', scaleFactor=' + data.glyphScaleFactor.toFixed(6));
+        }
+    }
+}
+
+/**
+ * Calculate the "visual character index" for Cavalry's Sub-Mesh Transform.
+ * 
+ * IMPORTANT: Cavalry's getSubMeshTransform counts GLYPHS, not string characters.
+ * This means:
+ * 1. Whitespace (spaces, tabs, newlines) are not counted
+ * 2. Ligatures (fi, fl, ff, etc.) render as single glyphs - font dependent!
+ * 
+ * Instead of guessing which ligatures exist, we use COUNT SUB-MESHES as ground truth:
+ * - We know the total glyph count from Cavalry (actualGlyphCount)
+ * - We know the total visual chars we calculated (totalVisualChars)
+ * - We scale each position proportionally: glyphIndex = visualIndex × scaleFactor
+ * 
+ * This is 100% accurate because we use Cavalry's actual rendering as the source of truth.
+ * 
+ * @param {string} textNodeName - The Figma text node name
+ * @param {number} originalIndex - The original emoji character index from Figma
+ * @returns {number} - The glyph index for Cavalry Sub-Mesh Transform
+ */
+function getAdjustedEmojiIndex(textNodeName, originalIndex) {
+    var data = __emojiIndexMaps[textNodeName];
+    if (!data) {
+        console.log('[Emoji Index] No data for "' + textNodeName + '", returning original: ' + originalIndex);
+        return originalIndex;
+    }
+    
+    var indexMap = data.indexMap;
+    var modifiedText = data.modifiedText;
+    
+    if (!indexMap || !indexMap.hasOwnProperty(originalIndex)) {
+        console.log('[Emoji Index] No mapping for index ' + originalIndex + ', returning original');
+        return originalIndex;
+    }
+    
+    // Get the string position of the em-dash (after emoji replacement)
+    var stringIndex = indexMap[originalIndex];
+    
+    if (!modifiedText) {
+        console.log('[Emoji Index] No modified text available, returning string index: ' + stringIndex);
+        return stringIndex;
+    }
+    
+    // Count non-whitespace characters BEFORE this position
+    // This is our "visual index" before accounting for ligatures
+    var visualIndex = 0;
+    var spaceCount = 0;
+    var newlineCount = 0;
+    var zeroWidthCount = 0;
+    
+    for (var i = 0; i < stringIndex && i < modifiedText.length; i++) {
+        var ch = modifiedText.charAt(i);
+        var code = modifiedText.charCodeAt(i);
+        
+        // Check for characters WITHOUT geometry in Cavalry:
+        // 1. Standard whitespace: space, tab, newline, carriage return
+        // 2. Zero-width characters that have no visual geometry
+        var hasNoGeometry = (
+            ch === ' ' || 
+            ch === '\t' || 
+            ch === '\n' || 
+            ch === '\r' ||
+            code === 0x200B ||  // Zero-width space
+            code === 0x200C ||  // Zero-width non-joiner
+            code === 0x200D ||  // Zero-width joiner
+            code === 0x2060 ||  // Word joiner
+            code === 0xFEFF ||  // BOM / Zero-width no-break space
+            code === 0x00AD ||  // Soft hyphen
+            code === 0xFE0E ||  // Variation selector-15 (text style)
+            code === 0xFE0F     // Variation selector-16 (emoji style)
+        );
+        
+        if (!hasNoGeometry) {
+            visualIndex++;
+        } else {
+            if (ch === ' ') spaceCount++;
+            else if (ch === '\n' || ch === '\r') newlineCount++;
+            else zeroWidthCount++;
+        }
+    }
+    
+    // Calculate the actual glyph index using proportional scaling
+    // This uses Count Sub-Meshes as ground truth - 100% accurate, no ligature guessing!
+    var glyphIndex = visualIndex;  // Default: no scaling
+    
+    if (data.glyphScaleFactor !== undefined && data.glyphScaleFactor > 0) {
+        // Scale proportionally based on actual glyph count
+        // Round to nearest integer for the index
+        glyphIndex = Math.round(visualIndex * data.glyphScaleFactor);
+        
+        // Debug output showing the calibrated calculation
+        console.log('[Emoji Index] Stats: stringLen=' + stringIndex + ', visualChars=' + visualIndex + 
+                    ', skipped=' + (stringIndex - visualIndex) + ' (spaces=' + spaceCount + ', newlines=' + newlineCount + ', zeroWidth=' + zeroWidthCount + ')' +
+                    ', scaleFactor=' + data.glyphScaleFactor.toFixed(4) + ', glyphIndex=' + glyphIndex);
+    } else {
+        // No calibration data - fall back to visual index
+        console.log('[Emoji Index] Stats: stringLen=' + stringIndex + ', visualChars=' + visualIndex + 
+                    ', skipped=' + (stringIndex - visualIndex) + ' (spaces=' + spaceCount + ', newlines=' + newlineCount + ', zeroWidth=' + zeroWidthCount + ')' +
+                    ' (no calibration, using visualIndex as glyphIndex)');
+    }
+    
+    console.log('[Emoji Index] Adjusted for "' + textNodeName.substring(0, 50) + '...": original=' + originalIndex + 
+                ', stringIndex=' + stringIndex + ', visualIndex=' + visualIndex + ', glyphIndex=' + glyphIndex);
+    return glyphIndex;
+}
+
+/**
+ * Clear all emoji index mappings after import is complete.
+ */
+function clearEmojiIndexMaps() {
+    __emojiIndexMaps = {};
+}
+
 function createText(node, parentId, vb, inheritedScale) {
     try {
     inheritedScale = inheritedScale || {x:1, y:1};
@@ -82,22 +589,86 @@ function createText(node, parentId, vb, inheritedScale) {
             return null;
         }
     
+    // HYBRID TEXT: Look up Figma text data for accurate alignment
+    // getFigmaTextData is defined in quiver_utilities_webserver.js and populated before SVG import
+    var figmaTextData = null;
+    try {
+        var textNodeName = node.name || '';
+        console.log('[Quiver Text] createText called for: "' + textNodeName + '"');
+        console.log('[Quiver Text] getFigmaTextData function exists: ' + (typeof getFigmaTextData === 'function'));
+        
+        // Extract text content preview for disambiguation when multiple nodes have same name
+        var textContentPreview = '';
+        if (node.tspans && node.tspans.length > 0) {
+            for (var tpi = 0; tpi < node.tspans.length && textContentPreview.length < 50; tpi++) {
+                textContentPreview += node.tspans[tpi].text.replace(/[\u2028\u2029]/g, '');
+            }
+        }
+        
+        // Extract SVG position from first tspan for position-based disambiguation
+        // This helps when multiple text nodes have the same name AND same content
+        var svgPosition = null;
+        if (node.tspans && node.tspans.length > 0) {
+            svgPosition = {
+                x: node.tspans[0].x || 0,
+                y: node.tspans[0].y || 0
+            };
+            console.log('[Quiver Text] SVG tspan position: (' + svgPosition.x.toFixed(1) + ', ' + svgPosition.y.toFixed(1) + ')');
+        }
+        
+        if (typeof getFigmaTextData === 'function') {
+            figmaTextData = getFigmaTextData(textNodeName, textContentPreview, svgPosition);
+            console.log('[Quiver Text] getFigmaTextData returned: ' + (figmaTextData ? 'found' : 'null'));
+            if (figmaTextData) {
+                console.log('[Quiver Text] Found Figma data for "' + textNodeName + '": align=' + figmaTextData.textAlignHorizontal);
+            } else {
+                console.log('[Quiver Text] No Figma data found for "' + textNodeName + '"');
+            }
+        } else {
+            console.log('[Quiver Text] getFigmaTextData function not available');
+        }
+    } catch (eFTD) {
+        console.log('[Quiver Text] Error looking up Figma data: ' + eFTD.message);
+    }
+    
+    // ALWAYS use SVG tspan joining for text content - this preserves visual line breaks
+    // Figma's node.characters doesn't contain newlines for auto-wrapped text
+    // The SVG tspans have different Y positions for each visual line
+    // We use Figma data only for alignment, not for the actual text content
+    
     // Smart joining: check if tspans are on the same line (same Y position) or different lines
     // If Y positions are very close (within 1px), they're on the same line - no newline
-    // If Y positions differ significantly, insert newline
+    // If Y positions differ significantly, insert newline (replacing any trailing space)
+    // NOTE: Figma sometimes includes Unicode Line Separator (U+2028) or Paragraph Separator (U+2029)
+    // in text - we need to strip these to avoid double line breaks
     var combined = '';
     for (var ti = 0; ti < node.tspans.length; ti++) {
+        // Get the tspan text and strip any Unicode line/paragraph separators
+        // U+2028 = Line Separator, U+2029 = Paragraph Separator, and also strip newlines (\n, \r)
+        // We manage line breaks via Y-position differences, so embedded newlines cause duplicates
+        var tspanText = node.tspans[ti].text.replace(/[\u2028\u2029\n\r]/g, '');
+        
         if (ti > 0) {
             var prevY = node.tspans[ti - 1].y;
             var currY = node.tspans[ti].y;
             var yDiff = Math.abs(currY - prevY);
             // If Y difference is more than 1px, they're on different lines
             if (yDiff > 1) {
+                // Remove trailing space/separators before adding newline (newline replaces the space)
+                combined = combined.replace(/[ \u2028\u2029]+$/, '');
                 combined += '\n';
+                // NOTE: Do NOT strip leading spaces - they may be intentional indentation
+                // used by Figma for visual alignment (e.g., "            outside")
             }
         }
-        combined += node.tspans[ti].text;
+        combined += tspanText;
     }
+    
+    // Strip leading empty lines - these occur when Figma exports empty tspans before visible content
+    // Since we position based on the first VISIBLE tspan, leading empty lines shift text incorrectly
+    combined = combined.replace(/^(\n)+/, '');
+    
+    console.log('[Quiver Text] Combined text from tspans: ' + node.tspans.length + ' tspans, result has ' + combined.split('\n').length + ' lines');
     
     try { combined = decodeEntitiesForName(combined); } catch (eDecAll) {}
     var name = combined.split(/\s+/).slice(0,3).join(' ');
@@ -106,7 +677,16 @@ function createText(node, parentId, vb, inheritedScale) {
     var id = api.create('textShape', name);
     if (parentId) api.parent(id, parentId);
 
+    // Find the first tspan with actual text content (not just whitespace)
+    // Figma sometimes exports empty/whitespace tspans before the real content
     var first = node.tspans[0];
+    for (var tIdx = 0; tIdx < node.tspans.length; tIdx++) {
+        var tspan = node.tspans[tIdx];
+        if (tspan.text && tspan.text.trim().length > 0) {
+            first = tspan;
+            break;
+        }
+    }
     var pos = svgToCavalryPosition(first.x, first.y, vb);
 
     var fill = node.attrs.fill || extractStyleProperty(node.attrs.style, 'fill') || '#000000';
@@ -169,47 +749,147 @@ function createText(node, parentId, vb, inheritedScale) {
     // Use variant from font name if available (Affinity), otherwise parse from weight/style (Figma)
     var finalStyle = variantFromName || combineWeightAndItalic(parseFontWeight(weight), fontStyle);
 
-    // Compute line spacing from explicit line-height or tspans (multi-line)
+    // Compute line spacing - use SVG tspan Y positions as ground truth
+    // The tspan Y values give us the ACTUAL baseline-to-baseline distance in the source
     var lineSpacingOffset = 0;
     try {
-        var lineHeightRaw = node.attrs['line-height'] || extractStyleProperty(node.attrs.style, 'line-height');
-        function _lineHeightToPx(val, fs) {
-            if (val === null || val === undefined || val === '') return null;
-            var s = ('' + val).trim().toLowerCase();
-            if (s === 'normal') return null; // use default
-            if (s.indexOf('px') !== -1) { var npx = parseFloat(s.replace('px','')); return isNaN(npx)?null:npx; }
-            if (s.indexOf('%') !== -1) { var p = parseFloat(s.replace('%','')); return isNaN(p)?null:(fs * (p/100)); }
-            if (s.indexOf('em') !== -1) { var em = parseFloat(s.replace('em','')); return isNaN(em)?null:(fs * em); }
-            var n = parseFloat(s);
-            if (!isNaN(n)) {
-                // Bare number in CSS is a multiplier
-                if (s === (''+n)) return fs * n;
-                return n; // assume px if unitless parse failed to match exactly
-            }
-            return null;
-        }
-        var defaultLineHeight = fontSize * 1.407; // Cavalry default approximation
-        var lhPx = _lineHeightToPx(lineHeightRaw, fontSize);
-        if (lhPx !== null && isFinite(lhPx)) {
-            lineSpacingOffset = lhPx - defaultLineHeight;
-        } else if (node.tspans && node.tspans.length > 1) {
+        // FIRST: Calculate actual baseline-to-baseline distance from SVG tspans
+        // This is the ground truth - the actual line height in the source SVG
+        var actualLineHeight = null;
+        if (node.tspans && node.tspans.length > 1) {
             var diffs = []; 
             for (var li = 1; li < node.tspans.length; li++) { 
                 var dy = (node.tspans[li].y - node.tspans[li-1].y); 
-                if (isFinite(dy)) diffs.push(dy); 
+                if (isFinite(dy) && Math.abs(dy) > 1) diffs.push(dy); // Only count actual line breaks
             }
             if (diffs.length > 0) {
-                var sum = 0; for (var di = 0; di < diffs.length; di++) sum += diffs[di];
-                var avg = sum / diffs.length;
-                // Only apply line spacing if there are actual line breaks (Y diff > 1px)
-                // If all tspans are on same line (Y diff ~0), don't set line spacing
-                if (Math.abs(avg) > 1) {
-                    lineSpacingOffset = avg - defaultLineHeight;
+                var sum = 0; 
+                for (var di = 0; di < diffs.length; di++) sum += diffs[di];
+                actualLineHeight = sum / diffs.length;
+                console.log('[Quiver Text] SVG tspan Y analysis: ' + diffs.length + ' line break(s), avg baseline-to-baseline = ' + actualLineHeight.toFixed(2) + 'px');
+            }
+        }
+        
+        // If we have the actual line height from SVG, use it directly
+        // This is more accurate than Figma's percentage-based lineHeight
+        if (actualLineHeight !== null) {
+            // Cavalry's default line height is the fontSize times some multiplier
+            // We need to find: lineSpacingOffset such that:
+            //   Cavalry_default_line_height + lineSpacingOffset = actualLineHeight
+            // So: lineSpacingOffset = actualLineHeight - Cavalry_default_line_height
+            //
+            // Empirically measured using Bounding Box on 2-line text in Cavalry:
+            //   110px font: default line height = 141.95px = 1.29x
+            //   160px font: default line height = 208.02px = 1.30x
+            // Average: ~1.29x (font-specific, based on Canva Sans Display metrics)
+            var cavalryDefaultMultiplier = 1.29; // Empirically measured from Cavalry Bounding Box
+            var cavalryDefaultLH = fontSize * cavalryDefaultMultiplier;
+            lineSpacingOffset = actualLineHeight - cavalryDefaultLH;
+            
+            // Also check if Figma data gives us additional info for logging
+            var figmaLhInfo = '';
+            if (figmaTextData && figmaTextData.lineHeight) {
+                var lh = figmaTextData.lineHeight;
+                if (lh.unit === 'PERCENT') {
+                    figmaLhInfo = ' (Figma: ' + lh.value + '%)';
+                } else if (lh.unit === 'PIXELS') {
+                    figmaLhInfo = ' (Figma: ' + lh.value + 'px)';
+                } else if (lh.unit === 'AUTO') {
+                    figmaLhInfo = ' (Figma: AUTO)';
                 }
+            }
+            console.log('[Quiver Text] Line height: actual=' + actualLineHeight.toFixed(2) + 'px' + figmaLhInfo + ', Cavalry default ~' + cavalryDefaultLH.toFixed(2) + 'px (x' + cavalryDefaultMultiplier + ') -> offset ' + lineSpacingOffset.toFixed(2));
+        } else if (figmaTextData && figmaTextData.lineHeight) {
+            // Single line text or no measurable line breaks - use Figma data if available
+            var lh = figmaTextData.lineHeight;
+            if (lh.unit === 'AUTO') {
+                lineSpacingOffset = 0;
+                console.log('[Quiver Text] Line height: Figma AUTO (single line, using Cavalry default)');
+            } else if (lh.unit === 'PIXELS' && typeof lh.value === 'number') {
+                var cavalryDefaultLH = fontSize * 1.29;
+                lineSpacingOffset = lh.value - cavalryDefaultLH;
+                console.log('[Quiver Text] Line height: Figma ' + lh.value + 'px, Cavalry default ~' + cavalryDefaultLH.toFixed(2) + 'px -> offset ' + lineSpacingOffset.toFixed(2));
+            } else if (lh.unit === 'PERCENT' && typeof lh.value === 'number') {
+                var figmaLH = fontSize * (lh.value / 100);
+                var cavalryDefaultLH = fontSize * 1.29;
+                lineSpacingOffset = figmaLH - cavalryDefaultLH;
+                console.log('[Quiver Text] Line height: Figma ' + lh.value + '% = ' + figmaLH.toFixed(2) + 'px, Cavalry default ~' + cavalryDefaultLH.toFixed(2) + 'px -> offset ' + lineSpacingOffset.toFixed(2));
             }
         }
     } catch (eLS) { lineSpacingOffset = 0; }
 
+    // Determine horizontal alignment
+    // Cavalry: 0=Left, 1=Center, 2=Right, 3=Justified
+    // Figma: "LEFT", "CENTER", "RIGHT", "JUSTIFIED"
+    var horizontalAlignment = 0; // Default: left
+    if (figmaTextData && figmaTextData.textAlignHorizontal) {
+        var alignH = figmaTextData.textAlignHorizontal.toUpperCase();
+        if (alignH === 'CENTER') horizontalAlignment = 1;
+        else if (alignH === 'RIGHT') horizontalAlignment = 2;
+        else if (alignH === 'JUSTIFIED') horizontalAlignment = 3;
+    }
+    
+    // Determine vertical alignment
+    // Cavalry: 0=Top, 1=Center, 2=Bottom, 3=Baseline
+    // Since we use SVG tspan Y positions (which are baseline-based), we should use Baseline alignment
+    // This ensures the text position matches the SVG's baseline positioning
+    var verticalAlignment = 3; // Default: Baseline (matches SVG tspan Y positioning)
+    
+    // Calculate position based on alignment and Figma data
+    // IMPORTANT: Keep SVG's Y position (pos.y) - it's based on text baseline which is more accurate
+    // Only adjust X position for horizontal alignment using Figma's bounding box data
+    var finalPosX = pos.x;
+    var finalPosY = pos.y; // Keep SVG's baseline-based Y position
+    
+    if (figmaTextData) {
+        // Use Figma's width to adjust X position for alignment
+        var figmaWidth = (figmaTextData.width || 0) * inheritedScale.x;
+        
+        // For horizontal alignment, we need to offset X based on the text box width
+        // SVG tspan X is typically the left edge of each line
+        // For center-aligned text, we need to position at the center of the text box
+        if (horizontalAlignment === 1) {
+            // Center: use the center of the Figma text box
+            var figmaPosConverted = svgToCavalryPosition(
+                figmaTextData.relativeX,
+                figmaTextData.relativeY,
+                vb
+            );
+            finalPosX = figmaPosConverted.x + (figmaWidth / 2);
+        } else if (horizontalAlignment === 2) {
+            // Right: use the right edge of the Figma text box
+            var figmaPosConverted = svgToCavalryPosition(
+                figmaTextData.relativeX,
+                figmaTextData.relativeY,
+                vb
+            );
+            finalPosX = figmaPosConverted.x + figmaWidth;
+        }
+        // For left alignment (0), keep the SVG's X position (pos.x)
+        
+        console.log('[Quiver Text] Position: SVG tspan(' + first.x.toFixed(1) + ',' + first.y.toFixed(1) + ') -> Cavalry(' + finalPosX.toFixed(1) + ',' + finalPosY.toFixed(1) + ')');
+        console.log('[Quiver Text] Alignment: H=' + horizontalAlignment + ' (0=Left,1=Center,2=Right) V=' + verticalAlignment + ' (3=Baseline)');
+    }
+    
+    // Replace emoji characters with em-dash placeholders for Get Sub-Mesh Transform positioning
+    // The em-dash creates geometry at the correct position for emoji overlay
+    var originalCombined = combined;
+    var textNodeNameForEmoji = node.name || name;
+    var emojiReplacement = replaceEmojisWithPlaceholder(combined);
+    combined = emojiReplacement.text;
+    
+    // Store the index map AND modified text for emoji processing
+    if (emojiReplacement.indexMap && Object.keys(emojiReplacement.indexMap).length > 0) {
+        if (typeof __emojiIndexMaps !== 'undefined') {
+            __emojiIndexMaps[textNodeNameForEmoji] = {
+                indexMap: emojiReplacement.indexMap,
+                modifiedText: combined
+            };
+        }
+        var currentPlaceholder = (typeof emojiPlaceholder !== 'undefined' && emojiPlaceholder.length === 3) ? emojiPlaceholder : '[e]';
+        console.log('[Quiver Text] Replaced emojis with ' + currentPlaceholder + ' placeholders, index map: ' + JSON.stringify(emojiReplacement.indexMap));
+    }
+    
     var textSettings = {
         "text": combined,
         "fontSize": fontSize,
@@ -217,66 +897,89 @@ function createText(node, parentId, vb, inheritedScale) {
         "font.style": finalStyle,
         "autoWidth": true,
         "autoHeight": true,
-        "position.x": pos.x,
-        "position.y": pos.y,
-        "verticalAlignment": 3
+        "position.x": finalPosX,
+        "position.y": finalPosY,
+        "horizontalAlignment": horizontalAlignment,
+        "verticalAlignment": verticalAlignment
     };
-    // letter spacing
-    var letterSpacingRaw = node.attrs['letter-spacing'] || extractStyleProperty(node.attrs.style, 'letter-spacing');
+    
+    console.log('[Quiver Text] Setting textSettings:');
+    console.log('  horizontalAlignment: ' + horizontalAlignment + ' (0=Left, 1=Center, 2=Right)');
+    console.log('  verticalAlignment: ' + verticalAlignment + ' (3=Baseline)');
+    console.log('  position: (' + finalPosX.toFixed(1) + ', ' + finalPosY.toFixed(1) + ')');
+    console.log('  fontSize: ' + fontSize);
+    // Letter spacing - prefer Figma's letterSpacing data when available
     var letterSpacingRatio = null; // Track ratio for expression connection
-    if (letterSpacingRaw && ('' + letterSpacingRaw).toLowerCase() !== 'normal') {
-        var lsStr = ('' + letterSpacingRaw).trim();
-        var lsNum = 0;
-        
-        // Handle different letter-spacing units and track ratio
-        if (lsStr.indexOf('em') !== -1) {
-            // em units: the value itself is the ratio
-            letterSpacingRatio = parseFloat(lsStr.replace('em',''));
-            lsNum = letterSpacingRatio * fontSize;
-        } else if (lsStr.indexOf('px') !== -1) {
-            // px units: calculate ratio from absolute value
-            lsNum = parseFloat(lsStr.replace('px',''));
+    var lsNum = 0;
+    var figmaLetterSpacingUsed = false;
+    
+    // First, try Figma's letterSpacing data (more accurate)
+    if (figmaTextData && figmaTextData.letterSpacing && typeof figmaTextData.letterSpacing.value === 'number') {
+        var ls = figmaTextData.letterSpacing;
+        if (ls.unit === 'PIXELS') {
+            // Absolute pixel value
+            lsNum = ls.value;
             letterSpacingRatio = lsNum / fontSize;
-        } else {
-            // No unit: treat as em (fractional) if small value, otherwise as px
-            // SVG exports percentages as decimal (e.g., -5% becomes -0.05)
-            lsNum = parseFloat(lsStr);
-            if (!isNaN(lsNum) && Math.abs(lsNum) < 10) {
-                // Likely an em/fractional value - this IS the ratio
-                letterSpacingRatio = lsNum;
-                lsNum = lsNum * fontSize;
-            } else {
-                // Large absolute value, treat as pixels
+            figmaLetterSpacingUsed = true;
+            console.log('[Quiver Text] Letter spacing: Figma ' + ls.value + 'px -> ratio ' + letterSpacingRatio.toFixed(6));
+        } else if (ls.unit === 'PERCENT') {
+            // Percentage of font size (e.g., -3% = -0.03 * fontSize)
+            letterSpacingRatio = ls.value / 100;
+            lsNum = letterSpacingRatio * fontSize;
+            figmaLetterSpacingUsed = true;
+            console.log('[Quiver Text] Letter spacing: Figma ' + ls.value + '% -> ' + lsNum.toFixed(2) + 'px, ratio ' + letterSpacingRatio.toFixed(6));
+        }
+    }
+    
+    // Fall back to SVG parsing if Figma data not available
+    if (!figmaLetterSpacingUsed) {
+        var letterSpacingRaw = node.attrs['letter-spacing'] || extractStyleProperty(node.attrs.style, 'letter-spacing');
+        if (letterSpacingRaw && ('' + letterSpacingRaw).toLowerCase() !== 'normal') {
+            var lsStr = ('' + letterSpacingRaw).trim();
+            
+            // Handle different letter-spacing units and track ratio
+            if (lsStr.indexOf('em') !== -1) {
+                // em units: the value itself is the ratio
+                letterSpacingRatio = parseFloat(lsStr.replace('em',''));
+                lsNum = letterSpacingRatio * fontSize;
+            } else if (lsStr.indexOf('px') !== -1) {
+                // px units: calculate ratio from absolute value
+                lsNum = parseFloat(lsStr.replace('px',''));
                 letterSpacingRatio = lsNum / fontSize;
+            } else {
+                // No unit: treat as em (fractional) if small value, otherwise as px
+                // SVG exports percentages as decimal (e.g., -5% becomes -0.05)
+                lsNum = parseFloat(lsStr);
+                if (!isNaN(lsNum) && Math.abs(lsNum) < 10) {
+                    // Likely an em/fractional value - this IS the ratio
+                    letterSpacingRatio = lsNum;
+                    lsNum = lsNum * fontSize;
+                } else {
+                    // Large absolute value, treat as pixels
+                    letterSpacingRatio = lsNum / fontSize;
+                }
             }
         }
-        
-        if (!isNaN(lsNum) && lsNum !== 0) textSettings["letterSpacing"] = lsNum;
     }
+    
+    if (!isNaN(lsNum) && lsNum !== 0) textSettings["letterSpacing"] = lsNum;
     // line spacing (only meaningful when multi-line)
     if (lineSpacingOffset && node.tspans && node.tspans.length > 1) {
         try { textSettings["lineSpacing"] = lineSpacingOffset; } catch (eSetLS) {}
     }
     api.set(id, textSettings);
-
-    // Connect fontSize to letterSpacing with expression to maintain ratio
-    if (letterSpacingRatio !== null && !isNaN(letterSpacingRatio) && letterSpacingRatio !== 0) {
-        try {
-            // Create the connection from fontSize to letterSpacing
-            api.connect(id, "fontSize", id, "letterSpacing");
-            
-            // Build expression: multiply fontSize (value) by ratio
-            // Format ratio to avoid floating point issues (limit to 6 decimal places)
-            var ratioStr = letterSpacingRatio.toFixed(6);
-            var expression = ratioStr + "*value";
-            
-            // Apply the expression to letterSpacing
-            api.setAttributeExpression(id, "letterSpacing", expression);
-        } catch (eExpr) {
-            // If expression fails, the static value is already set
-            console.log("Note: Could not set letter-spacing expression for " + name);
-        }
+    
+    // Verify the alignment was set correctly
+    try {
+        var appliedHAlign = api.get(id, 'horizontalAlignment');
+        var appliedVAlign = api.get(id, 'verticalAlignment');
+        console.log('[Quiver Text] AFTER api.set - horizontalAlignment: ' + appliedHAlign + ', verticalAlignment: ' + appliedVAlign);
+    } catch (eVerify) {
+        console.log('[Quiver Text] Could not verify alignment: ' + eVerify.message);
     }
+
+    // Letter spacing is now set as a simple static value (not an expression)
+    // The value was already applied via textSettings["letterSpacing"] above
 
     // Apply fill/stroke/alpha via common path (supports stroke gradients)
     // For text, default SVG fill is black if unspecified; honour that without overriding explicit values
@@ -322,19 +1025,679 @@ function createText(node, parentId, vb, inheritedScale) {
     if (forceHideFillAlpha) {
         try { api.set(id, {"material.materialColor.a": 0}); } catch (eHide) {}
     }
-    // Hook up fill gradient (if any) to the text shape
-    try {
-        var gradIdT = extractUrlRefId(attrsForTextStyle.fill || (attrsForTextStyle.style && extractStyleProperty(attrsForTextStyle.style, 'fill')));
-        if (gradIdT) {
-            var shaderT = getGradientShader(gradIdT);
-            if (shaderT) connectShaderToShape(shaderT, id);
-        }
-    } catch (eGT) {}
+    // Note: Fill gradient connection is already handled by applyFillAndStroke()
+    // No need to connect again here - that would cause duplicate shaders
+    
+    // Register the created text shape for emoji positioning via Get Sub-Mesh Transform
+    // This allows processEmojiData to find the text shape and connect emojis
+    if (typeof registerCreatedTextShape === 'function') {
+        registerCreatedTextShape(node.name || name, id);
+    }
 
     return id;
     } catch (e) {
         // Silent fail when text import is disabled or other errors occur
 
+        return null;
+    }
+}
+
+/**
+ * Create a text shape directly from Figma text data (hybrid approach).
+ * This is used when Figma exports styled text as multiple SVG <text> elements,
+ * but we want to create a single Cavalry textShape with the full content.
+ * 
+ * Cavalry API used:
+ * - api.create('textShape', name) - Create text shape
+ * - api.parent(childId, parentId) - Parent to group
+ * - api.set(id, properties) - Set text properties
+ * - api.create('applyTypeface', name) - Create Apply Typeface for styled segments
+ * - api.connect(srcId, srcAttr, dstId, dstAttr) - Connect nodes
+ * 
+ * @param {Object} figmaData - The Figma text data object with characters, alignment, etc.
+ * @param {string} parentId - The parent group ID
+ * @param {Object} vb - ViewBox {width, height}
+ * @param {Object} inheritedScale - Scale {x, y}
+ * @param {Array} fills - Array of fill objects {color, opacity} extracted from SVG text children
+ * @param {Array|Object} svgTextChildren - SVG text nodes with tspans for line spacing/position analysis
+ * @returns {string|null} The created text shape ID, or null if failed
+ */
+function createTextFromFigmaData(figmaData, parentId, vb, inheritedScale, fills, svgTextChildren) {
+    try {
+        inheritedScale = inheritedScale || {x: 1, y: 1};
+        
+        if (!figmaData || !figmaData.characters) {
+            console.log('[Styled Text] No characters in Figma data');
+            return null;
+        }
+        
+        // Skip if text import is disabled
+        if (!importLiveTextEnabled) {
+            console.log('[Styled Text] Text import disabled');
+            return null;
+        }
+        
+        var characters = figmaData.characters;
+        var name = figmaData.name || characters.split(/\s+/).slice(0, 3).join(' ') || 'Text';
+        
+        // Replace emoji characters with em-dash (—) for proper geometry in Cavalry
+        // Cavalry doesn't render emoji glyphs, but we need geometry for Get Sub-Mesh Transform
+        // to find the correct position. The em-dash has appropriate width and creates geometry.
+        // The emoji images will overlay these positions after Apply Text Material hides them.
+        var originalCharacters = characters;
+        var emojiReplacement = replaceEmojisWithPlaceholder(characters);
+        characters = emojiReplacement.text;
+        
+        // Store the index map, modified text, AND matches array for emoji processing
+        // The modified text is needed to calculate visual character indices
+        // (Cavalry's Sub-Mesh Transform counts non-whitespace chars only)
+        // The matches array is needed to adjust styled segment indices
+        var emojiMatches = emojiReplacement.matches || [];
+        if (Object.keys(emojiReplacement.indexMap).length > 0) {
+            __emojiIndexMaps[figmaData.name || name] = {
+                indexMap: emojiReplacement.indexMap,
+                modifiedText: characters,  // Text with em-dash placeholders
+                matches: emojiMatches
+            };
+            var currentPlaceholder = (typeof emojiPlaceholder !== 'undefined' && emojiPlaceholder.length === 3) ? emojiPlaceholder : '[e]';
+            console.log('[Styled Text] Replaced emojis with ' + currentPlaceholder + ' placeholders, index map: ' + JSON.stringify(emojiReplacement.indexMap));
+        }
+        
+        console.log('[Styled Text] Creating text from Figma data: "' + characters.substring(0, 50) + '..."');
+        
+        // Create the text shape
+        var id = api.create('textShape', name);
+        if (parentId) api.parent(id, parentId);
+        
+        // Calculate position from Figma relative coordinates
+        // Figma: Y-down, origin at frame top-left, position is TOP-LEFT of text box
+        // Cavalry: Y-up, origin at composition center
+        // 
+        // IMPORTANT: We use BASELINE vertical alignment (3) for consistent positioning!
+        // This makes the Y position refer to the first line's baseline, which is predictable
+        // regardless of autoWidth/autoHeight settings. This matches how SVG text positioning works.
+        var figmaX = figmaData.relativeX || 0;
+        var figmaY = figmaData.relativeY || 0;
+        var figmaWidth = figmaData.width || 100;
+        var figmaHeight = figmaData.height || 100;
+        var vbWidth = vb.width || 1920;
+        var vbHeight = vb.height || 1080;
+        
+        // Apply font size with inherited scale
+        var scaleAvg = (inheritedScale.x + inheritedScale.y) / 2;
+        var fontSize = (figmaData.fontSize || 16) * scaleAvg;
+        
+        // Map Figma horizontal alignment to Cavalry
+        // Cavalry: horizontalAlignment: 0=Left, 1=Center, 2=Right
+        var hAlignMap = {'LEFT': 0, 'CENTER': 1, 'RIGHT': 2, 'JUSTIFIED': 0};
+        var horizontalAlignment = hAlignMap[figmaData.textAlignHorizontal] || 0;
+        
+        // ALWAYS use Baseline (3) for vertical alignment - this gives consistent positioning
+        // regardless of autoWidth/autoHeight settings
+        var verticalAlignment = 3; // Baseline
+        
+        // X position depends on whether text has a fixed width (textBoxSize.x) or auto width
+        // 
+        // FIXED WIDTH (autoWidth=false): position.x is ALWAYS the LEFT edge of the text box
+        //   The horizontalAlignment setting controls where text flows WITHIN the box
+        //
+        // AUTO WIDTH (autoWidth=true): position.x depends on horizontalAlignment
+        //   - LEFT (0): anchor at LEFT edge of text
+        //   - CENTER (1): anchor at CENTER of text  
+        //   - RIGHT (2): anchor at RIGHT edge of text
+        //
+        // We need to determine autoWidth before calculating X, so pre-calculate it here
+        var textAutoResize = figmaData.textAutoResize || 'WIDTH_AND_HEIGHT';
+        var isAutoWidth = (textAutoResize === 'WIDTH_AND_HEIGHT');
+        
+        var figmaAnchorX;
+        if (isAutoWidth) {
+            // Auto width: anchor depends on alignment
+            if (horizontalAlignment === 2) {
+                // RIGHT: anchor at right edge of Figma box
+                figmaAnchorX = figmaX + figmaWidth;
+            } else if (horizontalAlignment === 1) {
+                // CENTER: anchor at center of Figma box
+                figmaAnchorX = figmaX + (figmaWidth / 2);
+            } else {
+                // LEFT: anchor at left edge
+                figmaAnchorX = figmaX;
+            }
+        } else {
+            // Fixed width: always use left edge
+            figmaAnchorX = figmaX;
+        }
+        
+        // Calculate Y position as the BASELINE of the first line
+        // BEST: Use actual SVG tspan Y position (ground truth from rendered text)
+        // FALLBACK: Estimate as top of text box + fontSize (less accurate, varies by font)
+        var figmaBaselineY;
+        var baselineSource = 'estimated';
+        
+        // Normalize svgTextChildren to always be an array
+        var textChildrenArray = [];
+        if (svgTextChildren) {
+            if (Array.isArray(svgTextChildren)) {
+                textChildrenArray = svgTextChildren;
+            } else {
+                // Legacy: single object passed
+                textChildrenArray = [svgTextChildren];
+            }
+        }
+        
+        // IMPORTANT: Sort text children by their first tspan's Y position (topmost first)
+        // Figma exports multi-styled text as separate <text> elements, but NOT in visual order!
+        // We need the topmost line's baseline for correct positioning.
+        if (textChildrenArray.length > 1) {
+            textChildrenArray.sort(function(a, b) {
+                var aY = (a.tspans && a.tspans.length > 0) ? a.tspans[0].y : 0;
+                var bY = (b.tspans && b.tspans.length > 0) ? b.tspans[0].y : 0;
+                return aY - bY; // Sort ascending (topmost Y = smallest value first)
+            });
+            console.log('[Styled Text] Sorted ' + textChildrenArray.length + ' text children by Y position');
+            if (textChildrenArray[0].tspans && textChildrenArray[0].tspans.length > 0) {
+                console.log('[Styled Text] Topmost line Y: ' + textChildrenArray[0].tspans[0].y);
+            }
+        }
+        
+        // Get first text child for baseline Y (now guaranteed to be the topmost line)
+        var firstTextChild = textChildrenArray.length > 0 ? textChildrenArray[0] : null;
+        
+        if (firstTextChild && firstTextChild.tspans && firstTextChild.tspans.length > 0) {
+            // Use the actual baseline Y from the first tspan - this is the ground truth
+            // The SVG tspan Y attribute gives us the exact baseline position
+            figmaBaselineY = firstTextChild.tspans[0].y;
+            baselineSource = 'SVG tspan';
+        } else {
+            // Fallback: estimate baseline as top + fontSize
+            // This is approximate since actual baseline depends on font ascender
+            figmaBaselineY = figmaY + fontSize;
+            baselineSource = 'estimated (top + fontSize)';
+        }
+        
+        // Convert to Cavalry coordinates (flip Y, offset by half composition)
+        var cavalryX = figmaAnchorX - (vbWidth / 2);
+        var cavalryY = (vbHeight / 2) - figmaBaselineY;
+        
+        // Build font family string
+        // Cavalry uses "font.font" for family and "font.style" for style
+        // 
+        // OPTIMIZATION: If styled segments exist, find the DOMINANT font (most character coverage)
+        // and use that as the base font. This minimizes Apply Typeface nodes.
+        // Example: If Regular covers 900 chars and Bold covers 100 chars, set base to Regular
+        // and only create Apply Typeface for Bold (reducing from 2 nodes to 1).
+        var fontFamily = figmaData.fontFamily || 'Arial';
+        var fontStyle = figmaData.fontStyle || 'Regular';
+        
+        // Analyze styled segments to find dominant font
+        if (figmaData.styledSegments && figmaData.styledSegments.length > 1) {
+            // Calculate total character coverage per font
+            // Key: "FontFamily FontStyle", Value: {fontFamily, fontStyle, charCount}
+            var fontCoverage = {};
+            
+            for (var sci = 0; sci < figmaData.styledSegments.length; sci++) {
+                var seg = figmaData.styledSegments[sci];
+                var segFontFamily = seg.fontFamily || fontFamily;
+                var segFontStyle = seg.fontStyle || fontStyle;
+                var segFontFull = segFontFamily + ' ' + segFontStyle;
+                var segCharCount = (seg.end || 0) - (seg.start || 0);
+                
+                if (!fontCoverage[segFontFull]) {
+                    fontCoverage[segFontFull] = {
+                        fontFamily: segFontFamily,
+                        fontStyle: segFontStyle,
+                        charCount: 0
+                    };
+                }
+                fontCoverage[segFontFull].charCount += segCharCount;
+            }
+            
+            // Find the font with maximum character coverage
+            var dominantFont = null;
+            var maxCoverage = 0;
+            var coverageKeys = Object.keys(fontCoverage);
+            
+            for (var ci = 0; ci < coverageKeys.length; ci++) {
+                var coverageKey = coverageKeys[ci];
+                var coverage = fontCoverage[coverageKey];
+                if (coverage.charCount > maxCoverage) {
+                    maxCoverage = coverage.charCount;
+                    dominantFont = coverage;
+                }
+            }
+            
+            // Use the dominant font as the base font
+            if (dominantFont) {
+                fontFamily = dominantFont.fontFamily;
+                fontStyle = dominantFont.fontStyle;
+                console.log('[Styled Text] Dominant font: "' + fontFamily + ' ' + fontStyle + '" (' + maxCoverage + ' chars) - using as base to minimize Apply Typeface nodes');
+            }
+        }
+        
+        // Determine text box sizing mode from Figma's textAutoResize
+        // Figma textAutoResize values:
+        // - "WIDTH_AND_HEIGHT" = Auto width (both dimensions auto, single line behavior)
+        // - "HEIGHT" = Auto height (width fixed, height expands for multi-line)
+        // - "NONE" = Fixed size (both width and height are fixed)
+        // - "TRUNCATE" = Fixed with truncation (treated as fixed)
+        // NOTE: textAutoResize was already parsed above for X position calculation
+        var autoWidth = isAutoWidth;
+        var autoHeight = true;
+        
+        // Scale the text box dimensions
+        var textBoxWidth = (figmaData.width || 100) * scaleAvg;
+        var textBoxHeight = (figmaData.height || 100) * scaleAvg;
+        
+        if (textAutoResize === 'NONE' || textAutoResize === 'TRUNCATE') {
+            // Fixed size - both dimensions fixed
+            autoWidth = false;
+            autoHeight = false;
+        } else if (textAutoResize === 'HEIGHT') {
+            // Auto height - width is fixed, height auto-expands (for multi-line text)
+            autoWidth = false;
+            autoHeight = true;
+        } else {
+            // WIDTH_AND_HEIGHT (default) - both auto, single line behavior
+            autoWidth = true;
+            autoHeight = true;
+        }
+        
+        console.log('[Styled Text] textAutoResize: ' + textAutoResize + ' -> autoWidth: ' + autoWidth + ', autoHeight: ' + autoHeight);
+        
+        // Set text properties
+        var textSettings = {
+            "text": characters,
+            "position.x": cavalryX,
+            "position.y": cavalryY,
+            "fontSize": fontSize,
+            "font.font": fontFamily,
+            "font.style": fontStyle,
+            "horizontalAlignment": horizontalAlignment,
+            "verticalAlignment": verticalAlignment,
+            "autoWidth": autoWidth,
+            "autoHeight": autoHeight
+        };
+        
+        // Set text box width when using fixed width (for text wrapping)
+        // We don't set textBoxSize.y since we're using baseline alignment,
+        // which positions based on the first line's baseline regardless of box height
+        if (!autoWidth) {
+            textSettings["textBoxSize.x"] = textBoxWidth;
+        }
+        
+        // Apply line height - use SVG tspan Y positions as ground truth when available
+        // This is more accurate than Figma's percentage-based lineHeight
+        var lineSpacingOffset = 0;
+        var lineSpacingCalculated = false;
+        
+        // FIRST: Try to calculate actual line height from SVG tspans (ground truth)
+        // Check tspans within the first text child
+        if (firstTextChild && firstTextChild.tspans && firstTextChild.tspans.length > 1) {
+            var diffs = [];
+            // Maximum reasonable line height is ~3x font size (generous for large line heights)
+            // Anything larger is likely a paragraph break, not a line break
+            var maxReasonableLineHeight = fontSize * 3;
+            
+            for (var li = 1; li < firstTextChild.tspans.length; li++) {
+                var dy = firstTextChild.tspans[li].y - firstTextChild.tspans[li - 1].y;
+                // Only count actual line breaks that aren't paragraph breaks
+                if (isFinite(dy) && dy > 1 && dy <= maxReasonableLineHeight) {
+                    diffs.push(dy);
+                }
+            }
+            if (diffs.length > 0) {
+                // Use the minimum difference as line height (most reliable for text with paragraph breaks)
+                var minDiff = diffs[0];
+                for (var di = 1; di < diffs.length; di++) {
+                    if (diffs[di] < minDiff) minDiff = diffs[di];
+                }
+                var actualLineHeight = minDiff * scaleAvg;
+                
+                // Cavalry's default line height is fontSize * 1.29 (empirically measured)
+                var cavalryDefaultLH = fontSize * 1.29;
+                lineSpacingOffset = actualLineHeight - cavalryDefaultLH;
+                lineSpacingCalculated = true;
+                
+                // Log with Figma info for debugging
+                var figmaLhInfo = '';
+                if (figmaData.lineHeight) {
+                    if (figmaData.lineHeight.unit === 'PERCENT') figmaLhInfo = ' (Figma: ' + figmaData.lineHeight.value + '%)';
+                    else if (figmaData.lineHeight.unit === 'PIXELS') figmaLhInfo = ' (Figma: ' + figmaData.lineHeight.value + 'px)';
+                }
+                console.log('[Styled Text] lineHeight: SVG tspan=' + actualLineHeight.toFixed(2) + 'px' + figmaLhInfo + ', Cavalry default=' + cavalryDefaultLH.toFixed(2) + 'px -> lineSpacing: ' + lineSpacingOffset.toFixed(2));
+            }
+        }
+        
+        // SECOND: For right-aligned multi-line text, lines may be in separate <text> elements
+        // Check Y positions across multiple text children
+        if (!lineSpacingCalculated && textChildrenArray.length > 1) {
+            // Collect first tspan Y position from each text child
+            var yPositions = [];
+            for (var tci = 0; tci < textChildrenArray.length; tci++) {
+                var tc = textChildrenArray[tci];
+                if (tc.tspans && tc.tspans.length > 0) {
+                    yPositions.push(tc.tspans[0].y);
+                }
+            }
+            // Sort and calculate differences
+            yPositions.sort(function(a, b) { return a - b; });
+            if (yPositions.length > 1) {
+                var diffs = [];
+                // Maximum reasonable line height is ~3x font size
+                var maxReasonableLineHeight = fontSize * 3;
+                
+                for (var yi = 1; yi < yPositions.length; yi++) {
+                    var dy = yPositions[yi] - yPositions[yi - 1];
+                    // Only count line breaks, not paragraph breaks
+                    if (isFinite(dy) && dy > 1 && dy <= maxReasonableLineHeight) {
+                        diffs.push(dy);
+                    }
+                }
+                if (diffs.length > 0) {
+                    // Use the minimum difference as line height (most reliable)
+                    var minDiff = diffs[0];
+                    for (var di = 1; di < diffs.length; di++) {
+                        if (diffs[di] < minDiff) minDiff = diffs[di];
+                    }
+                    var actualLineHeight = minDiff * scaleAvg;
+                    
+                    var cavalryDefaultLH = fontSize * 1.29;
+                    lineSpacingOffset = actualLineHeight - cavalryDefaultLH;
+                    lineSpacingCalculated = true;
+                    
+                    var figmaLhInfo = '';
+                    if (figmaData.lineHeight) {
+                        if (figmaData.lineHeight.unit === 'PERCENT') figmaLhInfo = ' (Figma: ' + figmaData.lineHeight.value + '%)';
+                        else if (figmaData.lineHeight.unit === 'PIXELS') figmaLhInfo = ' (Figma: ' + figmaData.lineHeight.value + 'px)';
+                    }
+                    console.log('[Styled Text] lineHeight: SVG text Y=' + actualLineHeight.toFixed(2) + 'px' + figmaLhInfo + ' (from ' + yPositions.length + ' text elements), Cavalry default=' + cavalryDefaultLH.toFixed(2) + 'px -> lineSpacing: ' + lineSpacingOffset.toFixed(2));
+                }
+            }
+        }
+        
+        // FALLBACK: Use Figma's lineHeight if SVG analysis wasn't possible
+        if (!lineSpacingCalculated && figmaData.lineHeight) {
+            if (figmaData.lineHeight.unit === 'PIXELS' && figmaData.lineHeight.value) {
+                var lineHeightPx = figmaData.lineHeight.value * scaleAvg;
+                var defaultLineHeight = fontSize * 1.29;
+                lineSpacingOffset = lineHeightPx - defaultLineHeight;
+                console.log('[Styled Text] lineHeight: ' + figmaData.lineHeight.value + 'px -> lineSpacing: ' + lineSpacingOffset.toFixed(2));
+            } else if (figmaData.lineHeight.unit === 'PERCENT' && figmaData.lineHeight.value) {
+                var lineHeightPx = fontSize * (figmaData.lineHeight.value / 100);
+                var defaultLineHeight = fontSize * 1.29;
+                lineSpacingOffset = lineHeightPx - defaultLineHeight;
+                console.log('[Styled Text] lineHeight: ' + figmaData.lineHeight.value + '% (fallback) -> lineSpacing: ' + lineSpacingOffset.toFixed(2));
+            } else {
+                console.log('[Styled Text] lineHeight: AUTO (using default)');
+            }
+        }
+        
+        // Apply line spacing if calculated and text is multi-line
+        if (lineSpacingOffset !== 0) {
+            textSettings["lineSpacing"] = lineSpacingOffset;
+        }
+        
+        // Apply letter spacing if available
+        // Figma letterSpacing can be: { value: X, unit: 'PIXELS'|'PERCENT' }
+        if (figmaData.letterSpacing) {
+            if (figmaData.letterSpacing.unit === 'PIXELS' && figmaData.letterSpacing.value !== undefined) {
+                textSettings["letterSpacing"] = figmaData.letterSpacing.value * scaleAvg;
+                console.log('[Styled Text] letterSpacing: ' + figmaData.letterSpacing.value + 'px -> ' + textSettings["letterSpacing"].toFixed(2));
+            } else if (figmaData.letterSpacing.unit === 'PERCENT' && figmaData.letterSpacing.value !== undefined) {
+                // Percent is relative to font size (e.g., 10% of 16px = 1.6px)
+                textSettings["letterSpacing"] = (fontSize * figmaData.letterSpacing.value / 100) * scaleAvg;
+                console.log('[Styled Text] letterSpacing: ' + figmaData.letterSpacing.value + '% -> ' + textSettings["letterSpacing"].toFixed(2));
+            }
+        }
+        
+        console.log('[Styled Text] Setting textSettings:');
+        console.log('  Figma box: topLeft=(' + figmaX.toFixed(1) + ', ' + figmaY.toFixed(1) + ') size=' + figmaWidth.toFixed(1) + 'x' + figmaHeight.toFixed(1));
+        console.log('  Figma anchor: leftEdge X=' + figmaAnchorX.toFixed(1) + ', baseline Y=' + figmaBaselineY.toFixed(1) + ' (' + baselineSource + ')');
+        console.log('  Cavalry position: (' + cavalryX.toFixed(1) + ', ' + cavalryY.toFixed(1) + ')');
+        console.log('  fontSize: ' + fontSize);
+        console.log('  font: ' + fontFamily + ' / ' + fontStyle);
+        console.log('  alignment: h=' + horizontalAlignment + ' (text flow within box), v=3 (Baseline)');
+        console.log('  sizing: autoWidth=' + autoWidth + ', autoHeight=' + autoHeight);
+        if (!autoWidth) {
+            console.log('  textBoxSize.x: ' + textBoxWidth.toFixed(1));
+        }
+        
+        api.set(id, textSettings);
+        
+        // Apply styled segments using Apply Typeface nodes
+        // Cavalry API: https://docs.cavalry.scenegroup.co/nodes/utilities/apply-typeface/
+        // OPTIMIZATION: Group segments by font to reduce node count
+        // Instead of creating one node per segment, we combine indices for segments with the same font
+        // e.g., segments 0:40 and 773:821 with same font become one node with indices "0:40, 773:821"
+        if (figmaData.styledSegments && figmaData.styledSegments.length > 1) {
+            console.log('[Styled Text] Processing ' + figmaData.styledSegments.length + ' styled segment(s)');
+            
+            // Build base font string for comparison
+            var baseFontFull = fontFamily + ' ' + fontStyle;
+            
+            // Group segments by font (fontFamily + fontStyle)
+            // Key: "FontFamily FontStyle", Value: {fontFamily, fontStyle, ranges: ["0:40", "773:821"]}
+            var fontGroups = {};
+            
+            for (var si = 0; si < figmaData.styledSegments.length; si++) {
+                var seg = figmaData.styledSegments[si];
+                
+                // Build font name for this segment
+                var segFontFamily = seg.fontFamily || fontFamily;
+                var segFontStyle = seg.fontStyle || fontStyle;
+                var segFontFull = segFontFamily + ' ' + segFontStyle;
+                
+                // Skip segments that match the base font (no styling needed)
+                if (segFontFull === baseFontFull) {
+                    console.log('[Styled Text]   Segment ' + si + ': "' + segFontFull + '" matches base font, skipping');
+                    continue;
+                }
+                
+                // IMPORTANT: Adjust indices for emoji replacements!
+                // Figma's indices are for the ORIGINAL text, but we need indices for the MODIFIED text
+                // where multi-codepoint emojis have been replaced with single em-dash characters.
+                var adjustedStart = adjustIndexForEmojiReplacements(seg.start, emojiMatches);
+                var adjustedEnd = adjustIndexForEmojiReplacements(seg.end, emojiMatches);
+                
+                // Build index range string: "start:end" (Cavalry uses inclusive end, Figma's end is exclusive)
+                var rangeStr = adjustedStart + ':' + (adjustedEnd - 1);
+                
+                if (emojiMatches.length > 0) {
+                    console.log('[Styled Text]   Segment ' + si + ' index adjustment: ' + seg.start + ':' + (seg.end - 1) + ' -> ' + rangeStr);
+                }
+                
+                // Add to font group
+                if (!fontGroups[segFontFull]) {
+                    fontGroups[segFontFull] = {
+                        fontFamily: segFontFamily,
+                        fontStyle: segFontStyle,
+                        ranges: []
+                    };
+                }
+                fontGroups[segFontFull].ranges.push(rangeStr);
+                console.log('[Styled Text]   Segment ' + si + ': "' + segFontFull + '" range ' + rangeStr);
+            }
+            
+            // Create one Apply Typeface node per unique font
+            var fontKeys = Object.keys(fontGroups);
+            console.log('[Styled Text] Consolidated into ' + fontKeys.length + ' unique font style(s)');
+            
+            for (var fi = 0; fi < fontKeys.length; fi++) {
+                var fontKey = fontKeys[fi];
+                var group = fontGroups[fontKey];
+                
+                try {
+                    // Create Apply Typeface node with a descriptive name
+                    var styleName = group.fontStyle || 'Style';
+                    var applyTypefaceId = api.create('applyTypeface', styleName);
+                    console.log('[Styled Text]   Created applyTypeface: ' + applyTypefaceId + ' for "' + fontKey + '"');
+                    
+                    // Combine all ranges with comma separator
+                    // Cavalry API supports: "0:40, 773:821" for multiple ranges
+                    var indicesStr = group.ranges.join(', ');
+                    
+                    // Set the font for this segment
+                    // mode: 0 = Regex, 1 = Specific Indices, 2 = All
+                    // indexMode: 0 = Line, 1 = Word, 2 = Character
+                    // indices: string like "0:40, 773:821" (comma-separated ranges)
+                    api.set(applyTypefaceId, {
+                        "mode": 1,  // Specific Indices
+                        "indexMode": 2,  // Character level
+                        "indices": indicesStr
+                    });
+                    console.log('[Styled Text]   Set indices: "' + indicesStr + '"');
+                    
+                    // Set font separately (font.font and font.style)
+                    api.set(applyTypefaceId, {
+                        "font.font": group.fontFamily,
+                        "font.style": group.fontStyle
+                    });
+                    console.log('[Styled Text]   Set font: ' + group.fontFamily + ' ' + group.fontStyle);
+                    
+                    // Connect Apply Typeface to the text shape's styleBehaviours
+                    api.connect(applyTypefaceId, 'id', id, 'styleBehaviours');
+                    
+                    // Parent Apply Typeface under the text shape for clean hierarchy
+                    api.parent(applyTypefaceId, id);
+                    
+                    console.log('[Styled Text]   ✓ ' + fontKey + ': indices="' + indicesStr + '" (' + group.ranges.length + ' range(s))');
+                } catch (eApply) {
+                    console.log('[Styled Text]   Failed to apply typeface for "' + fontKey + '": ' + String(eApply));
+                }
+            }
+        }
+        
+        // Apply fill colors as color shaders
+        // When there are multiple fills, ALL should be colorShaders (stacking mode)
+        // This matches how other shapes handle multi-fill (see quiver_svgParser.js)
+        // SVG rendering order: first element is at BOTTOM, later elements are on TOP
+        fills = fills || [];
+        if (fills.length > 0) {
+            console.log('[Styled Text] Applying ' + fills.length + ' fill(s) from SVG');
+            
+            // Extract _scaleY from svgTextChildren for gradient flip detection
+            // Text nodes can have matrix transforms with Y-flips that affect gradient direction
+            var textScaleY = 1;
+            try {
+                var svgTextArr = svgTextChildren || [];
+                if (!Array.isArray(svgTextArr)) svgTextArr = [svgTextArr];
+                for (var sci = 0; sci < svgTextArr.length; sci++) {
+                    if (svgTextArr[sci] && svgTextArr[sci].attrs && svgTextArr[sci].attrs._scaleY !== undefined) {
+                        textScaleY = svgTextArr[sci].attrs._scaleY;
+                        break; // Use the first one found
+                    }
+                }
+            } catch (eScaleY) {}
+            
+            // If multiple fills, use stacking mode (all colorShaders)
+            // If single fill, set on material directly
+            var useStackingMode = fills.length > 1;
+            
+            for (var fi = 0; fi < fills.length; fi++) {
+                try {
+                    var fillInfo = fills[fi];
+                    var fillColor = fillInfo.color || '#000000';
+                    var fillOpacity = fillInfo.opacity !== undefined ? fillInfo.opacity : 1;
+                    
+                    // Check if this fill is a gradient URL (e.g., url(#paint7_linear_...))
+                    var gradientId = null;
+                    if (fillColor && fillColor.indexOf('url(#') !== -1) {
+                        // Extract gradient ID from url(#xxx) format
+                        var urlMatch = fillColor.match(/url\(#([^)]+)\)/);
+                        if (urlMatch && urlMatch[1]) {
+                            gradientId = urlMatch[1];
+                        }
+                    }
+                    
+                    if (gradientId) {
+                        // This is a gradient fill - use the gradient system
+                        // getGradientShader and connectShaderToShape are from quiver_utilities_gradient.js
+                        try {
+                            var gradShader = getGradientShader(gradientId);
+                            if (gradShader) {
+                                // For text, we need to pass fill opacity to shader and scaleY for flip detection
+                                var connectedOk = connectShaderToShape(gradShader, id, null, fillOpacity, textScaleY);
+                                if (connectedOk) {
+                                    console.log('[Styled Text]   Fill ' + fi + ': ' + fillColor + ' (gradient shader connected, scaleY=' + textScaleY + ')');
+                                } else {
+                                    console.log('[Styled Text]   Fill ' + fi + ': ' + fillColor + ' (gradient shader failed to connect)');
+                                }
+                            } else {
+                                console.log('[Styled Text]   Fill ' + fi + ': ' + fillColor + ' (gradient not found: ' + gradientId + ')');
+                            }
+                        } catch (eGrad) {
+                            console.log('[Styled Text]   Failed to connect gradient ' + gradientId + ': ' + String(eGrad));
+                        }
+                    } else {
+                        // Parse hex color to RGB components
+                        var hexClean = fillColor.replace('#', '');
+                        var rVal = parseInt(hexClean.substring(0, 2), 16) || 0;
+                        var gVal = parseInt(hexClean.substring(2, 4), 16) || 0;
+                        var bVal = parseInt(hexClean.substring(4, 6), 16) || 0;
+                        var aVal = Math.round(fillOpacity * 255);
+                        
+                        if (useStackingMode) {
+                            // Multiple fills: ALL become colorShaders for proper stacking
+                            // Use clean names with color hex for easy identification
+                            var shaderName = 'Fill ' + (fi + 1) + ' ' + fillColor.toUpperCase();
+                            var shaderId = api.create('colorShader', shaderName);
+                            
+                            // Set shaderColor with RGBA (correct Cavalry API)
+                            api.set(shaderId, {
+                                'shaderColor.r': rVal,
+                                'shaderColor.g': gVal,
+                                'shaderColor.b': bVal,
+                                'shaderColor.a': aVal
+                            });
+                            
+                            // Set alpha percentage
+                            api.set(shaderId, {'alpha': Math.round(fillOpacity * 100)});
+                            
+                            // Connect to colorShaders
+                            api.connect(shaderId, 'id', id, 'material.colorShaders');
+                            
+                            // Parent under the text shape
+                            api.parent(shaderId, id);
+                            
+                            console.log('[Styled Text]   Fill ' + fi + ': ' + fillColor + ' (colorShader - stacking mode)');
+                        } else {
+                            // Single fill: set on material directly
+                            api.set(id, {"material.materialColor": fillColor});
+                            if (fillOpacity < 1) {
+                                api.set(id, {"material.alpha": fillOpacity * 100});
+                            }
+                            console.log('[Styled Text]   Fill ' + fi + ': ' + fillColor + ' (material)');
+                        }
+                    }
+                } catch (eFillShader) {
+                    console.log('[Styled Text]   Failed to apply fill ' + fi + ': ' + String(eFillShader));
+                }
+            }
+        } else {
+            // Fallback: use first segment's color or default black
+            try {
+                var fillColor = '#000000';
+                if (figmaData.styledSegments && figmaData.styledSegments[0] && figmaData.styledSegments[0].fillColor) {
+                    var fc = figmaData.styledSegments[0].fillColor;
+                    fillColor = '#' + 
+                        fc.r.toString(16).padStart(2, '0') + 
+                        fc.g.toString(16).padStart(2, '0') + 
+                        fc.b.toString(16).padStart(2, '0');
+                }
+                api.set(id, {"material.materialColor": fillColor});
+            } catch (eFill) {}
+        }
+        
+        // Register the created text shape for emoji positioning via Get Sub-Mesh Transform
+        // This allows processEmojiData to find the text shape and connect emojis
+        if (typeof registerCreatedTextShape === 'function') {
+            registerCreatedTextShape(figmaData.name || name, id);
+        }
+        
+        return id;
+        
+    } catch (e) {
+        console.log('[Styled Text] Error creating text from Figma data: ' + e.message);
         return null;
     }
 }

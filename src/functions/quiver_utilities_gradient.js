@@ -31,16 +31,27 @@ function _gradGetAttr(element, name) {
 }
 
 function colorWithOpacity(hexColor, opacity) {
-    if (!hexColor || hexColor[0] !== '#') return hexColor;
-    var h = hexColor.replace('#', '');
+    // Default to black if no color provided
+    var baseColor = hexColor;
+    if (!baseColor || baseColor[0] !== '#') {
+        baseColor = '#000000';
+    }
+    
+    var h = baseColor.replace('#', '');
     if (h.length === 3) {
         h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];
     } else if (h.length === 8) {
+        // Already has alpha, extract just RGB
         h = h.slice(2);
         if (h.length !== 6) h = h.slice(0, 6);
     }
-    if (h.length !== 6) return hexColor;
-    var a = Math.max(0, Math.min(1, opacity));
+    if (h.length !== 6) {
+        h = '000000'; // Fallback to black
+    }
+    
+    // Default opacity to 1 if undefined/null/NaN
+    var opVal = (typeof opacity === 'number' && !isNaN(opacity)) ? opacity : 1;
+    var a = Math.max(0, Math.min(1, opVal));
     var aByte = Math.round(a * 255);
     var aHex = aByte.toString(16).padStart(2, '0').toUpperCase();
     return '#' + aHex + h.toUpperCase();
@@ -52,15 +63,18 @@ function parseGradientStops(gradientElement) {
     var match;
     while ((match = stopRegex.exec(gradientElement)) !== null) {
         var stopElement = match[0];
+        console.log('[GRADIENT STOP RAW] Element: ' + stopElement);
         var offset = _gradGetAttr(stopElement, "offset");
         
         // Try to get stop-color from direct attribute first
         var stopColor = _gradGetAttr(stopElement, "stop-color");
         var stopOpacity = _gradGetAttr(stopElement, "stop-opacity");
+        console.log('[GRADIENT STOP RAW] Direct attrs: stop-color=' + stopColor + ', stop-opacity=' + stopOpacity);
         
         // If not found as direct attribute, try extracting from style (Affinity SVG format)
         if (!stopColor || !stopOpacity) {
             var styleAttr = _gradGetAttr(stopElement, "style");
+            console.log('[GRADIENT STOP RAW] Style attr: ' + styleAttr);
             if (styleAttr) {
                 if (!stopColor) {
                     stopColor = extractStyleProperty(styleAttr, 'stop-color');
@@ -68,6 +82,7 @@ function parseGradientStops(gradientElement) {
                 if (!stopOpacity) {
                     stopOpacity = extractStyleProperty(styleAttr, 'stop-opacity');
                 }
+                console.log('[GRADIENT STOP RAW] From style: stop-color=' + stopColor + ', stop-opacity=' + stopOpacity);
             }
         }
         
@@ -78,6 +93,7 @@ function parseGradientStops(gradientElement) {
         }
         var opacity = stopOpacity ? parseFloat(stopOpacity) : 1.0;
         if (isNaN(opacity)) opacity = 1.0;
+        console.log('[GRADIENT PARSE] Stop: offset=' + offsetNum + ', color=' + stopColor + ', stop-opacity=' + stopOpacity + ' -> opacity=' + opacity);
         stops.push({
             offset: Math.max(0, Math.min(1, offsetNum)),
             color: parseColor(stopColor),
@@ -106,6 +122,15 @@ function extractGradients(svgCode) {
         if (stops.length > 0) {
             var grad = { type:'linear', id: id || ('linear_' + gradients.length), x1:x1, y1:y1, x2:x2, y2:y2, stops:stops, gradientUnits:gradientUnits };
             if (transform) grad.transform = transform;
+            
+            // Store the gradient center for offset calculations (like radial)
+            if (gradientUnits === 'userSpaceOnUse') {
+                grad._absoluteCenterX = (x1 + x2) / 2;
+                grad._absoluteCenterY = (y1 + y2) / 2;
+                grad._isAbsoluteCoords = true;
+                console.log('[LINEAR GRADIENT] Parsed userSpaceOnUse: center=(' + grad._absoluteCenterX.toFixed(2) + ', ' + grad._absoluteCenterY.toFixed(2) + ')');
+            }
+            
             gradients.push(grad);
         }
     }
@@ -143,7 +168,15 @@ function createGradientShader(gradientData) {
             return null;
         }
 
-        var shaderId = api.create('gradientShader', 'Gradient ' + gradientData.id);
+        // Create descriptive name: "Linear #FFF → #000" or "Radial #FFF → #000"
+        var gradTypeName = gradientData.type === 'radial' ? 'Radial' : 'Linear';
+        var firstStop = gradientData.stops && gradientData.stops[0];
+        var lastStop = gradientData.stops && gradientData.stops[gradientData.stops.length - 1];
+        var firstColor = (firstStop && firstStop.color) ? firstStop.color.toUpperCase() : '';
+        var lastColor = (lastStop && lastStop.color) ? lastStop.color.toUpperCase() : '';
+        var gradientName = gradTypeName + ' ' + firstColor + ' → ' + lastColor;
+        
+        var shaderId = api.create('gradientShader', gradientName);
 
         // Set gradient type using setGenerator
         if (gradientData.type === 'radial') {
@@ -164,15 +197,72 @@ function createGradientShader(gradientData) {
         
         // Handle gradient-specific properties
         if (gradientData.type === 'radial') {
-            // Set radius mode based on gradientUnits
+            // Set radius mode to Bounding Box (1) for all radial gradients
+            // This better matches Figma's behavior where gradients scale to fit the shape
+            // radiusMode: 0 = Fixed, 1 = Bounding Box
             try {
-                var radiusMode = 1; // Default to Bounding Box
-                if (gradientData.gradientUnits === 'userSpaceOnUse') {
-                    radiusMode = 0; // Fixed for absolute coordinates
-                }
-                api.set(shaderId, {"generator.radiusMode": radiusMode});
+                api.set(shaderId, {"generator.radiusMode": 1}); // Bounding Box
+                console.log('[RADIAL GRADIENT] Set radiusMode to Bounding Box (1)');
             } catch (eRM) {
-                // Error setting radiusMode
+                console.warn('[RADIAL GRADIENT] Could not set radiusMode: ' + eRM.message);
+            }
+            
+            // Calculate SVD singular values from the gradient transform
+            // These represent the actual ellipse semi-axes in pixels
+            // We use scale.x and scale.y to control the ellipse dimensions directly,
+            // so radiusRatio is set to 1 (no additional stretching needed)
+            if (gradientData.transform) {
+                try {
+                    var matrix = parseTransformMatrixList(gradientData.transform);
+                    var a = matrix.a, b = matrix.b, c = matrix.c, d = matrix.d;
+                    
+                    // Calculate singular values of the 2x2 transformation matrix
+                    // For M = [[a, c], [b, d]], singular values are sqrt of eigenvalues of M^T * M
+                    var norm1Sq = a * a + b * b;
+                    var norm2Sq = c * c + d * d;
+                    var dotProd = a * c + b * d;
+                    
+                    var sum = norm1Sq + norm2Sq;
+                    var diff = norm1Sq - norm2Sq;
+                    var discriminant = Math.sqrt(diff * diff + 4 * dotProd * dotProd);
+                    
+                    var sigma1Sq = (sum + discriminant) / 2;
+                    var sigma2Sq = (sum - discriminant) / 2;
+                    
+                    var sigma1 = Math.sqrt(Math.max(0, sigma1Sq));
+                    var sigma2 = Math.sqrt(Math.max(0, sigma2Sq));
+                    
+                    // For userSpaceOnUse gradients, we use scale.x/y to control the ellipse directly
+                    // So radiusRatio should be 1 (the elliptical shape comes from different scale values)
+                    // For objectBoundingBox, we may still need radiusRatio
+                    var isAbsoluteCoords = (Math.abs(a) > 2 || Math.abs(b) > 2 || Math.abs(c) > 2 || Math.abs(d) > 2);
+                    
+                    if (isAbsoluteCoords && gradientData.gradientUnits === 'userSpaceOnUse') {
+                        // Set radiusRatio to 1 - ellipse shape will come from scale.x/y
+                        api.set(shaderId, {"generator.radiusRatio": 1});
+                        console.log('[RADIAL GRADIENT] Set radiusRatio: 1 (using scale.x/y for ellipse shape)');
+                        console.log('[RADIAL GRADIENT] SVD axes: sigma1=' + sigma1.toFixed(2) + ', sigma2=' + sigma2.toFixed(2));
+                    } else {
+                        // For objectBoundingBox or small matrices, use radiusRatio for aspect
+                        var radiusRatio = 1;
+                        if (sigma2 > 0.0001) {
+                            radiusRatio = sigma1 / sigma2;
+                        }
+                        radiusRatio = Math.max(0.01, Math.min(100, radiusRatio));
+                        api.set(shaderId, {"generator.radiusRatio": radiusRatio});
+                        console.log('[RADIAL GRADIENT] Set radiusRatio: ' + radiusRatio.toFixed(4) + ' (objectBoundingBox mode)');
+                    }
+                    
+                    // Store SVD values for scale calculation when connecting to shape
+                    if (__svgGradientMap && __svgGradientMap[gradientData.id]) {
+                        __svgGradientMap[gradientData.id]._svdSigma1 = sigma1;
+                        __svgGradientMap[gradientData.id]._svdSigma2 = sigma2;
+                        __svgGradientMap[gradientData.id]._isAbsoluteCoords = isAbsoluteCoords;
+                        console.log('[RADIAL GRADIENT] Stored SVD values for scale: sigma1=' + sigma1.toFixed(2) + ', sigma2=' + sigma2.toFixed(2));
+                    }
+                } catch (eRR) {
+                    console.warn('[RADIAL GRADIENT] Could not process transform: ' + eRR.message);
+                }
             }
             
             // Calculate radius first (needed for offset calculation)
@@ -488,11 +578,13 @@ function createGradientShader(gradientData) {
             
             try {
                 // Set color with opacity
+                var colorWithAlpha = colorWithOpacity(stop.color, stop.opacity);
+                console.log('[GRADIENT STOP] Stop ' + i + ': color=' + stop.color + ', opacity=' + stop.opacity + ' -> ' + colorWithAlpha);
                 var colAttr = {}; 
-                colAttr['generator.gradient.' + i + '.color'] = colorWithOpacity(stop.color, stop.opacity); 
+                colAttr['generator.gradient.' + i + '.color'] = colorWithAlpha; 
                 api.set(shaderId, colAttr);
             } catch (eCol) {
-                
+                console.log('[GRADIENT STOP] Error setting stop ' + i + ': ' + eCol.message);
             }
         }
         
@@ -501,4 +593,485 @@ function createGradientShader(gradientData) {
         
         return null;
     }
+}
+
+/**
+ * Create a Sweep (Angular) gradient shader from Figma's GRADIENT_ANGULAR data.
+ * Figma exports angular gradients with a data-figma-gradient-fill attribute since
+ * SVG doesn't natively support conic/angular gradients.
+ * 
+ * Cavalry API:
+ * - api.create('gradientShader', name) - Create gradient layer
+ * - api.setGenerator(id, 'generator', 'sweepGradientShader') - Set to sweep mode
+ * - api.setGradientFromColors(id, attr, colors) - Set gradient colors
+ * - api.set(id, props) - Set properties like rotation, stops
+ * - api.connect(srcId, srcAttr, dstId, dstAttr) - Connect shader to shape
+ * 
+ * @param {Object} figmaGradData - Parsed Figma gradient data from data-figma-gradient-fill
+ * @param {string} layerId - The Cavalry layer ID to apply the gradient to
+ * @param {Object} attrs - The shape's SVG attributes (for calculating center, etc.)
+ * @returns {string|null} The created shader ID, or null on failure
+ */
+function createSweepGradientFromFigma(figmaGradData, layerId, attrs) {
+    try {
+        // Skip gradient creation if disabled in settings
+        if (typeof importGradientsEnabled !== 'undefined' && !importGradientsEnabled) {
+            console.log('[SWEEP GRADIENT] Gradients disabled in settings, skipping');
+            return null;
+        }
+        
+        // Extract gradient stops from Figma data
+        var stops = figmaGradData.stops || figmaGradData.stopsVar || [];
+        if (stops.length === 0) {
+            console.warn('[SWEEP GRADIENT] No stops found in Figma gradient data');
+            return null;
+        }
+        
+        console.log('[SWEEP GRADIENT] Creating sweep gradient with ' + stops.length + ' stops');
+        
+        // Create descriptive name from first and last colors
+        var firstStop = stops[0];
+        var lastStop = stops[stops.length - 1];
+        var firstColor = figmaRgbaToHex(firstStop.color);
+        var lastColor = figmaRgbaToHex(lastStop.color);
+        var gradientName = 'Sweep ' + firstColor + ' → ' + lastColor;
+        
+        // Create the gradient shader
+        var shaderId = api.create('gradientShader', gradientName);
+        console.log('[SWEEP GRADIENT] Created shader: ' + shaderId);
+        
+        // Set gradient type to sweep (angular) gradient
+        try {
+            api.setGenerator(shaderId, 'generator', 'sweepGradientShader');
+            console.log('[SWEEP GRADIENT] Set generator to sweepGradientShader');
+        } catch (eGen) {
+            console.warn('[SWEEP GRADIENT] Could not set sweepGradientShader: ' + eGen.message);
+            // If sweepGradientShader isn't available, the gradient may default to linear
+        }
+        
+        // Enable Wrap UVs - this makes the gradient wrap smoothly from the last stop
+        // back to the first stop, matching Figma's angular gradient behavior
+        // Cavalry API: generator.wrapUVs (boolean)
+        try {
+            api.set(shaderId, {"generator.wrapUVs": true});
+            console.log('[SWEEP GRADIENT] Enabled wrapUVs for seamless gradient wrapping');
+        } catch (eWrap) {
+            console.warn('[SWEEP GRADIENT] Could not set wrapUVs: ' + eWrap.message);
+        }
+        
+        // Extract gradient stops and invert positions for Cavalry
+        // Figma angular gradients go CLOCKWISE, Cavalry sweep gradients go COUNTER-CLOCKWISE
+        // To fix this, we invert stop positions: new_position = 1.0 - original_position
+        // This reverses the direction so colors appear at the correct angles
+        
+        // Build array with inverted positions
+        var invertedStops = [];
+        for (var i = 0; i < stops.length; i++) {
+            var stop = stops[i];
+            // Invert position: 0 stays at 0, others get mirrored
+            // Position 0 becomes 0, 0.341 becomes 0.659, 0.654 becomes 0.346, etc.
+            var invertedPos = (stop.position === 0) ? 0 : (1.0 - stop.position);
+            invertedStops.push({
+                position: invertedPos,
+                color: stop.color
+            });
+        }
+        
+        // Sort by position (ascending) so gradient stops are in correct order
+        invertedStops.sort(function(a, b) { return a.position - b.position; });
+        
+        // Add closing stop at position 1.0 (same color as position 0) for seamless wrap
+        // Find the color at position 0
+        var startColor = invertedStops[0].color;
+        invertedStops.push({
+            position: 1.0,
+            color: startColor
+        });
+        
+        console.log('[SWEEP GRADIENT] Inverted stop positions for counter-clockwise Cavalry gradient');
+        
+        // Build colors array for setGradientFromColors
+        var colors = [];
+        for (var ic = 0; ic < invertedStops.length; ic++) {
+            colors.push(figmaRgbaToHex(invertedStops[ic].color));
+        }
+        
+        // Ensure at least two stops for Cavalry gradient
+        if (colors.length === 1) colors.push(colors[0]);
+        
+        // Set gradient colors
+        api.setGradientFromColors(shaderId, 'generator.gradient', colors);
+        
+        // Set individual stop positions and colors with opacity
+        for (var si = 0; si < invertedStops.length; si++) {
+            var stopData = invertedStops[si];
+            var isClosing = (si === invertedStops.length - 1);
+            
+            try {
+                // Set position
+                var posAttr = {};
+                posAttr['generator.gradient.' + si + '.position'] = stopData.position;
+                api.set(shaderId, posAttr);
+            } catch (ePos) {
+                console.log('[SWEEP GRADIENT] Error setting stop ' + si + ' position: ' + ePos.message);
+            }
+            
+            try {
+                // Set color with opacity
+                var colorWithAlphaValue = figmaRgbaToHexWithAlpha(stopData.color);
+                var logSuffix = isClosing ? ' (closing loop)' : '';
+                console.log('[SWEEP GRADIENT] Stop ' + si + ': position=' + stopData.position.toFixed(3) + ', color=' + colorWithAlphaValue + logSuffix);
+                var colAttr = {};
+                colAttr['generator.gradient.' + si + '.color'] = colorWithAlphaValue;
+                api.set(shaderId, colAttr);
+            } catch (eCol) {
+                console.log('[SWEEP GRADIENT] Error setting stop ' + si + ' color: ' + eCol.message);
+            }
+        }
+        
+        // Calculate rotation from Figma's transform matrix
+        // Figma transform: {m00, m01, m02, m10, m11, m12}
+        // m00, m01, m10, m11 form the 2x2 rotation/scale matrix
+        // m02, m12 are translation (center offset)
+        // 
+        // Key coordinate system differences:
+        // - Figma angular gradient: starts at TOP (12 o'clock), goes clockwise
+        //   (follows CSS conic-gradient convention: "from 0deg" = top)
+        // - Cavalry sweep gradient: starts at RIGHT (3 o'clock), goes counter-clockwise
+        //   (Cavalry API: generator.rotation rotates the start point CCW)
+        // 
+        // IMPORTANT: The gradient transform from Figma often includes the SHAPE's rotation.
+        // When you rotate a shape in Figma, the gradient stays aligned with it, so the
+        // gradient transform captures that combined rotation. Since the shape's rotation
+        // is already applied to the Cavalry shape separately, we need to subtract it
+        // from the gradient rotation to avoid double-rotation.
+        // 
+        // Stop position inversion (done above) handles the direction change (CW → CCW).
+        // Rotation must account for the starting point difference (-90°).
+        if (figmaGradData.transform) {
+            try {
+                var t = figmaGradData.transform;
+                // Calculate rotation angle from the gradient transform matrix
+                // atan2(m10, m00) extracts the rotation component
+                var rotationRad = Math.atan2(t.m10, t.m00);
+                var gradientRotationDeg = rotationRad * (180 / Math.PI);
+                
+                // Extract the shape's rotation from its SVG transform attribute
+                // The shape's rotation is applied to the Cavalry shape separately,
+                // so we need to subtract it to get the gradient-only rotation
+                // 
+                // Note: For rects with complex transforms, the transform may have been
+                // pre-processed and deleted, with the rotation stored in _rotationDeg
+                var shapeRotationDeg = 0;
+                if (attrs) {
+                    if (attrs._rotationDeg !== undefined) {
+                        // Use pre-computed rotation from rect transform processing
+                        shapeRotationDeg = attrs._rotationDeg;
+                    } else if (attrs.transform) {
+                        // Parse rotation from transform attribute
+                        shapeRotationDeg = getRotationDegFromTransform(attrs.transform);
+                    }
+                }
+                
+                // Calculate the gradient-relative rotation (gradient rotation minus shape rotation)
+                var relativeGradientRotation = gradientRotationDeg - shapeRotationDeg;
+                
+                console.log('[SWEEP GRADIENT] Gradient transform rotation: ' + gradientRotationDeg.toFixed(1) + '°');
+                console.log('[SWEEP GRADIENT] Shape rotation: ' + shapeRotationDeg.toFixed(1) + '°');
+                console.log('[SWEEP GRADIENT] Relative gradient rotation: ' + relativeGradientRotation.toFixed(1) + '°');
+                
+                // Convert from Figma (TOP start, CW) to Cavalry (RIGHT start, CCW):
+                // The negation accounts for direction flip, -90 shifts from TOP to RIGHT
+                // Example: Figma 0° → -0 - 90 = -90° = 270° (TOP position in Cavalry)
+                var cavalryRotation = -relativeGradientRotation - 90;
+                
+                // Normalize to 0-360 range
+                cavalryRotation = ((cavalryRotation % 360) + 360) % 360;
+                
+                console.log('[SWEEP GRADIENT] Final Cavalry rotation: ' + cavalryRotation.toFixed(1) + '°');
+                
+                api.set(shaderId, {"generator.rotation": cavalryRotation});
+            } catch (eRot) {
+                console.warn('[SWEEP GRADIENT] Error applying rotation: ' + eRot.message);
+            }
+        }
+        
+        // Apply opacity if specified
+        if (figmaGradData.opacity !== undefined && figmaGradData.opacity < 1) {
+            var alphaPercent = Math.round(figmaGradData.opacity * 100);
+            try {
+                api.set(shaderId, {'alpha': alphaPercent});
+                console.log('[SWEEP GRADIENT] Set shader alpha to ' + alphaPercent + '%');
+            } catch (eAlpha) {}
+        }
+        
+        // Connect the shader to the shape
+        try {
+            api.setFill(layerId, true);
+            api.set(layerId, {"material.materialColor.a": 0}); // Hide base color
+            api.set(layerId, {"material.alpha": 100});
+            api.connect(shaderId, 'id', layerId, 'material.colorShaders');
+            
+            // Parent the shader under the shape
+            try { api.parent(shaderId, layerId); } catch (ePar) {}
+            
+            console.log('[SWEEP GRADIENT] Connected shader to layer ' + layerId);
+        } catch (eConnect) {
+            console.error('[SWEEP GRADIENT] Failed to connect shader: ' + eConnect.message);
+        }
+        
+        return shaderId;
+        
+    } catch (e) {
+        console.error('[SWEEP GRADIENT] Error creating sweep gradient: ' + e.message);
+        return null;
+    }
+}
+
+/**
+ * Create a Diamond gradient shader from Figma's GRADIENT_DIAMOND data.
+ * Figma exports diamond gradients with a data-figma-gradient-fill attribute since
+ * SVG doesn't natively support diamond gradients.
+ * 
+ * Diamond gradients in Figma radiate from the center outward in a diamond shape.
+ * In Cavalry, we approximate this using a Shape Gradient with shapeSides=4.
+ * 
+ * Cavalry API:
+ * - api.create('gradientShader', name) - Create gradient layer
+ * - api.setGenerator(id, 'generator', 'shapeGradientShader') - Set to shape mode
+ * - api.set(id, {'generator.shapeSides': 4}) - Set to 4 sides for diamond shape
+ * - api.setGradientFromColors(id, attr, colors) - Set gradient colors
+ * - api.set(id, props) - Set properties like rotation, stops
+ * - api.connect(srcId, srcAttr, dstId, dstAttr) - Connect shader to shape
+ * 
+ * @param {Object} figmaGradData - Parsed Figma gradient data from data-figma-gradient-fill
+ * @param {string} layerId - The Cavalry layer ID to apply the gradient to
+ * @param {Object} attrs - The shape's SVG attributes (for calculating center, etc.)
+ * @returns {string|null} The created shader ID, or null on failure
+ */
+function createDiamondGradientFromFigma(figmaGradData, layerId, attrs) {
+    try {
+        // Skip gradient creation if disabled in settings
+        if (typeof importGradientsEnabled !== 'undefined' && !importGradientsEnabled) {
+            console.log('[DIAMOND GRADIENT] Gradients disabled in settings, skipping');
+            return null;
+        }
+        
+        // Extract gradient stops from Figma data
+        var stops = figmaGradData.stops || figmaGradData.stopsVar || [];
+        if (stops.length === 0) {
+            console.warn('[DIAMOND GRADIENT] No stops found in Figma gradient data');
+            return null;
+        }
+        
+        console.log('[DIAMOND GRADIENT] Creating diamond gradient with ' + stops.length + ' stops');
+        
+        // Create descriptive name from first and last colors
+        var firstStop = stops[0];
+        var lastStop = stops[stops.length - 1];
+        var firstColor = figmaRgbaToHex(firstStop.color);
+        var lastColor = figmaRgbaToHex(lastStop.color);
+        var gradientName = 'Diamond ' + firstColor + ' → ' + lastColor;
+        
+        // Create the gradient shader
+        var shaderId = api.create('gradientShader', gradientName);
+        console.log('[DIAMOND GRADIENT] Created shader: ' + shaderId);
+        
+        // Set gradient type to shape gradient (for diamond with 4 sides)
+        // Cavalry API: api.setGenerator(id, 'generator', 'shapeGradientShader')
+        try {
+            api.setGenerator(shaderId, 'generator', 'shapeGradientShader');
+            console.log('[DIAMOND GRADIENT] Set generator to shapeGradientShader');
+        } catch (eGen) {
+            console.warn('[DIAMOND GRADIENT] Could not set shapeGradientShader: ' + eGen.message);
+            // Fallback: try radial gradient as an approximation
+            try {
+                api.setGenerator(shaderId, 'generator', 'radialGradientShader');
+                console.log('[DIAMOND GRADIENT] Fallback to radialGradientShader');
+            } catch (eFallback) {
+                console.warn('[DIAMOND GRADIENT] Could not set radial fallback: ' + eFallback.message);
+            }
+        }
+        
+        // Set shape sides to 4 for diamond shape
+        // Cavalry API: generator.sides (integer) - from Cavalry docs "Shape Sides"
+        try {
+            api.set(shaderId, {"generator.sides": 4});
+            console.log('[DIAMOND GRADIENT] Set sides to 4 (diamond)');
+        } catch (eSides) {
+            console.warn('[DIAMOND GRADIENT] Could not set sides: ' + eSides.message);
+        }
+        
+        // Set rotation to 45 degrees to orient diamond correctly (point up)
+        // Figma's diamond gradient has points at top/bottom/left/right
+        // Cavalry's polygon with 4 sides starts with flat top, so rotate 45°
+        try {
+            api.set(shaderId, {"generator.rotation": 45});
+            console.log('[DIAMOND GRADIENT] Set initial rotation to 45° for diamond orientation');
+        } catch (eInitRot) {
+            console.warn('[DIAMOND GRADIENT] Could not set initial rotation: ' + eInitRot.message);
+        }
+        
+        // Build colors array for setGradientFromColors
+        var colors = [];
+        for (var ic = 0; ic < stops.length; ic++) {
+            colors.push(figmaRgbaToHex(stops[ic].color));
+        }
+        
+        // Ensure at least two stops for Cavalry gradient
+        if (colors.length === 1) colors.push(colors[0]);
+        
+        // Set gradient colors
+        api.setGradientFromColors(shaderId, 'generator.gradient', colors);
+        console.log('[DIAMOND GRADIENT] Set ' + colors.length + ' gradient colors');
+        
+        // Set individual stop positions and colors with opacity
+        for (var si = 0; si < stops.length; si++) {
+            var stopData = stops[si];
+            
+            try {
+                // Set position
+                var posAttr = {};
+                posAttr['generator.gradient.' + si + '.position'] = stopData.position;
+                api.set(shaderId, posAttr);
+            } catch (ePos) {
+                console.log('[DIAMOND GRADIENT] Error setting stop ' + si + ' position: ' + ePos.message);
+            }
+            
+            try {
+                // Set color with opacity
+                var colorWithAlphaValue = figmaRgbaToHexWithAlpha(stopData.color);
+                console.log('[DIAMOND GRADIENT] Stop ' + si + ': position=' + stopData.position.toFixed(3) + ', color=' + colorWithAlphaValue);
+                var colAttr = {};
+                colAttr['generator.gradient.' + si + '.color'] = colorWithAlphaValue;
+                api.set(shaderId, colAttr);
+            } catch (eCol) {
+                console.log('[DIAMOND GRADIENT] Error setting stop ' + si + ' color: ' + eCol.message);
+            }
+        }
+        
+        // Calculate rotation from Figma's transform matrix
+        // Figma transform: {m00, m01, m02, m10, m11, m12}
+        // m00, m01, m10, m11 form the 2x2 rotation/scale matrix
+        // m02, m12 are translation (center offset)
+        // 
+        // IMPORTANT: The gradient transform from Figma often includes the SHAPE's rotation.
+        // When you rotate a shape in Figma, the gradient stays aligned with it, so the
+        // gradient transform captures that combined rotation. Since the shape's rotation
+        // is already applied to the Cavalry shape separately, we need to subtract it
+        // from the gradient rotation to avoid double-rotation.
+        if (figmaGradData.transform) {
+            try {
+                var t = figmaGradData.transform;
+                // Calculate rotation angle from the gradient transform matrix
+                // rotation = atan2(m10, m00) gives the angle in radians
+                var rotationRad = Math.atan2(t.m10, t.m00);
+                var gradientRotationDeg = rotationRad * (180 / Math.PI);
+                
+                // Extract the shape's rotation from its SVG transform attribute
+                // The shape's rotation is applied to the Cavalry shape separately,
+                // so we need to subtract it to get the gradient-only rotation
+                // 
+                // Note: For rects with complex transforms, the transform may have been
+                // pre-processed and deleted, with the rotation stored in _rotationDeg
+                var shapeRotationDeg = 0;
+                if (attrs) {
+                    if (attrs._rotationDeg !== undefined) {
+                        // Use pre-computed rotation from rect transform processing
+                        shapeRotationDeg = attrs._rotationDeg;
+                    } else if (attrs.transform) {
+                        // Parse rotation from transform attribute
+                        shapeRotationDeg = getRotationDegFromTransform(attrs.transform);
+                    }
+                }
+                
+                // Calculate the gradient-relative rotation (gradient rotation minus shape rotation)
+                var relativeGradientRotation = gradientRotationDeg - shapeRotationDeg;
+                
+                console.log('[DIAMOND GRADIENT] Gradient transform rotation: ' + gradientRotationDeg.toFixed(1) + '°');
+                console.log('[DIAMOND GRADIENT] Shape rotation: ' + shapeRotationDeg.toFixed(1) + '°');
+                console.log('[DIAMOND GRADIENT] Relative gradient rotation: ' + relativeGradientRotation.toFixed(1) + '°');
+                
+                // Add 45° base rotation for diamond orientation, then apply relative gradient rotation
+                // Negate the rotation because Cavalry uses counter-clockwise positive
+                var cavalryRotation = 45 - relativeGradientRotation;
+                
+                // Normalize to 0-360 range
+                cavalryRotation = ((cavalryRotation % 360) + 360) % 360;
+                
+                console.log('[DIAMOND GRADIENT] Final Cavalry rotation: ' + cavalryRotation.toFixed(1) + '°');
+                
+                api.set(shaderId, {"generator.rotation": cavalryRotation});
+            } catch (eRot) {
+                console.warn('[DIAMOND GRADIENT] Error applying rotation: ' + eRot.message);
+            }
+        }
+        
+        // Set tiling to Mirror for diamond gradients
+        // Cavalry API: Gradient Shader has 'tiling' at top level (not under generator.)
+        // Values: 0=Clamp, 1=Repeat, 2=Mirror, 3=Decal
+        try {
+            api.set(shaderId, {'tiling': 2});
+            console.log('[DIAMOND GRADIENT] Set tiling to Mirror (2)');
+        } catch (eTiling) {
+            console.warn('[DIAMOND GRADIENT] Could not set tiling: ' + eTiling.message);
+        }
+        
+        // Apply opacity if specified
+        if (figmaGradData.opacity !== undefined && figmaGradData.opacity < 1) {
+            var alphaPercent = Math.round(figmaGradData.opacity * 100);
+            try {
+                api.set(shaderId, {'alpha': alphaPercent});
+                console.log('[DIAMOND GRADIENT] Set shader alpha to ' + alphaPercent + '%');
+            } catch (eAlpha) {}
+        }
+        
+        // Connect the shader to the shape
+        try {
+            api.setFill(layerId, true);
+            api.set(layerId, {"material.materialColor.a": 0}); // Hide base color
+            api.set(layerId, {"material.alpha": 100});
+            api.connect(shaderId, 'id', layerId, 'material.colorShaders');
+            
+            // Parent the shader under the shape
+            try { api.parent(shaderId, layerId); } catch (ePar) {}
+            
+            console.log('[DIAMOND GRADIENT] Connected shader to layer ' + layerId);
+        } catch (eConnect) {
+            console.error('[DIAMOND GRADIENT] Failed to connect shader: ' + eConnect.message);
+        }
+        
+        return shaderId;
+        
+    } catch (e) {
+        console.error('[DIAMOND GRADIENT] Error creating diamond gradient: ' + e.message);
+        return null;
+    }
+}
+
+/**
+ * Convert Figma RGBA color object to hex string (#RRGGBB)
+ * @param {Object} color - Figma color object {r, g, b, a} with 0-1 values
+ * @returns {string} Hex color string
+ */
+function figmaRgbaToHex(color) {
+    if (!color) return '#000000';
+    var r = Math.round((color.r || 0) * 255).toString(16).padStart(2, '0');
+    var g = Math.round((color.g || 0) * 255).toString(16).padStart(2, '0');
+    var b = Math.round((color.b || 0) * 255).toString(16).padStart(2, '0');
+    return '#' + r.toUpperCase() + g.toUpperCase() + b.toUpperCase();
+}
+
+/**
+ * Convert Figma RGBA color object to hex string with alpha (#AARRGGBB for Cavalry)
+ * @param {Object} color - Figma color object {r, g, b, a} with 0-1 values
+ * @returns {string} Hex color string with alpha
+ */
+function figmaRgbaToHexWithAlpha(color) {
+    if (!color) return '#FF000000';
+    var a = Math.round((color.a !== undefined ? color.a : 1) * 255).toString(16).padStart(2, '0');
+    var r = Math.round((color.r || 0) * 255).toString(16).padStart(2, '0');
+    var g = Math.round((color.g || 0) * 255).toString(16).padStart(2, '0');
+    var b = Math.round((color.b || 0) * 255).toString(16).padStart(2, '0');
+    return '#' + a.toUpperCase() + r.toUpperCase() + g.toUpperCase() + b.toUpperCase();
 }

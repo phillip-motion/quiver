@@ -21,6 +21,7 @@ api.load(ui.scriptLocation+"/functions/quiver_function_flattenShape.js");
 api.load(ui.scriptLocation+"/functions/quiver_function_convertToRectangle.js");
 api.load(ui.scriptLocation+"/functions/quiver_function_dynamicAlign.js");
 api.load(ui.scriptLocation+"/functions/quiver_function_renameLayers.js");
+api.load(ui.scriptLocation+"/functions/quiver_function_cycleTextAlignment.js");
 api.load(ui.scriptLocation+"/functions/quiver_utiltiies_sharedFunctions.js");
 api.load(ui.scriptLocation+"/functions/quiver_utilities_blendmode.js");
 api.load(ui.scriptLocation+"/functions/quiver_utilities_gradient.js");
