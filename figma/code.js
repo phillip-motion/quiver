@@ -125,29 +125,49 @@ function mightGetStrokeFlattened(node) {
   console.log('    strokeCap: ' + safeString(strokeCap));
   console.log('    strokeJoin: ' + safeString(strokeJoin));
   
-  // Get path complexity info
-  var vertexCount = 0;
-  var segmentCount = 0;
-  try {
-    if ('vectorNetwork' in node && node.vectorNetwork) {
-      var network = node.vectorNetwork;
-      vertexCount = (network.vertices) ? network.vertices.length : 0;
-      segmentCount = (network.segments) ? network.segments.length : 0;
-      console.log('    vectorNetwork: ' + vertexCount + ' vertices, ' + segmentCount + ' segments');
-    }
-  } catch (e) {
-    console.log('    vectorNetwork: error reading');
-  }
-  
+  // FIRST: Check vectorPaths for complexity BEFORE accessing vectorNetwork
+  // This avoids crashes on extremely complex vectors (600+ vertices) that can
+  // cause Figma's WASM runtime to abort when accessing vectorNetwork
   var pathCommandCount = 0;
+  var pathDataLength = 0;
+  var isExtremelyComplex = false;
   try {
     if ('vectorPaths' in node && node.vectorPaths && node.vectorPaths.length > 0) {
       var pathData = node.vectorPaths[0].data || '';
+      pathDataLength = pathData.length;
       pathCommandCount = (pathData.match(/[MLCQAZ]/gi) || []).length;
-      console.log('    vectorPaths: ' + pathCommandCount + ' commands, ' + pathData.length + ' chars');
+      console.log('    vectorPaths: ' + pathCommandCount + ' commands, ' + pathDataLength + ' chars');
+      
+      // SAFETY CHECK: If path data is very large (>10K chars) or has many commands (>100),
+      // the node is too complex - skip vectorNetwork access to avoid WASM crash
+      if (pathDataLength > 10000 || pathCommandCount > 100) {
+        isExtremelyComplex = true;
+        console.log('    -> SKIPPING vectorNetwork access (path too complex: ' + pathDataLength + ' chars)');
+      }
     }
   } catch (e) {
     console.log('    vectorPaths: error reading');
+  }
+  
+  // Get path complexity from vectorNetwork (ONLY if not extremely complex)
+  var vertexCount = 0;
+  var segmentCount = 0;
+  if (!isExtremelyComplex) {
+    try {
+      if ('vectorNetwork' in node && node.vectorNetwork) {
+        var network = node.vectorNetwork;
+        vertexCount = (network.vertices) ? network.vertices.length : 0;
+        segmentCount = (network.segments) ? network.segments.length : 0;
+        console.log('    vectorNetwork: ' + vertexCount + ' vertices, ' + segmentCount + ' segments');
+      }
+    } catch (e) {
+      console.log('    vectorNetwork: error reading - ' + e.message);
+      // If we can't read vectorNetwork but path has many commands, consider it complex
+      if (pathCommandCount > 10) {
+        console.log('    -> HYBRID: Many path commands (vectorNetwork unavailable)');
+        return true;
+      }
+    }
   }
   
   // Check stroke weight - thicker strokes are more likely to get flattened
@@ -157,6 +177,13 @@ function mightGetStrokeFlattened(node) {
   }
   
   // CRITERIA FOR FLATTENING:
+  // 0. Extremely complex paths (detected early) - don't try to hybrid these
+  //    They're too complex for Cavalry to reconstruct anyway
+  if (isExtremelyComplex) {
+    console.log('    -> Skipping hybrid (path too complex for reconstruction)');
+    return false;
+  }
+  
   // 1. Thick strokes (weight > 10) are almost always flattened
   if (strokeWeight > 10) {
     console.log('    -> HYBRID: Thick stroke (' + strokeWeight + 'px)');
@@ -296,20 +323,31 @@ function extractVectorNodeData(node, frameAbsX, frameAbsY) {
   }
   
   // If vectorPaths is empty, try vectorNetwork
+  // NOTE: We protect against extremely complex vectorNetwork access which can crash WASM
   var hasValidPathData = pathData && pathData.length > 0 && pathData[0] && pathData[0].data;
   if (!hasValidPathData) {
-    if ('vectorNetwork' in node && node.vectorNetwork) {
-      console.log('  vectorPaths empty, trying vectorNetwork...');
-      var network = node.vectorNetwork;
-      var vertCount = (network && network.vertices) ? network.vertices.length : 0;
-      var segCount = (network && network.segments) ? network.segments.length : 0;
-      console.log('  VectorNetwork: ' + vertCount + ' vertices, ' + segCount + ' segments');
-      
-      // Convert vectorNetwork to path data
-      pathData = convertVectorNetworkToPath(network);
-      if (pathData && pathData[0] && pathData[0].data) {
-        console.log('  Converted network to path: ' + pathData[0].data.length + ' chars');
+    try {
+      if ('vectorNetwork' in node && node.vectorNetwork) {
+        console.log('  vectorPaths empty, trying vectorNetwork...');
+        var network = node.vectorNetwork;
+        var vertCount = (network && network.vertices) ? network.vertices.length : 0;
+        var segCount = (network && network.segments) ? network.segments.length : 0;
+        console.log('  VectorNetwork: ' + vertCount + ' vertices, ' + segCount + ' segments');
+        
+        // Safety check: skip conversion if network is too complex (>500 vertices)
+        if (vertCount > 500) {
+          console.log('  Skipping vectorNetwork conversion (too complex: ' + vertCount + ' vertices)');
+        } else {
+          // Convert vectorNetwork to path data
+          pathData = convertVectorNetworkToPath(network);
+          if (pathData && pathData[0] && pathData[0].data) {
+            console.log('  Converted network to path: ' + pathData[0].data.length + ' chars');
+          }
+        }
       }
+    } catch (eNetwork) {
+      console.log('  vectorNetwork access failed: ' + eNetwork.message);
+      // Continue without vectorNetwork data - the node is too complex
     }
   }
   
@@ -346,15 +384,20 @@ function extractVectorNodeData(node, frameAbsX, frameAbsY) {
   }
   
   // Extract corner radius from vectorNetwork (per-vertex or uniform)
+  // NOTE: For extremely complex vectors (>10K chars of path data), we skip
+  // vectorNetwork access to avoid crashing Figma's WASM runtime
   var cornerRadius = 0;
+  var pathDataLength = (pathData && pathData[0] && pathData[0].data) ? pathData[0].data.length : 0;
+  var isPathTooComplex = pathDataLength > 10000;
+  
   try {
     // Check for uniform cornerRadius on the node
     if ('cornerRadius' in node && typeof node.cornerRadius === 'number') {
       cornerRadius = node.cornerRadius;
       console.log('  Corner radius (uniform): ' + cornerRadius);
     }
-    // Check per-vertex corner radii in vectorNetwork
-    if ('vectorNetwork' in node && node.vectorNetwork && node.vectorNetwork.vertices) {
+    // Check per-vertex corner radii in vectorNetwork (ONLY if path is not too complex)
+    if (!isPathTooComplex && 'vectorNetwork' in node && node.vectorNetwork && node.vectorNetwork.vertices) {
       var maxRadius = 0;
       for (var vi = 0; vi < node.vectorNetwork.vertices.length; vi++) {
         var vertex = node.vectorNetwork.vertices[vi];
@@ -366,6 +409,8 @@ function extractVectorNodeData(node, frameAbsX, frameAbsY) {
         cornerRadius = maxRadius;
         console.log('  Corner radius (from vertices): ' + cornerRadius);
       }
+    } else if (isPathTooComplex) {
+      console.log('  Skipping vectorNetwork corner radius (path too complex: ' + pathDataLength + ' chars)');
     }
   } catch (eCR) {
     console.log('  Could not extract corner radius: ' + eCR.message);

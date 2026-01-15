@@ -210,14 +210,24 @@ flattenShapeButton.onClick = function() {
     flattenShape();
 };
 
-var cycleTextAlignButton = new ui.ImageButton(ui.scriptLocation+"/quiver_assets/quiver_icon-text-left.png");
+var cycleTextAlignButton = new ui.ImageButton(ui.scriptLocation+"/quiver_assets/quiver_icon-text-horizontal-left.png");
 cycleTextAlignButton.setImageSize(22,22);
 cycleTextAlignButton.setSize(34, 34);
-cycleTextAlignButton.setToolTip("Text Alignment");
+cycleTextAlignButton.setToolTip("Horizontal Text Alignment");
 cycleTextAlignButton.onClick = function() {
     cycleTextAlignment();
     // Update icon after cycling alignment
     updateTextAlignIcon();
+};
+
+var cycleVerticalTextAlignButton = new ui.ImageButton(ui.scriptLocation+"/quiver_assets/quiver_icon-text-vertical-top.png");
+cycleVerticalTextAlignButton.setImageSize(22,22);
+cycleVerticalTextAlignButton.setSize(34, 34);
+cycleVerticalTextAlignButton.setToolTip("Vertical Text Alignment");
+cycleVerticalTextAlignButton.onClick = function() {
+    cycleVerticalTextAlignment();
+    // Update icon after cycling alignment
+    updateVerticalTextAlignIcon();
 };
 
 /**
@@ -231,14 +241,15 @@ cycleTextAlignButton.onClick = function() {
  * - api.get(id, attribute) - Get layer attributes
  * - ImageButton.setImage(path) - Set button image
  * 
- * horizontalAlignment values: 0 = Left, 1 = Center, 2 = Right
+ * Cavalry horizontalAlignment values (from Text Shape node documentation):
+ * 0 = Left, 1 = Centre, 2 = Right, 3 = Justified
  */
 function updateTextAlignIcon() {
     try {
         var selection = api.getSelection();
         
         // Default to left-aligned icon when no text is selected
-        var iconPath = ui.scriptLocation + "/quiver_assets/quiver_icon-text-left.png";
+        var iconPath = ui.scriptLocation + "/quiver_assets/quiver_icon-text-horizontal-left.png";
         
         if (selection && selection.length > 0) {
             // Check each selected layer for text shapes
@@ -265,13 +276,17 @@ function updateTextAlignIcon() {
                     // Get the alignment of this text shape
                     try {
                         var alignment = api.get(layerId, 'horizontalAlignment');
-                        // 0 = Left, 1 = Center, 2 = Right
+                        // Cavalry horizontalAlignment values (from Text Shape node documentation):
+                        // 0 = Left, 1 = Centre, 2 = Right, 3 = Justified
                         if (alignment === 1) {
-                            iconPath = ui.scriptLocation + "/quiver_assets/quiver_icon-text-center.png";
+                            iconPath = ui.scriptLocation + "/quiver_assets/quiver_icon-text-horizontal-center.png";
                         } else if (alignment === 2) {
-                            iconPath = ui.scriptLocation + "/quiver_assets/quiver_icon-text-right.png";
+                            iconPath = ui.scriptLocation + "/quiver_assets/quiver_icon-text-horizontal-right.png";
+                        } else if (alignment === 3) {
+                            iconPath = ui.scriptLocation + "/quiver_assets/quiver_icon-text-horizontal-justified.png";
                         } else {
-                            iconPath = ui.scriptLocation + "/quiver_assets/quiver_icon-text-left.png";
+                            // 0 (Left) - show left icon
+                            iconPath = ui.scriptLocation + "/quiver_assets/quiver_icon-text-horizontal-left.png";
                         }
                     } catch (e) {}
                     break; // Use first text shape found
@@ -281,6 +296,76 @@ function updateTextAlignIcon() {
         
         // Update the button image
         cycleTextAlignButton.setImage(iconPath);
+    } catch (e) {
+        // Silently fail - don't disrupt UI
+    }
+}
+
+/**
+ * Update the Vertical Text Alignment button icon based on selected text's alignment.
+ * Uses api.getSelection(), api.getType(), api.get() to determine vertical alignment.
+ * Uses setImage() to dynamically update the ImageButton icon.
+ * 
+ * Cavalry API used:
+ * - api.getSelection() - Get selected layers
+ * - api.getType(id) - Get layer type
+ * - api.get(id, attribute) - Get layer attributes
+ * - ImageButton.setImage(path) - Set button image
+ * 
+ * verticalAlignment values: 0 = Top, 1 = Centre, 2 = Bottom, 3 = Baseline
+ */
+function updateVerticalTextAlignIcon() {
+    try {
+        var selection = api.getSelection();
+        
+        // Default to top-aligned icon when no text is selected
+        var iconPath = ui.scriptLocation + "/quiver_assets/quiver_icon-text-vertical-top.png";
+        
+        if (selection && selection.length > 0) {
+            // Check each selected layer for text shapes
+            for (var i = 0; i < selection.length; i++) {
+                var layerId = selection[i];
+                var isTextShape = false;
+                
+                // Check if this is a text shape by ID prefix
+                if (typeof layerId === 'string' && layerId.indexOf('textShape#') === 0) {
+                    isTextShape = true;
+                }
+                
+                // Also check by layer type
+                if (!isTextShape) {
+                    try {
+                        var layerType = api.getType(layerId);
+                        if (layerType === 'textShape' || layerType === 'text') {
+                            isTextShape = true;
+                        }
+                    } catch (e) {}
+                }
+                
+                if (isTextShape) {
+                    // Get the vertical alignment of this text shape
+                    try {
+                        var alignment = api.get(layerId, 'verticalAlignment');
+                        // Cavalry verticalAlignment values (from Text Shape node documentation):
+                        // 0 = Top, 1 = Centre, 2 = Bottom, 3 = Baseline
+                        if (alignment === 1) {
+                            iconPath = ui.scriptLocation + "/quiver_assets/quiver_icon-text-vertical-middle.png";
+                        } else if (alignment === 2) {
+                            iconPath = ui.scriptLocation + "/quiver_assets/quiver_icon-text-vertical-bottom.png";
+                        } else if (alignment === 3) {
+                            iconPath = ui.scriptLocation + "/quiver_assets/quiver_icon-text-vertical-baseline.png";
+                        } else {
+                            // 0 (Top) - show top icon
+                            iconPath = ui.scriptLocation + "/quiver_assets/quiver_icon-text-vertical-top.png";
+                        }
+                    } catch (e) {}
+                    break; // Use first text shape found
+                }
+            }
+        }
+        
+        // Update the button image
+        cycleVerticalTextAlignButton.setImage(iconPath);
     } catch (e) {
         // Silently fail - don't disrupt UI
     }
@@ -679,6 +764,7 @@ toolButtonsLayout.add(convertRectButton);
 toolButtonsLayout.add(dynamicAlignButton);
 toolButtonsLayout.add(flattenShapeButton);
 toolButtonsLayout.add(cycleTextAlignButton);
+toolButtonsLayout.add(cycleVerticalTextAlignButton);
 toolButtonsLayout.addStretch();
 toolButtonsLayout.add(settingsButton);
 
@@ -704,12 +790,13 @@ ui.setMargins(0, 0, 0, 0);
 ui.setMinimumWidth(150);
 
 // --- Selection Change Callback ---
-// Register callback to update text alignment icon when selection changes
+// Register callback to update text alignment icons when selection changes
 // Cavalry API: ui.addCallbackObject() registers an object with callback functions
 // onSelectionChanged is called whenever the scene selection changes
 function SelectionCallbacks() {
     this.onSelectionChanged = function() {
         updateTextAlignIcon();
+        updateVerticalTextAlignIcon();
     };
 }
 

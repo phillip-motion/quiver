@@ -1,6 +1,6 @@
 /**
- * Cycle Text Alignment
- * Cycles the horizontal alignment of selected text layers (Left → Center → Right → Justified → Left)
+ * Cycle Vertical Text Alignment
+ * Cycles the vertical alignment of selected text layers (Top → Centre → Bottom → Baseline → Top)
  * while keeping the text visually in the same position.
  * 
  * Cavalry API used:
@@ -10,13 +10,16 @@
  * - api.getBoundingBox(id, worldSpace) - Get bounding box
  * - api.getType(id) - Get layer type
  * 
- * Cavalry horizontalAlignment values (from Text Shape node documentation):
- * 0 = Left
+ * Cavalry verticalAlignment values (from Text Shape node documentation):
+ * 0 = Top
  * 1 = Centre
- * 2 = Right
- * 3 = Justified
+ * 2 = Bottom
+ * 3 = Baseline
+ * 
+ * Note: "A Text Shape with baseline alignment will be aligned to the bottom of its layout.
+ * This means that any descenders will sit outside of its 'cell'." - Cavalry docs
  */
-function cycleTextAlignment() {
+function cycleVerticalTextAlignment() {
     var selection = api.getSelection();
     
     if (!selection || selection.length === 0) {
@@ -44,9 +47,9 @@ function cycleTextAlignment() {
             continue;
         }
         
-        // Get current alignment
+        // Get current vertical alignment
         var currentAlignment = 0;
-        try { currentAlignment = api.get(layerId, 'horizontalAlignment'); } catch (e) { continue; }
+        try { currentAlignment = api.get(layerId, 'verticalAlignment'); } catch (e) { continue; }
         
         // Get bounding box BEFORE any change - this is our reference
         var bboxBefore = null;
@@ -57,15 +60,15 @@ function cycleTextAlignment() {
         }
         
         // Store the visual center BEFORE change - this is what we want to preserve
-        var targetCenterX = bboxBefore.centre.x;
+        var targetCenterY = bboxBefore.centre.y;
         
         // Calculate new alignment (cycle: 0 → 1 → 2 → 3 → 0)
-        // Left (0) → Centre (1) → Right (2) → Justified (3) → Left (0)
+        // Top (0) → Centre (1) → Bottom (2) → Baseline (3) → Top (0)
         var newAlignment = (currentAlignment + 1) % 4;
         
         // STEP 1: Change ONLY the alignment (don't change position yet)
         try {
-            api.set(layerId, { 'horizontalAlignment': newAlignment });
+            api.set(layerId, { 'verticalAlignment': newAlignment });
         } catch (e) {
             continue;
         }
@@ -79,17 +82,17 @@ function cycleTextAlignment() {
         }
         
         // STEP 3: Calculate how much the center drifted
-        var drift = bboxAfter.centre.x - targetCenterX;
+        var drift = bboxAfter.centre.y - targetCenterY;
         
         // STEP 4: Get current position and apply correction
         var posAfterAlignment = 0;
-        try { posAfterAlignment = api.get(layerId, 'position.x'); } catch (e) { continue; }
+        try { posAfterAlignment = api.get(layerId, 'position.y'); } catch (e) { continue; }
         
         // Correct the position by subtracting the drift
-        var correctedPosX = posAfterAlignment - drift;
+        var correctedPosY = posAfterAlignment - drift;
         
         try {
-            api.set(layerId, { 'position.x': correctedPosX });
+            api.set(layerId, { 'position.y': correctedPosY });
         } catch (e) {
             continue;
         }
