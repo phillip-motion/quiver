@@ -1,6 +1,6 @@
 {
   "name": "quiver",
-  "version": "1.5.2",
+  "version": "1.6.0",
   "description": "Quiver - Fire SVGs straight into Cavalry",
   "scripts": {
     "build": "node build.js",

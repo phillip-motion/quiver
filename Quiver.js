@@ -11,7 +11,7 @@
 
 
 // IMPORTANT!!!!!! Version number must be in the format x.x.x for update checking to work!!!
-const currentVersion = "1.5.2";
+const currentVersion = "1.6.0";
 
 const SCRIPT_KEY = "com.canva.quiver"; 
 ui.setTitle("Quiver");
