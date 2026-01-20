@@ -1539,11 +1539,11 @@ function checkSelection() {
     return;
   }
   
-  figma.ui.postMessage({ 
-    type: 'selection-info', 
+  figma.ui.postMessage({
+    type: 'selection-info',
     hasSelection: true,
     name: node.name,
-    type: node.type,
+    nodeType: node.type,
     width: Math.round(node.width),
     height: Math.round(node.height)
   });
@@ -1552,38 +1552,38 @@ function checkSelection() {
 // Export selection and send to Cavalry
 async function sendSelectionToCavalry() {
   const selection = figma.currentPage.selection;
-  
+
   if (selection.length === 0) {
-    figma.ui.postMessage({ 
-      type: 'error', 
-      message: 'Please select a frame or group first' 
+    figma.ui.postMessage({
+      type: 'error',
+      message: 'Please select a frame or group first'
     });
     return;
   }
-  
+
   const node = selection[0];
-  
+
   // Validate node type
-  const isValidType = node.type === 'FRAME' || 
-                      node.type === 'GROUP' || 
+  const isValidType = node.type === 'FRAME' ||
+                      node.type === 'GROUP' ||
                       node.type === 'COMPONENT' ||
                       node.type === 'INSTANCE';
-  
+
   if (!isValidType) {
-    figma.ui.postMessage({ 
-      type: 'error', 
-      message: 'Please select a frame, group, or component' 
+    figma.ui.postMessage({
+      type: 'error',
+      message: 'Please select a frame, group, or component'
     });
     return;
   }
-  
+
   // Temporarily enable clip content for frames to get correct viewBox
   let originalClipsContent = null;
   if (node.type === 'FRAME') {
     originalClipsContent = node.clipsContent;
     node.clipsContent = true;
   }
-  
+
   try {
     figma.ui.postMessage({ type: 'status', message: 'Analyzing design...' });
     
@@ -1780,9 +1780,9 @@ async function sendSelectionToCavalry() {
     }
     
   } catch (error) {
-    figma.ui.postMessage({ 
-      type: 'error', 
-      message: 'Failed to export: ' + error.message 
+    figma.ui.postMessage({
+      type: 'error',
+      message: 'Failed to export: ' + error.message
     });
   } finally {
     // Restore original clip content setting

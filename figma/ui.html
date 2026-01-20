@@ -243,19 +243,19 @@
         
         if (response.ok) {
           // Tell code.js to show success toast
-          parent.postMessage({ 
-            pluginMessage: { 
+          parent.postMessage({
+            pluginMessage: {
               type: 'fetch-success',
-              nodeName: nodeName 
-            } 
+              nodeName: nodeName
+            }
           }, '*');
         } else {
           // Tell code.js to show error toast
-          parent.postMessage({ 
-            pluginMessage: { 
+          parent.postMessage({
+            pluginMessage: {
               type: 'fetch-error',
               message: 'HTTP error: ' + response.status
-            } 
+            }
           }, '*');
         }
       } catch (error) {
@@ -263,13 +263,13 @@
         isError = true;
         statusDot.classList.remove('connected');
         connectionText.textContent = 'Quiver not found';
-        
+
         // Tell code.js to show error toast
-        parent.postMessage({ 
-          pluginMessage: { 
+        parent.postMessage({
+          pluginMessage: {
             type: 'fetch-error',
             message: 'Quiver not found. Make sure Quiver is open in Cavalry.'
-          } 
+          }
         }, '*');
       }
     }
@@ -282,14 +282,20 @@
       sendButton.textContent = 'Firing...';
       parent.postMessage({ pluginMessage: { type: 'send-to-cavalry' } }, '*');
     };
-    
-    // Update selection info display (optional - currently just logs)
+
+    // Update selection info and button state based on selection
     function updateSelectionInfo(msg) {
-      // This function handles selection-info messages from the plugin
-      // Currently we don't display selection info in the UI, but this prevents the error
+      currentSelection = msg;
+
       if (msg.hasSelection) {
-        console.log('Selection:', msg.name, '(' + msg.type + ')');
+        // Enable button and show what's selected
+        sendButton.disabled = false;
+        sendButton.textContent = `Fire "${msg.name}" to Cavalry`;
+        console.log('Selection:', msg.name, '(' + msg.nodeType + ')');
       } else {
+        // Disable button and show why
+        sendButton.disabled = true;
+        sendButton.textContent = msg.message || 'Select a frame first';
         console.log('No valid selection:', msg.message);
       }
     }
@@ -320,6 +326,17 @@
         sendButton.disabled = false;
         sendButton.textContent = 'Fire towards Cavalry';
         console.log('Error from plugin:', msg.message);
+
+        // Show error in connection text temporarily
+        const originalText = connectionText.textContent;
+        connectionText.textContent = msg.message;
+        connectionText.style.color = 'var(--figma-color-text-danger)';
+
+        // Restore after 3 seconds
+        setTimeout(() => {
+          connectionText.textContent = originalText;
+          connectionText.style.color = '';
+        }, 3000);
       }
       else if (msg.type === 'send-svg') {
         console.log('Received send-svg message');
@@ -327,13 +344,13 @@
         console.log('  vectorData:', msg.vectorData ? msg.vectorData.length + ' items' : 'none');
         console.log('  textData:', msg.textData ? msg.textData.length + ' items' : 'none');
         console.log('  emojiData:', msg.emojiData ? msg.emojiData.length + ' items' : 'none');
-        
+
         // Pass all data including hybrid vector/text/emoji data
         await sendToCavalry(
-          msg.svgCode, 
-          msg.nodeName, 
-          msg.frameWidth, 
-          msg.frameHeight, 
+          msg.svgCode,
+          msg.nodeName,
+          msg.frameWidth,
+          msg.frameHeight,
           msg.vectorData,
           msg.textData,
           msg.emojiData
