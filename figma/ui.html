@@ -279,7 +279,7 @@
       // Disable button immediately to prevent multiple clicks
       // Button will be re-enabled after Cavalry confirms receipt (or error)
       sendButton.disabled = true;
-      sendButton.textContent = 'Firing...';
+      sendButton.textContent = 'Firing towards Cavalry...';
       parent.postMessage({ pluginMessage: { type: 'send-to-cavalry' } }, '*');
     };
 
@@ -288,14 +288,14 @@
       currentSelection = msg;
 
       if (msg.hasSelection) {
-        // Enable button and show what's selected
+        // Enable button - keep consistent text
         sendButton.disabled = false;
-        sendButton.textContent = `Fire "${msg.name}" to Cavalry`;
+        sendButton.textContent = 'Fire towards Cavalry';
         console.log('Selection:', msg.name, '(' + msg.nodeType + ')');
       } else {
-        // Disable button and show why
+        // Disable button - same text, just greyed out
         sendButton.disabled = true;
-        sendButton.textContent = msg.message || 'Select a frame first';
+        sendButton.textContent = 'Fire towards Cavalry';
         console.log('No valid selection:', msg.message);
       }
     }

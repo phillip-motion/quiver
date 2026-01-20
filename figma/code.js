@@ -12,7 +12,7 @@ figma.ui.onmessage = async (msg) => {
     checkSelection();
   } else if (msg.type === 'fetch-success') {
     // UI successfully sent to Cavalry
-    figma.notify('✓ Sent to Cavalry!', { timeout: 2000 });
+    figma.notify('✓ Fired to Cavalry!', { timeout: 2000 });
     // Re-enable the send button in the UI
     figma.ui.postMessage({ type: 'enable-button' });
   } else if (msg.type === 'fetch-error') {
