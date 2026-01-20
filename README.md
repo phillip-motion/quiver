@@ -28,7 +28,7 @@ https://github.com/user-attachments/assets/d99671f8-e279-4cd0-8b74-6c054f8c5147
 - **Convert To Rectangle**: create a rectangle from the bounding box of a selected layer
 - **Dynamic Align**: Dynamically adjust the pivot point of a layer
 - **Flatten Shape**: Flatten all selected shapes into one layer
-- **Horiontal/Vertical Text Alignment**: Dynamically adjust horizontal/vertical text alignment
+- **Horizontal/Vertical Text Alignment**: Dynamically adjust horizontal/vertical text alignment
 - **Rename Layers**: Renames all selected layers as [name] 1, [name] 2 etc. 
 
 
