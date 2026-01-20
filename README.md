@@ -112,7 +112,7 @@ Coming soon!
 | Lines `<line>`  | ✅  |
 | Polyline `<polyline>`  | ✅  |
 | Text `<text>`  | ✅  |
-| Emojis `<emojis>`  | ✅  |
+| Emojis  | ✅  |
 | Tspan `<tspan>`  | ✅  |
 | Color  | ✅  |
 | Opacity  | ✅  |
