@@ -28,6 +28,8 @@ https://github.com/user-attachments/assets/d99671f8-e279-4cd0-8b74-6c054f8c5147
 - **Convert To Rectangle**: create a rectangle from the bounding box of a selected layer
 - **Dynamic Align**: Dynamically adjust the pivot point of a layer
 - **Flatten Shape**: Flatten all selected shapes into one layer
+- **Horiontal Text Alignment**: Dynamically adjust horizontal text alignment
+- **Vertical Text Alignment**: Dynamically adjust vertical text alignment
 - **Rename Layers**: Renames all selected layers as [name] 1, [name] 2 etc. 
 
 
@@ -36,7 +38,7 @@ https://github.com/user-attachments/assets/d99671f8-e279-4cd0-8b74-6c054f8c5147
 2. Copy Quiver.js and the `quiver_assets` folder into your Cavalry Scripts folder.
 3. In Cavalry, open the `Scripts` menu and select Quiver.
 
-#### Figma Plugin (optional)
+#### Figma Plugin (recommended)
 1. In Figma, right click on any frame and go to `Plugins > Development > Import plugin from manifest...`
 2. Open your Cavalry Scripts folder, go to `quiver_assets/Quiver for Figma` and select `manifest.json`
 3. Done!
@@ -74,13 +76,17 @@ Automatically adjusts anchor points based on layer scale. Useful for maintaining
 ### Flatten Shape
 Flattens complex shapes into simpler editable paths.
 
+### Horizontal/Vertical Text Alignment
+Automatically adjusts position of text when changing text alignment. Useful for maintaining position and original design.
+
 ### Rename Layers
 Batch rename selected layers. Eg. [name] 1, [name] 2 etc. 
 
 
 ## Preparing your SVGs
 
-### Importing from Figma
+### Manually importing from Figma
+(We recommend using the Figma Plugin noted above for full Quiver functionality)
 1. Select the frame you want to export
 2. Under **Export** in the side panel, select SVG
 3. Click the 3 dots and ensure your settings match below:
@@ -104,32 +110,35 @@ Coming soon!
 | Ellipse `<ellipse>`  | ✅  |
 | Paths `<path>`  | ✅  |
 | Polygons `<polygon>`  | ✅  |
-| Lines `<line>`  | In beta  |
+| Lines `<line>`  | ✅  |
 | Polyline `<polyline>`  | ✅  |
 | Text `<text>`  | ✅  |
+| Emojis `<emojis>`  | ✅  |
 | Tspan `<tspan>`  | ✅  |
 | Color  | ✅  |
 | Opacity  | ✅  |
 | Linear gradient  | ✅  |
 | Radial gradient  | ✅  |
+| Angular gradient  | ✅  |
+| Diamond gradient  | ✅  |
 | Strokes  | ✅  |
 | Stroke dashes  | ✅  |
 | Line caps  | ✅  |
 | Line joins  | ✅  |
 | Drop shadows  | ✅  |
+| Inner shadows  | ✅  |
 | Blur  | ✅  |
 | Images  | ✅  |
 | Patterns  | ✅  |
 | Blend modes  | ✅ |
 | Masks and clip paths  | ✅  |
-| Background blur  | ❌  |
-| Text alignment  | ❌  |
+| Background blur  | ✅  |
+| Text alignment  | ✅  |
 
 
 ## Roadmap
 We're actively working on:
 - Adding support for Canva and Affinity
-- Improving text alignment
 - Supporting more filter effects
 
 ## Credits
