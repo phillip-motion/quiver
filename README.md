@@ -12,17 +12,17 @@
   <img width="430" height="311" alt="Quiver UI" src="https://github.com/user-attachments/assets/d60bbaeb-8cb6-401e-ac9c-afd9bce1e0bd" />
 </p>
 
-### Making SVG import into Cavalry as smooth as drawing an arrow and letting it fly 🏹
+### Launch your designs into Cavalry 🏹
 
 Quiver improves on Cavalry's native SVG import by adding support for gradients, images, editable text and more.
-
-## Demo
-https://github.com/user-attachments/assets/d99671f8-e279-4cd0-8b74-6c054f8c5147
 
 ## Features
 - Send SVGs from Figma to Cavalry in one click
 - Import or paste SVGs from other software
 - Supports embedded images, gradients, shadows, blurs, editable text and more
+
+## Demo
+https://github.com/user-attachments/assets/d99671f8-e279-4cd0-8b74-6c054f8c5147
 
 **Plus, additional features:**
 - **Convert To Rectangle**: create a rectangle from the bounding box of a selected layer
