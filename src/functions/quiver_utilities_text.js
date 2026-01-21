@@ -960,6 +960,102 @@ function createText(node, parentId, vb, inheritedScale) {
     }
     api.set(id, textSettings);
     
+    // VARIABLE FONT SUPPORT: Set font axes for variable fonts
+    // Cavalry API: fontAxes.0 is typically the weight axis, fontAxes.1 is typically slant
+    // Reference: https://docs.cavalry.scenegroup.co/tech-info/scripting/example-scripts/
+    // IMPORTANT: Use getAttributeDefinition to check if font is variable BEFORE setting
+    // This prevents Cavalry from logging errors for static fonts (e.g., Lato Bold)
+    try {
+        // Check if this font has variable font axes by checking for fontAxes.0
+        var isVariableFont = false;
+        try {
+            var axisCheck = api.getAttributeDefinition(id, "fontAxes.0");
+            isVariableFont = (axisCheck !== null && axisCheck !== undefined);
+        } catch (eCheck) {
+            // getAttributeDefinition threw - font is not variable
+            isVariableFont = false;
+        }
+        
+        if (!isVariableFont) {
+            // Static font - skip variable font processing entirely
+            // No logging needed for static fonts to keep console clean
+        } else {
+            console.log('[Variable Font] Processing text: ' + name + ' with font: ' + family + ' ' + finalStyle);
+            
+            // Get numeric weight from Figma data or SVG
+            var numericWeightForAxis = null;
+            
+            // First, try to get numeric weight from Figma data (most accurate)
+            if (figmaTextData && figmaTextData.styledSegments && figmaTextData.styledSegments.length > 0) {
+                for (var fwti = 0; fwti < figmaTextData.styledSegments.length; fwti++) {
+                    var fwtSeg = figmaTextData.styledSegments[fwti];
+                    if (fwtSeg.fontWeight !== undefined && typeof fwtSeg.fontWeight === 'number') {
+                        numericWeightForAxis = fwtSeg.fontWeight;
+                        console.log('[Variable Font] Found fontWeight in Figma data: ' + numericWeightForAxis);
+                        break;
+                    }
+                }
+            }
+            
+            // Fallback: parse weight from SVG font-weight attribute
+            if (numericWeightForAxis === null && weight) {
+                var parsedWeight = parseInt(weight, 10);
+                if (!isNaN(parsedWeight) && parsedWeight >= 100 && parsedWeight <= 900) {
+                    numericWeightForAxis = parsedWeight;
+                    console.log('[Variable Font] Parsed weight from SVG: ' + numericWeightForAxis);
+                } else if (('' + weight).toLowerCase() === 'bold') {
+                    numericWeightForAxis = 700;
+                } else if (('' + weight).toLowerCase() === 'normal') {
+                    numericWeightForAxis = 400;
+                }
+            }
+            
+            // Set weight axis (fontAxes.0)
+            if (numericWeightForAxis !== null) {
+                try {
+                    api.set(id, { "fontAxes.0": numericWeightForAxis });
+                    console.log('[Variable Font] Set fontAxes.0 (weight) to ' + numericWeightForAxis + ' for ' + family);
+                } catch (eWght) {
+                    // Silently ignore - axis might not exist for this specific variable font
+                }
+            }
+            
+            // SLANT AXIS: Parse actual degree value from font-style
+            // SVG can have: "italic", "oblique", "oblique -10deg", "oblique 10deg"
+            var slantValue = null;
+            var fontStyleRaw = fontStyle || '';
+            var fontStyleLowerCheck = fontStyleRaw.toLowerCase();
+            var finalStyleLowerCheck = (finalStyle || '').toLowerCase();
+            
+            // First, try to parse actual degree value from "oblique Xdeg" format
+            var obliqueMatch = fontStyleRaw.match(/oblique\s*(-?\d+(?:\.\d+)?)\s*deg/i);
+            if (obliqueMatch && obliqueMatch[1]) {
+                slantValue = parseFloat(obliqueMatch[1]);
+                console.log('[Variable Font] Parsed slant from font-style: ' + slantValue + ' degrees');
+            } else if (fontStyleLowerCheck.indexOf('italic') !== -1 || fontStyleLowerCheck.indexOf('oblique') !== -1 ||
+                finalStyleLowerCheck.indexOf('italic') !== -1 || finalStyleLowerCheck.indexOf('oblique') !== -1) {
+                // Fallback: use default slant for italic/oblique
+                slantValue = -12;
+                console.log('[Variable Font] Using default slant for italic/oblique: ' + slantValue);
+            }
+            
+            // Check if slant axis exists before setting
+            if (slantValue !== null) {
+                try {
+                    var slantAxisCheck = api.getAttributeDefinition(id, "fontAxes.1");
+                    if (slantAxisCheck) {
+                        api.set(id, { "fontAxes.1": slantValue });
+                        console.log('[Variable Font] Set fontAxes.1 (slant) to ' + slantValue);
+                    }
+                } catch (eSlnt) {
+                    // Silently ignore - slant axis might not exist
+                }
+            }
+        }
+    } catch (eVarFont) {
+        // Variable font handling failed - not critical, continue
+    }
+    
     // Verify the alignment was set correctly
     try {
         var appliedHAlign = api.get(id, 'horizontalAlignment');
@@ -1179,10 +1275,26 @@ function createTextFromFigmaData(figmaData, parentId, vb, inheritedScale, fills,
         // IMPORTANT: Sort text children by their first tspan's Y position (topmost first)
         // Figma exports multi-styled text as separate <text> elements, but NOT in visual order!
         // We need the topmost line's baseline for correct positioning.
+        // NOTE: Each text element may have its own transform, so we need to apply it
         if (textChildrenArray.length > 1) {
+            // Helper function to get the transformed Y position of a text child's first tspan
+            function getTransformedTspanY(textChild) {
+                if (!textChild.tspans || textChild.tspans.length === 0) return 0;
+                var tspanY = textChild.tspans[0].y;
+                var tspanX = textChild.tspans[0].x;
+                
+                // Apply the text element's transform if present
+                if (textChild.attrs && textChild.attrs.transform) {
+                    var matrix = parseTransformMatrixList(textChild.attrs.transform);
+                    // Apply matrix: y' = b*x + d*y + f
+                    tspanY = matrix.b * tspanX + matrix.d * tspanY + matrix.f;
+                }
+                return tspanY;
+            }
+            
             textChildrenArray.sort(function(a, b) {
-                var aY = (a.tspans && a.tspans.length > 0) ? a.tspans[0].y : 0;
-                var bY = (b.tspans && b.tspans.length > 0) ? b.tspans[0].y : 0;
+                var aY = getTransformedTspanY(a);
+                var bY = getTransformedTspanY(b);
                 return aY - bY; // Sort ascending (topmost Y = smallest value first)
             });
             if (textChildrenArray[0].tspans && textChildrenArray[0].tspans.length > 0) {
@@ -1195,7 +1307,26 @@ function createTextFromFigmaData(figmaData, parentId, vb, inheritedScale, fills,
         if (firstTextChild && firstTextChild.tspans && firstTextChild.tspans.length > 0) {
             // Use the actual baseline Y from the first tspan - this is the ground truth
             // The SVG tspan Y attribute gives us the exact baseline position
-            figmaBaselineY = firstTextChild.tspans[0].y;
+            // IMPORTANT: Apply the text element's transform to get the actual position!
+            // Figma exports text with transforms like translate(32 487) on the <text> element
+            // and the tspans have positions relative to that transform
+            var tspanY = firstTextChild.tspans[0].y;
+            var tspanX = firstTextChild.tspans[0].x;
+            
+            // Check if the text element has a transform attribute
+            if (firstTextChild.attrs && firstTextChild.attrs.transform) {
+                // Parse the full transform as a matrix (handles translate, matrix, etc.)
+                var textTransformMatrix = parseTransformMatrixList(firstTextChild.attrs.transform);
+                
+                // Apply the matrix to the tspan position: (a*x + c*y + e, b*x + d*y + f)
+                var transformedX = textTransformMatrix.a * tspanX + textTransformMatrix.c * tspanY + textTransformMatrix.e;
+                var transformedY = textTransformMatrix.b * tspanX + textTransformMatrix.d * tspanY + textTransformMatrix.f;
+                
+                tspanY = transformedY;
+                // Note: We use tspanY for baseline positioning, tspanX would be used if we needed it
+            }
+            
+            figmaBaselineY = tspanY;
             baselineSource = 'SVG tspan';
         } else {
             // Fallback: estimate baseline as top + fontSize
@@ -1435,6 +1566,100 @@ function createTextFromFigmaData(figmaData, parentId, vb, inheritedScale, fills,
         
         api.set(id, textSettings);
         
+        // VARIABLE FONT SUPPORT: Set font axes for variable fonts
+        // Cavalry API: fontAxes.0 is typically the weight axis, fontAxes.1 is typically slant
+        // Reference: https://docs.cavalry.scenegroup.co/tech-info/scripting/example-scripts/
+        // IMPORTANT: Use getAttributeDefinition to check if font is variable BEFORE setting
+        try {
+            // Check if this font has variable font axes by checking for fontAxes.0
+            var isVariableFontFigma = false;
+            try {
+                var axisCheckFigma = api.getAttributeDefinition(id, "fontAxes.0");
+                isVariableFontFigma = (axisCheckFigma !== null && axisCheckFigma !== undefined);
+            } catch (eCheckFigma) {
+                isVariableFontFigma = false;
+            }
+            
+            if (!isVariableFontFigma) {
+                // Static font - skip variable font processing entirely
+            } else {
+                console.log('[Variable Font] Processing Figma text: ' + name + ' with font: ' + fontFamily + ' ' + fontStyle);
+                
+                // Get numeric weight from Figma styled segments
+                var numericWeight = null;
+                if (figmaData.styledSegments && figmaData.styledSegments.length > 0) {
+                    for (var fwi = 0; fwi < figmaData.styledSegments.length; fwi++) {
+                        var fwSeg = figmaData.styledSegments[fwi];
+                        if (fwSeg.fontWeight !== undefined && typeof fwSeg.fontWeight === 'number') {
+                            numericWeight = fwSeg.fontWeight;
+                            console.log('[Variable Font] Found fontWeight in Figma styledSegments: ' + numericWeight);
+                            break;
+                        }
+                    }
+                }
+                
+                // Set weight axis (fontAxes.0)
+                if (numericWeight !== null) {
+                    try {
+                        api.set(id, { "fontAxes.0": numericWeight });
+                        console.log('[Variable Font] Set fontAxes.0 (weight) to ' + numericWeight + ' for ' + fontFamily);
+                    } catch (eWghtSet) {
+                        // Silently ignore
+                    }
+                }
+                
+                // SLANT AXIS: Try to get slant from SVG text children's font-style attribute
+                var slantVal = null;
+                var svgFontStyle = null;
+                
+                // Look for font-style in the SVG text children
+                if (svgTextChildren) {
+                    var textChildArr = Array.isArray(svgTextChildren) ? svgTextChildren : [svgTextChildren];
+                    for (var tci = 0; tci < textChildArr.length; tci++) {
+                        var tc = textChildArr[tci];
+                        if (tc.attrs && tc.attrs['font-style']) {
+                            svgFontStyle = tc.attrs['font-style'];
+                            break;
+                        }
+                    }
+                }
+                
+                // Parse actual degree value from "oblique Xdeg" format
+                if (svgFontStyle) {
+                    var obliqueMatchFigma = svgFontStyle.match(/oblique\s*(-?\d+(?:\.\d+)?)\s*deg/i);
+                    if (obliqueMatchFigma && obliqueMatchFigma[1]) {
+                        slantVal = parseFloat(obliqueMatchFigma[1]);
+                        console.log('[Variable Font] Parsed slant from SVG font-style: ' + slantVal + ' degrees');
+                    } else if (svgFontStyle.toLowerCase().indexOf('italic') !== -1 || 
+                               svgFontStyle.toLowerCase().indexOf('oblique') !== -1) {
+                        slantVal = -12;
+                        console.log('[Variable Font] Using default slant for italic/oblique: ' + slantVal);
+                    }
+                } else {
+                    // Fallback: check fontStyle name
+                    var fontStyleLowerCheckFigma = (fontStyle || '').toLowerCase();
+                    if (fontStyleLowerCheckFigma.indexOf('italic') !== -1 || fontStyleLowerCheckFigma.indexOf('oblique') !== -1) {
+                        slantVal = -12;
+                    }
+                }
+                
+                // Check if slant axis exists before setting
+                if (slantVal !== null) {
+                    try {
+                        var slantAxisCheckFigma = api.getAttributeDefinition(id, "fontAxes.1");
+                        if (slantAxisCheckFigma) {
+                            api.set(id, { "fontAxes.1": slantVal });
+                            console.log('[Variable Font] Set fontAxes.1 (slant) to ' + slantVal);
+                        }
+                    } catch (eSlntSet) {
+                        // Silently ignore
+                    }
+                }
+            }
+        } catch (eVarFont) {
+            // Variable font handling failed - not critical
+        }
+        
         // Apply styled segments using Apply Typeface nodes
         // Cavalry API: https://docs.cavalry.scenegroup.co/nodes/utilities/apply-typeface/
         // OPTIMIZATION: Group segments by font to reduce node count
@@ -1474,11 +1699,12 @@ function createTextFromFigmaData(figmaData, parentId, vb, inheritedScale, fills,
                 if (emojiMatches.length > 0) {
                 }
                 
-                // Add to font group
+                // Add to font group - also store fontWeight for variable font support
                 if (!fontGroups[segFontFull]) {
                     fontGroups[segFontFull] = {
                         fontFamily: segFontFamily,
                         fontStyle: segFontStyle,
+                        fontWeight: seg.fontWeight,  // Store numeric weight for variable fonts
                         ranges: []
                     };
                 }
@@ -1516,6 +1742,36 @@ function createTextFromFigmaData(figmaData, parentId, vb, inheritedScale, fills,
                         "font.font": group.fontFamily,
                         "font.style": group.fontStyle
                     });
+                    
+                    // VARIABLE FONT SUPPORT for Apply Typeface
+                    // If this segment has a fontWeight and the font is variable, set fontAxes.0
+                    if (group.fontWeight !== undefined && typeof group.fontWeight === 'number') {
+                        try {
+                            // Check if Apply Typeface has fontAxes.0 (font is variable)
+                            var applyTypefaceAxisCheck = api.getAttributeDefinition(applyTypefaceId, "fontAxes.0");
+                            if (applyTypefaceAxisCheck) {
+                                api.set(applyTypefaceId, { "fontAxes.0": group.fontWeight });
+                                console.log('[Variable Font] Apply Typeface: Set fontAxes.0 to ' + group.fontWeight + ' for ' + group.fontStyle);
+                            }
+                        } catch (eApplyAxis) {
+                            // Font might not be variable - silently ignore
+                        }
+                    }
+                    
+                    // SLANT AXIS for Apply Typeface
+                    // Check if fontStyle contains "italic" or "oblique" and set slant axis
+                    var applyTypefaceStyleLower = (group.fontStyle || '').toLowerCase();
+                    if (applyTypefaceStyleLower.indexOf('italic') !== -1 || applyTypefaceStyleLower.indexOf('oblique') !== -1) {
+                        try {
+                            var applyTypefaceSlantCheck = api.getAttributeDefinition(applyTypefaceId, "fontAxes.1");
+                            if (applyTypefaceSlantCheck) {
+                                api.set(applyTypefaceId, { "fontAxes.1": -12 });
+                                console.log('[Variable Font] Apply Typeface: Set fontAxes.1 (slant) to -12 for ' + group.fontStyle);
+                            }
+                        } catch (eApplySlant) {
+                            // Slant axis might not exist - silently ignore
+                        }
+                    }
                     
                     // Connect Apply Typeface to the text shape's styleBehaviours
                     api.connect(applyTypefaceId, 'id', id, 'styleBehaviours');

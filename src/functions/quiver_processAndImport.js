@@ -249,8 +249,32 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
                             }
                         } catch (eStyledMask) {}
                         
-                        // Apply blend mode from group
-                        applyBlendMode(styledTextId, node.attrs);
+                        // Apply blend mode from group or text children
+                        // Figma may put the blend mode on the text element itself, not the wrapper group
+                        var blendModeApplied = false;
+                        
+                        // First try the group attrs
+                        var groupBlendMode = node.attrs && (node.attrs['mix-blend-mode'] || 
+                            (node.attrs.style && extractStyleProperty(node.attrs.style, 'mix-blend-mode')));
+                        if (groupBlendMode && groupBlendMode !== 'normal') {
+                            applyBlendMode(styledTextId, node.attrs);
+                            blendModeApplied = true;
+                        }
+                        
+                        // If no blend mode on group, check text children
+                        if (!blendModeApplied && node.children && node.children.length > 0) {
+                            for (var bmIdx = 0; bmIdx < node.children.length && !blendModeApplied; bmIdx++) {
+                                var bmChild = node.children[bmIdx];
+                                if (bmChild.type === 'text' && bmChild.attrs) {
+                                    var childBlendMode = bmChild.attrs['mix-blend-mode'] ||
+                                        (bmChild.attrs.style && extractStyleProperty(bmChild.attrs.style, 'mix-blend-mode'));
+                                    if (childBlendMode && childBlendMode !== 'normal') {
+                                        applyBlendMode(styledTextId, bmChild.attrs);
+                                        blendModeApplied = true;
+                                    }
+                                }
+                            }
+                        }
                         
                         // Apply filters (drop shadows, inner shadows, blur) from group, inherited, or text children
                         try {
