@@ -24,7 +24,9 @@ const SRC_ASSETS_DIR = path.join(SRC_DIR, 'quiver_assets');
 const ROOT_ASSETS_DIR = path.join(__dirname, 'quiver_assets');
 const DEV_FILE = path.join(SRC_DIR, 'Quiver-Dev.js');
 const OUTPUT_FILE = path.join(__dirname, 'Quiver.js');
-const FIGMA_UI_FILE = path.join(__dirname, 'figma', 'ui.html');
+const FIGMA_DIR = path.join(__dirname, 'figma');
+const FIGMA_UI_FILE = path.join(FIGMA_DIR, 'ui.html');
+const FIGMA_ASSETS_DEST = path.join(ROOT_ASSETS_DIR, 'Quiver for Figma');
 
 /**
  * Recursively copy directory
@@ -193,6 +195,23 @@ async function build() {
         console.log(`✅ Copied ${assetFiles.length} asset files`);
     } else {
         console.warn('⚠️  Warning: src/quiver_assets/ not found, skipping asset copy...');
+    }
+    
+    // Copy Figma plugin to assets
+    console.log('\n📦 Copying Figma plugin...');
+    if (fs.existsSync(FIGMA_DIR)) {
+        // Remove old Figma plugin directory if it exists
+        if (fs.existsSync(FIGMA_ASSETS_DEST)) {
+            fs.rmSync(FIGMA_ASSETS_DEST, { recursive: true, force: true });
+        }
+        
+        // Copy Figma plugin
+        copyDir(FIGMA_DIR, FIGMA_ASSETS_DEST);
+        
+        const figmaFiles = fs.readdirSync(FIGMA_DIR);
+        console.log(`✅ Copied Figma plugin (${figmaFiles.length} files) to quiver_assets/Quiver for Figma`);
+    } else {
+        console.warn('⚠️  Warning: figma/ not found, skipping Figma plugin copy...');
     }
     
     // Update Figma plugin version
