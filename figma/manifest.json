@@ -5,6 +5,8 @@
   "main": "code.js",
   "capabilities": [],
   "enableProposedApi": false,
+  "id": "1595599188685560428",
+  "documentAccess": "dynamic-page",
   "editorType": [
     "figma"
   ],
