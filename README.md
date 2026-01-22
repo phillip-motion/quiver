@@ -112,6 +112,8 @@ Coming soon!
 | Lines `<line>`  | ✅  |
 | Polyline `<polyline>`  | ✅  |
 | Text `<text>`  | ✅  |
+| Text alignment  | ✅  |
+| Variable fonts  | ✅ (limited)  |
 | Emojis  | ✅  |
 | Tspan `<tspan>`  | ✅  |
 | Color  | ✅  |
@@ -132,8 +134,6 @@ Coming soon!
 | Blend modes  | ✅ |
 | Masks and clip paths  | ✅  |
 | Background blur  | ✅  |
-| Text alignment  | ✅  |
-
 
 ## Roadmap
 We're actively working on:
