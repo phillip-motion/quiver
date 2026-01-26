@@ -31,30 +31,26 @@ https://github.com/user-attachments/assets/d99671f8-e279-4cd0-8b74-6c054f8c5147
 - **Horizontal/Vertical Text Alignment**: Dynamically adjust horizontal/vertical text alignment
 - **Rename Layers**: Renames all selected layers as [name] 1, [name] 2 etc. 
 
-
-## Installation
-1. Extract the ZIP file.
-2. Copy Quiver.js and the `quiver_assets` folder into your Cavalry Scripts folder.
-3. In Cavalry, open the `Scripts` menu and select Quiver.
-
-#### Figma Plugin (recommended)
-1. In Figma, right click on any frame and go to `Plugins > Development > Import plugin from manifest...`
-2. Open your Cavalry Scripts folder, go to `quiver_assets/Quiver for Figma` and select `manifest.json`
-3. Done!
-
-https://github.com/user-attachments/assets/feb4bcc6-242c-434c-b945-0d933e3607ae
-
-
-## Usage
-
-In Cavalry, open the `Scripts` menu and select Quiver.
+## Instructions
 
 > [!IMPORTANT]
 > Make sure you have a [Cavalry project](https://docs.cavalry.scenegroup.co/user-interface/menus/window-menu/assets-window/project-settings/) selected.
 
-Transfer from Figma in one click. Select a frame and use the Figma plugin.
+## Cavalry 
 
-<img width="272" height="134" alt="Figma plugin" src="https://github.com/user-attachments/assets/89fac727-cbeb-47e2-bf89-3084a366888d" />
+1. Extract the ZIP file and copy the content to your Cavalry Scripts folder.
+2. Select the `Scripts` menu and open Quiver.
+
+## Figma
+
+Open the Actions menu and search for **Quiver**.
+
+<img width="487" height="239" alt="Open Quiver in Figma" src="https://github.com/user-attachments/assets/7208388f-b263-4ae5-be4a-34226318af4a" />
+
+Then, select a frame and click **Fire Towards Cavalry**.
+
+<img width="267" height="132" alt="Click the Fire button." src="https://github.com/user-attachments/assets/00ebf3fb-5154-4210-a500-79f317592bbc" />
+
 
 #### Manual import
 
@@ -82,10 +78,11 @@ Automatically adjusts position of text when changing text alignment. Useful for 
 Batch rename selected layers. Eg. [name] 1, [name] 2 etc. 
 
 
-## Preparing your SVGs
+## Manual import
 
-### Manually importing from Figma
-(We recommend using the Figma Plugin noted above for full Quiver functionality)
+(We recommend using the Figma Plugin above for full functionality)
+
+### Figma
 1. Select the frame you want to export
 2. Under **Export** in the side panel, select SVG
 3. Click the 3 dots and ensure your settings match below:
@@ -96,7 +93,7 @@ Batch rename selected layers. Eg. [name] 1, [name] 2 etc.
 - [ ] Ignore overlapping layers
 4. Export or copy your frame as SVG!
 
-### Importing from Affinity
+### Affinity
 Coming soon!
 
 
