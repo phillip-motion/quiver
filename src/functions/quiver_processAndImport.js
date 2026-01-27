@@ -1803,7 +1803,8 @@ function hasProjectPath() {
 }
 
 // --- Main Import Functions ---
-function processAndImportSVG(svgCode) {
+function processAndImportSVG(svgCode, options) {
+    options = options || {};
     try {
         // Validate SVG content
         if (!svgCode || (svgCode + '').trim() === '') {
@@ -1909,8 +1910,9 @@ function processAndImportSVG(svgCode) {
         
         // Flatten groups after import if the setting is disabled
         // This preserves layer order while removing the group hierarchy
+        // Skip flattening if options.skipFlatten is true (used by loader to preserve group IDs)
         var finalGroupCount = stats.groups;
-        if (typeof importGroupsEnabled !== 'undefined' && !importGroupsEnabled) {
+        if (!options.skipFlatten && typeof importGroupsEnabled !== 'undefined' && !importGroupsEnabled) {
             try {
                 var flattened = flattenAllGroupsAfterImport();
                 if (flattened > 0) {

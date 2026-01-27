@@ -120,11 +120,19 @@ function getCompDimensions() {
     return defaultDims;
 }
 
+// The loader SVG's top-level group name - used to find and delete it
+var LOADER_TOP_GROUP_NAME = 'Firing...';
+
 /**
  * Show loading indicator by importing the Firing....svg file
  * Uses Quiver's native SVG import pipeline (processAndImportSVG)
  * Adjusts dimensions to match active composition bounds
- * @returns {Array} Array of created layer IDs (the "Firing..." group)
+ * 
+ * Does NOT inject a wrapper group - this caused content to be incorrectly
+ * parented to the loader on some systems. Instead, we find and delete
+ * the loader's actual top-level group ("Firing...") by name.
+ * 
+ * @returns {void} - No return value; hideLoadingIndicator finds loader by name
  */
 function showLoadingIndicator() {
     try {
@@ -135,17 +143,17 @@ function showLoadingIndicator() {
         
         // Read the loading SVG file using api.readFromFile (same as quiver_createUI.js)
         // Located in quiver_assets folder following the same pattern as other assets
-        var svgPath = ui.scriptLocation + '/quiver_assets/quiver_firing-loader_v01.svg';
+        var svgPath = ui.scriptLocation + '/quiver_assets/quiver_firing-loader_v02.svg';
         var svgContent = null;
         
         try {
             svgContent = api.readFromFile(svgPath);
         } catch (readError) {
-            return [];
+            return;
         }
         
         if (!svgContent || svgContent.trim() === '') {
-            return [];
+            return;
         }
         
         // Adjust SVG dimensions to match composition bounds
@@ -181,45 +189,64 @@ function showLoadingIndicator() {
         // Don't modify individual element positions - just transform the group
         if (offsetX !== 0 || offsetY !== 0) {
             svgContent = svgContent.replace(
-                /<g id="Frame 2">/,
-                '<g id="Frame 2" transform="translate(' + offsetX + ', ' + offsetY + ')">'
+                /<g id="Firing...">/,
+                '<g id="Firing..." transform="translate(' + offsetX + ', ' + offsetY + ')">'
             );
         }
         
-        // Import using Quiver's native SVG parser (same pipeline as regular imports)
-        // resetImportedGroupIds() is called at start of processAndImportSVG
-        processAndImportSVG(svgContent);
+        // Import the loader SVG WITHOUT any wrapper injection
+        // The loader's top-level group is "Firing..." which we'll find and delete later
+        // Skip flattening to preserve the group structure
+        processAndImportSVG(svgContent, { skipFlatten: true });
         
-        // Get the group IDs that were created during import
-        // Uses getImportedGroupIds() from quiver_svgParser.js
-        var createdGroups = [];
+        // CRITICAL: Clear selection and any parent state after loader import
+        // On some systems, Cavalry automatically parents new layers to the last-created
+        // group or current selection. We must break this association before content import.
         try {
-            createdGroups = getImportedGroupIds();
-        } catch (e) {
-            // Fallback if function not available
-        }
+            // Try to deselect all - different Cavalry versions may have different methods
+            if (typeof api.select === 'function') {
+                api.select([]);  // Select nothing = deselect all
+            }
+        } catch (e) {}
         
-        // Flush events to ensure the loading indicator renders immediately
+        // Flush events to ensure the loading indicator renders and selection is cleared
         if (typeof api.processEvents === 'function') {
             api.processEvents();
         }
         
-        return createdGroups;
-        
     } catch (e) {
+        // Silent fail - loader is non-critical
     }
-    return [];
 }
 
 /**
- * Hide loading indicator by deleting its layers
- * @param {Array} layerIds - Array of layer IDs to delete
+ * Hide loading indicator by finding and deleting the loader's top-level group
+ * Searches for "Firing..." group (the loader's actual top-level group) and deletes it
+ * 
+ * We do NOT use an injected wrapper group because that caused content to be
+ * incorrectly parented to the loader on some systems.
  */
-function hideLoadingIndicator(layerIds) {
+function hideLoadingIndicator() {
     try {
-        if (layerIds && layerIds.length > 0) {
-            for (var i = 0; i < layerIds.length; i++) {
-                api.deleteLayer(layerIds[i]);
+        // Search all layers in the composition for our loader group
+        var allLayers = api.getCompLayers(false);
+        if (!allLayers || allLayers.length === 0) {
+            return;
+        }
+        
+        // Find and delete the loader's top-level group ("Firing...")
+        // This contains all the loader elements (overlay, dialog, logo, text)
+        var deletedCount = 0;
+        for (var i = 0; i < allLayers.length; i++) {
+            try {
+                var layerName = api.getNiceName(allLayers[i]);
+                if (layerName === LOADER_TOP_GROUP_NAME) {
+                    api.deleteLayer(allLayers[i]);
+                    deletedCount++;
+                    // Don't break - clean up any duplicates just in case
+                }
+            } catch (e) {
+                // Continue checking other layers
             }
         }
     } catch (e) {
@@ -232,7 +259,7 @@ function hideLoadingIndicator(layerIds) {
  */
 function handleImportSVG(request) {
     // Show loading indicator before import starts
-    var loadingLayers = showLoadingIndicator();
+    showLoadingIndicator();
     
     try {
         
@@ -252,7 +279,7 @@ function handleImportSVG(request) {
         
         // If import failed (validation error, etc), stop here
         if (!importSuccess) {
-            hideLoadingIndicator(loadingLayers);
+            hideLoadingIndicator();
             clearFigmaTextData();
             clearCreatedTextShapes();
             return;
@@ -295,7 +322,7 @@ function handleImportSVG(request) {
         }
         
         // Hide loading indicator now that import is complete
-        hideLoadingIndicator(loadingLayers);
+        hideLoadingIndicator();
         
         // Try to bring Cavalry to the foreground
         // Note: Window focusing may not be available in Cavalry's scripting API
@@ -310,7 +337,7 @@ function handleImportSVG(request) {
         }
     } catch (e) {
         // Hide loading indicator even on error
-        hideLoadingIndicator(loadingLayers);
+        hideLoadingIndicator();
         console.error("🏹 Quiver: Import failed - " + e.message);
     }
 }
@@ -565,15 +592,22 @@ function processStrokeGradientNodes(vectorDataArray, viewBox) {
     // This prevents issues when multiple layers have the same name
     resetProcessedHybridLayers();
     
+    console.log('[StrokeGradient] Processing ' + vectorDataArray.length + ' stroke gradient node(s)...');
+    
     for (var i = 0; i < vectorDataArray.length; i++) {
         var nodeData = vectorDataArray[i];
         
         try {
             // Find the existing layer by name (SVG import created an outlined version)
             // Pass nodeData and viewBox for position-based matching when multiple layers share the same name
+            console.log('[StrokeGradient] Looking for layer named: "' + nodeData.name + '"');
             var existingLayerId = findLayerByName(nodeData.name);
             
             if (existingLayerId) {
+                var foundLayerName = '';
+                try { foundLayerName = api.getNiceName(existingLayerId); } catch(e) {}
+                console.log('[StrokeGradient] Found layer: "' + foundLayerName + '" (ID: ' + existingLayerId + ')');
+                
                 // Mark this layer as being processed so we don't find it again
                 // if another layer has the same name
                 markLayerAsProcessed(existingLayerId);
@@ -884,7 +918,10 @@ function processStrokeGradientNodes(vectorDataArray, viewBox) {
                     }
                     
                     // NOW delete the old layer (it's now at originalIndex + 1)
-                    try { 
+                    try {
+                        var deletingLayerName = '';
+                        try { deletingLayerName = api.getNiceName(existingLayerId); } catch(e) {}
+                        console.log('[StrokeGradient] DELETING old layer: "' + deletingLayerName + '" (ID: ' + existingLayerId + ')');
                         api.deleteLayer(existingLayerId); 
                     } catch (eDel) {
                         console.error("   Failed to delete old layer: " + eDel.message);
@@ -900,12 +937,15 @@ function processStrokeGradientNodes(vectorDataArray, viewBox) {
                 }
             } else {
                 // Layer not found - create new one (without existing shader)
+                console.log('[StrokeGradient] Layer "' + nodeData.name + '" NOT FOUND - creating new');
                 createPathFromVectorData(nodeData, viewBox, null);
             }
         } catch (eNode) {
             console.error("   Failed to process '" + nodeData.name + "': " + eNode.message);
         }
     }
+    
+    console.log('[StrokeGradient] Done processing stroke gradients');
 }
 
 /**
@@ -2077,12 +2117,12 @@ function processEmojiWithFallback(emoji, viewBox) {
  */
 function handleImportFromClipboard(request) {
     // Show loading indicator before import starts
-    var loadingLayers = showLoadingIndicator();
+    showLoadingIndicator();
     
     try {
         var svg = api.getClipboardText();
         if (!svg || svg.trim() === '') {
-            hideLoadingIndicator(loadingLayers);
+            hideLoadingIndicator();
             console.error("🏹 Quiver: Clipboard is empty");
             return;
         }
@@ -2090,10 +2130,10 @@ function handleImportFromClipboard(request) {
         console.info("🏹 Quiver: Clipboard imported successfully");
         
         // Hide loading indicator after import
-        hideLoadingIndicator(loadingLayers);
+        hideLoadingIndicator();
     } catch (e) {
         // Hide loading indicator even on error
-        hideLoadingIndicator(loadingLayers);
+        hideLoadingIndicator();
         console.error("🏹 Quiver: Clipboard import failed - " + e.message);
     }
 }
