@@ -248,7 +248,16 @@ function handleImportSVG(request) {
         
         // Import the SVG (createText will now look up alignment from __figmaTextData)
         // Text shapes created will be registered for emoji positioning
-        processAndImportSVG(request.svgCode);
+        var importSuccess = processAndImportSVG(request.svgCode);
+        
+        // If import failed (validation error, etc), stop here
+        if (!importSuccess) {
+            hideLoadingIndicator(loadingLayers);
+            clearFigmaTextData();
+            clearCreatedTextShapes();
+            return;
+        }
+        
         console.info("🏹 Quiver: SVG imported successfully");
         
         // If hybrid vector data is present (nodes with stroke gradients),

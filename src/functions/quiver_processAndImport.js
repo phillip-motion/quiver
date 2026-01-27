@@ -1778,18 +1778,48 @@ function saveSceneBeforeImport() {
     }
 }
 
+// --- Image/Project Validation Helpers ---
+/**
+ * Check if SVG contains image assets (direct images or image patterns)
+ */
+function svgContainsImages(svgCode) {
+    // Check for <image> tags (direct images)
+    if (/<image[^>]*>/i.test(svgCode)) return true;
+    // Check for image patterns (image fills)
+    if (/<pattern[^>]*>[\s\S]*?<image/i.test(svgCode)) return true;
+    return false;
+}
+
+/**
+ * Check if a Cavalry project is saved/set
+ */
+function hasProjectPath() {
+    try {
+        var path = api.getProjectPath && api.getProjectPath();
+        return path && path !== '' && path !== null;
+    } catch (e) {
+        return false;
+    }
+}
+
 // --- Main Import Functions ---
 function processAndImportSVG(svgCode) {
     try {
         // Validate SVG content
         if (!svgCode || (svgCode + '').trim() === '') {
             console.error('No valid SVG content');
-            return;
+            return false;
         }
         
         if (!svgCode.includes('<svg') || !svgCode.includes('</svg>')) {
             console.error('Invalid SVG format');
-            return;
+            return false;
+        }
+
+        // Block import if SVG contains images but no project is saved
+        if (svgContainsImages(svgCode) && !hasProjectPath()) {
+            console.error('🏹 Can\'t import images without a Project. Go to File > Project Settings to create one.');
+            return false;
         }
 
         var vb = extractViewBox(svgCode);
@@ -1893,11 +1923,13 @@ function processAndImportSVG(svgCode) {
         }
 
         console.info('🏹 Import complete — groups: ' + finalGroupCount + ', rects: ' + stats.rects + ', circles: ' + stats.circles + ', ellipses: ' + stats.ellipses + ', texts: ' + stats.texts + ', paths: ' + stats.paths);
+        return true;
     } catch (e) {
         var errorMsg = e && e.message ? e.message : 'Import failed';
         // Skip undefined/null error messages
         if (errorMsg !== 'undefined' && errorMsg !== 'null') {
             console.error('Error: ' + errorMsg);
         }
+        return false;
     }
 }
