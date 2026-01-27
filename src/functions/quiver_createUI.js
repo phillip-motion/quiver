@@ -10,7 +10,7 @@ function createIconButton(symbol, tooltip, size) {
 
 
 
-var pasteButton = new ui.ImageButton(ui.scriptLocation + "/quiver_assets/quiver_text-paste.png");
+var pasteButton = new ui.ImageButton(ui.scriptLocation + "/quiver_assets/quiver_text-paste_v01.png");
 pasteButton.setImageSize(61,22);
 pasteButton.setMinimumHeight(36);
 pasteButton.setToolTip("Paste SVG content from clipboard");
@@ -63,7 +63,7 @@ pasteButton.onClick = function() {
 };
 
 // Import from file button
-var importFileButton = new ui.ImageButton(ui.scriptLocation + "/quiver_assets/quiver_text-import.png");
+var importFileButton = new ui.ImageButton(ui.scriptLocation + "/quiver_assets/quiver_text-import_v01.png");
 importFileButton.setImageSize(70,22);
 importFileButton.setMinimumHeight(36);
 importFileButton.setToolTip("Import SVG file from your computer");
@@ -168,14 +168,14 @@ var imageFilterQuality = 2; // 0=None, 1=Bilinear, 2=Mipmaps (default), 3=Bicubi
 var emojiPlaceholder = "[e]"; // Placeholder string for emoji positions (must be at least 2 chars)
 
 // Settings button
-var settingsButton = new ui.ImageButton(ui.scriptLocation+"/quiver_assets/quiver_icon-settings.png");
+var settingsButton = new ui.ImageButton(ui.scriptLocation+"/quiver_assets/quiver_icon-settings_v01.png");
 settingsButton.setImageSize(22,22);
 settingsButton.setSize(35, 35);
 settingsButton.setToolTip("Settings");
 
 // Create icon buttons
 
-var convertRectButton = new ui.ImageButton(ui.scriptLocation+"/quiver_assets/quiver_icon-rectangle.png");
+var convertRectButton = new ui.ImageButton(ui.scriptLocation+"/quiver_assets/quiver_icon-rectangle_v01.png");
 convertRectButton.setImageSize(22,22);
 convertRectButton.setSize(34, 34);
 convertRectButton.setToolTip("Convert to Rectangle");
@@ -187,7 +187,7 @@ convertRectButton.onClick = function(evt) {
 };
 
 
-var dynamicAlignButton = new ui.ImageButton(ui.scriptLocation+"/quiver_assets/quiver_icon-align.png");
+var dynamicAlignButton = new ui.ImageButton(ui.scriptLocation+"/quiver_assets/quiver_icon-align_v01.png");
 dynamicAlignButton.setImageSize(22,22);
 dynamicAlignButton.setSize(34, 34);
 dynamicAlignButton.setToolTip("Dynamic Align");
@@ -202,7 +202,7 @@ dynamicAlignButton.onClick = function() {
     } catch (e) { console.error('Dynamic Align error: ' + e.message); }
 };
 
-var flattenShapeButton = new ui.ImageButton(ui.scriptLocation+"/quiver_assets/quiver_icon-flatten.png");
+var flattenShapeButton = new ui.ImageButton(ui.scriptLocation+"/quiver_assets/quiver_icon-flatten_v01.png");
 flattenShapeButton.setImageSize(22,22);
 flattenShapeButton.setSize(34, 34);
 flattenShapeButton.setToolTip("Flatten Shape");
@@ -210,7 +210,7 @@ flattenShapeButton.onClick = function() {
     flattenShape();
 };
 
-var cycleTextAlignButton = new ui.ImageButton(ui.scriptLocation+"/quiver_assets/quiver_icon-text-horizontal-left.png");
+var cycleTextAlignButton = new ui.ImageButton(ui.scriptLocation+"/quiver_assets/quiver_icon-text-horizontal-left_v01.png");
 cycleTextAlignButton.setImageSize(22,22);
 cycleTextAlignButton.setSize(34, 34);
 cycleTextAlignButton.setToolTip("Horizontal Text Alignment");
@@ -220,7 +220,7 @@ cycleTextAlignButton.onClick = function() {
     updateTextAlignIcon();
 };
 
-var cycleVerticalTextAlignButton = new ui.ImageButton(ui.scriptLocation+"/quiver_assets/quiver_icon-text-vertical-top.png");
+var cycleVerticalTextAlignButton = new ui.ImageButton(ui.scriptLocation+"/quiver_assets/quiver_icon-text-vertical-top_v01.png");
 cycleVerticalTextAlignButton.setImageSize(22,22);
 cycleVerticalTextAlignButton.setSize(34, 34);
 cycleVerticalTextAlignButton.setToolTip("Vertical Text Alignment");
@@ -249,7 +249,7 @@ function updateTextAlignIcon() {
         var selection = api.getSelection();
         
         // Default to left-aligned icon when no text is selected
-        var iconPath = ui.scriptLocation + "/quiver_assets/quiver_icon-text-horizontal-left.png";
+        var iconPath = ui.scriptLocation + "/quiver_assets/quiver_icon-text-horizontal-left_v01.png";
         
         if (selection && selection.length > 0) {
             // Check each selected layer for text shapes
@@ -279,14 +279,14 @@ function updateTextAlignIcon() {
                         // Cavalry horizontalAlignment values (from Text Shape node documentation):
                         // 0 = Left, 1 = Centre, 2 = Right, 3 = Justified
                         if (alignment === 1) {
-                            iconPath = ui.scriptLocation + "/quiver_assets/quiver_icon-text-horizontal-center.png";
+                            iconPath = ui.scriptLocation + "/quiver_assets/quiver_icon-text-horizontal-center_v01.png";
                         } else if (alignment === 2) {
-                            iconPath = ui.scriptLocation + "/quiver_assets/quiver_icon-text-horizontal-right.png";
+                            iconPath = ui.scriptLocation + "/quiver_assets/quiver_icon-text-horizontal-right_v01.png";
                         } else if (alignment === 3) {
-                            iconPath = ui.scriptLocation + "/quiver_assets/quiver_icon-text-horizontal-justified.png";
+                            iconPath = ui.scriptLocation + "/quiver_assets/quiver_icon-text-horizontal-justified_v01.png";
                         } else {
                             // 0 (Left) - show left icon
-                            iconPath = ui.scriptLocation + "/quiver_assets/quiver_icon-text-horizontal-left.png";
+                            iconPath = ui.scriptLocation + "/quiver_assets/quiver_icon-text-horizontal-left_v01.png";
                         }
                     } catch (e) {}
                     break; // Use first text shape found
@@ -319,7 +319,7 @@ function updateVerticalTextAlignIcon() {
         var selection = api.getSelection();
         
         // Default to top-aligned icon when no text is selected
-        var iconPath = ui.scriptLocation + "/quiver_assets/quiver_icon-text-vertical-top.png";
+        var iconPath = ui.scriptLocation + "/quiver_assets/quiver_icon-text-vertical-top_v01.png";
         
         if (selection && selection.length > 0) {
             // Check each selected layer for text shapes
@@ -349,14 +349,14 @@ function updateVerticalTextAlignIcon() {
                         // Cavalry verticalAlignment values (from Text Shape node documentation):
                         // 0 = Top, 1 = Centre, 2 = Bottom, 3 = Baseline
                         if (alignment === 1) {
-                            iconPath = ui.scriptLocation + "/quiver_assets/quiver_icon-text-vertical-middle.png";
+                            iconPath = ui.scriptLocation + "/quiver_assets/quiver_icon-text-vertical-middle_v01.png";
                         } else if (alignment === 2) {
-                            iconPath = ui.scriptLocation + "/quiver_assets/quiver_icon-text-vertical-bottom.png";
+                            iconPath = ui.scriptLocation + "/quiver_assets/quiver_icon-text-vertical-bottom_v01.png";
                         } else if (alignment === 3) {
-                            iconPath = ui.scriptLocation + "/quiver_assets/quiver_icon-text-vertical-baseline.png";
+                            iconPath = ui.scriptLocation + "/quiver_assets/quiver_icon-text-vertical-baseline_v01.png";
                         } else {
                             // 0 (Top) - show top icon
-                            iconPath = ui.scriptLocation + "/quiver_assets/quiver_icon-text-vertical-top.png";
+                            iconPath = ui.scriptLocation + "/quiver_assets/quiver_icon-text-vertical-top_v01.png";
                         }
                     } catch (e) {}
                     break; // Use first text shape found
@@ -380,7 +380,7 @@ renamerInput.setCornerRounding(4);
 renamerInput.setBackgroundColor(ui.getThemeColor("Window"));
 renamerInput.setPlaceholder("Rename layers...");
 
-var renamerButton = new ui.ImageButton(ui.scriptLocation+"/quiver_assets/quiver_icon-apply.png");
+var renamerButton = new ui.ImageButton(ui.scriptLocation+"/quiver_assets/quiver_icon-apply_v01.png");
 renamerButton.setImageSize(22,22);
 renamerButton.setSize(34, 34);
 renamerButton.setToolTip("Rename");
@@ -627,7 +627,7 @@ var cornerRadiusInput = new ui.LineEdit();
     settingsLayout.addSpacing(32);
     
     // Version info
-    var settingsLogo = new ui.ImageButton(ui.scriptLocation+"/quiver_assets/quiver_logo.png");
+    var settingsLogo = new ui.ImageButton(ui.scriptLocation+"/quiver_assets/quiver_logo_v01.png");
     settingsLogo.setImageSize(106, 35);
     settingsLogo.setDrawStroke(false);
     settingsLogo.setBackgroundColor(ui.getThemeColor("Base"));
@@ -736,7 +736,7 @@ var mainButtons = new ui.HLayout();
 mainButtons.setSpaceBetween(6);
 mainButtons.setMargins(6,6,6,6);
 
-var logo = new ui.ImageButton(ui.scriptLocation+"/quiver_assets/quiver_icon.png");
+var logo = new ui.ImageButton(ui.scriptLocation+"/quiver_assets/quiver_icon_v01.png");
 logo.setImageSize(28, 29);
 logo.setBackgroundColor(ui.getThemeColor("AlternateBase"));
 logo.setDrawStroke(false);

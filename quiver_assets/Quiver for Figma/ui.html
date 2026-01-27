@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+      --cavalry-color-brand-bg: #4ffd7a;
+      --cavalry-color-brand-text: #292929;
+    }
+    
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      font-size: 1em;
+      padding: 0.5em;
+      background-color: var(--figma-color-bg);
+      color: var(--figma-color-text);
+    }
+
+    .controls {
+      display: flex;
+      align-items: center;
+      gap: 0.5em;
+    }
+
+
+    
+    .button {
+      width: 100%;
+      padding: 0.75em 1em;
+      background: var(--cavalry-color-brand-bg);
+      color: var(--cavalry-color-brand-text);
+      border: none;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      border-radius: 2px;
+      font-size: 0.9em;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    .logo-icon {
+      fill: var(--figma-color-text);
+      width: 2em;
+      height: 2em;
+    }
+    
+    .button:hover {
+      filter: brightness(0.9);
+    }
+    
+    .button:active {
+      filter: brightness(0.8);
+    }
+    
+    .button:disabled {
+      background: #ccc;
+      cursor: not-allowed;
+    }
+    
+    
+    .connection-status {
+      display: flex;
+      text-align: left;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.7em;
+      margin-top: 0.5em;
+      color: var(--figma-color-text-secondary);
+    }
+
+    .connection-text {
+      width: 100%;
+    }
+
+    .version-number,
+    .version-number a {
+      color: var(--figma-color-text-tertiary);
+      text-decoration: none;
+      cursor: pointer;
+    }
+    .version-number a:hover {
+      text-decoration: underline;
+      color: var(--figma-color-text);
+    }
+    
+    .status-dot {
+      width: 0.5em;
+      height: 0.5em;
+      flex-shrink: 0;
+      border-radius: 50%;
+      background: var(--figma-color-bg-disabled);
+    }
+    
+    .status-dot.connected {
+      background: var(--figma-color-bg-success);
+    }
+    .status-dot.error {
+      background: var(--figma-color-bg-danger);
+    }
+  </style>
+</head>
+<body>
+  <div class="controls">
+    <svg class="logo-icon" viewBox="0 2 28 35" xmlns="http://www.w3.org/2000/svg">
+      <path d="M6.25551 8.5163C7.16053 8.65055 8.57237 8.75098 10.6407 8.69797C13.8253 8.61631 15.8972 9.98954 17.293 11.5274C17.9673 12.2703 18.4829 13.0481 18.8797 13.663C19.3275 14.3569 19.5425 14.693 19.7146 14.8651C19.8652 15.0156 20.1879 15.226 20.8356 15.6015C21.4122 15.9357 22.1692 16.3621 22.9035 16.8886C24.3941 17.9574 25.9959 19.5811 26.3456 22.2016C26.6607 24.5644 25.6009 26.6424 25.3293 28.0151C25.2189 28.5735 25.4227 29.0711 25.573 29.4018C25.6189 29.5027 25.6295 29.6158 25.6026 29.7233L25.045 31.9568C24.9788 32.222 24.7081 32.3872 24.4538 32.2871C24.0981 32.147 23.7629 31.9473 23.4737 31.6678C23.0522 31.2603 22.8181 30.7702 22.7026 30.2859C22.4945 29.4137 22.6558 28.4448 22.805 27.6903C23.1476 25.9582 23.6347 24.3274 23.4041 22.5958C23.2076 21.1222 22.3361 20.134 21.1738 19.3006C20.5819 18.8762 19.9664 18.5299 19.3455 18.17C18.7958 17.8514 18.0946 17.4448 17.6138 16.964C17.155 16.5049 16.7204 15.7932 16.3846 15.2729C15.9977 14.6733 15.5942 14.0714 15.0956 13.5219C14.1454 12.475 12.8564 11.6119 10.718 11.6666C8.52863 11.7227 6.93713 11.618 5.81872 11.452C5.26085 11.3692 4.80186 11.2688 4.43493 11.1563C4.24734 11.0988 4.03255 11.0238 3.82381 10.921C3.57871 10.8002 3.54319 10.4867 3.71389 10.2733L5.05971 8.59101C5.18165 8.43858 5.38181 8.37269 5.57369 8.4086C5.83253 8.45703 6.10613 8.49413 6.25551 8.5163Z"/>
+      <path d="M23.6456 12.2299L24.3433 12.9334L8.50889 28.6286L7.81313 27.9271L7.11737 27.2236L22.9498 11.5264L23.6456 12.2299Z"/>
+      <path d="M28.6584 8.56934L27.0969 14.3973C26.8997 15.1331 25.98 15.3795 25.4413 14.8409L23.3082 12.7077L21.175 10.5745C20.6364 10.0359 20.8828 9.11616 21.6186 8.91901L27.4465 7.35743C28.1823 7.16027 28.8556 7.83356 28.6584 8.56934Z"/>
+      <path d="M5.46215 30.0083C5.7354 30.0083 5.95691 30.2298 5.95691 30.503V34.4206C5.95691 34.6938 5.7354 34.9153 5.46215 34.9153H4.8907C4.61745 34.9153 4.39594 34.6938 4.39594 34.4206V32.2248C4.39594 31.9516 4.17443 31.73 3.90118 31.73H1.36488C1.09163 31.73 0.870117 31.5085 0.870117 31.2353V30.503C0.870117 30.2298 1.09163 30.0083 1.36488 30.0083H5.46215Z"/>
+      <path d="M7.99684 27.0123C8.2701 27.0123 8.49161 27.2338 8.49161 27.5071V31.4246C8.49161 31.6979 8.2701 31.9194 7.99685 31.9194H7.4254C7.15215 31.9194 6.93064 31.6979 6.93064 31.4246V29.2289C6.93064 28.9556 6.70912 28.7341 6.43587 28.7341H3.89958C3.62633 28.7341 3.40482 28.5126 3.40482 28.2393V27.5071C3.40482 27.2338 3.62633 27.0123 3.89958 27.0123H7.99684Z"/>
+      <path d="M8.98964 26.4979L24.3022 29.6346L24.2017 30.1197L24.1031 30.6048L8.07742 27.3232L8.0407 26.9598L6.43658 10.8587L7.42225 10.7621L8.98964 26.4979Z" fill-opacity="0.5"/>
+    </svg>
+
+    <button id="sendButton" class="button">
+      Fire towards Cavalry
+    </button>
+
+  </div>
+  
+  <div id="status" class="status" style="display: none;"></div>
+  
+  <div class="connection-status">
+    <div id="statusDot" class="status-dot"></div>
+    <div id="connectionText" class="connection-text">Checking connection...</div>
+    <div id="versionNumber" class="version-number"><a href="#" onclick="openGithub(); return false;">v1.6.0↗</a></div>
+  </div>
+  
+  <script>
+    const QUIVER_PORT = 8765;
+    const QUIVER_URL = `http://localhost:${QUIVER_PORT}/post`;
+    
+    let isConnected = false;
+    let isError = false;
+    let currentSelection = null;
+    
+    // DOM elements
+    const sendButton = document.getElementById('sendButton');
+    const statusDot = document.getElementById('statusDot');
+    const connectionText = document.getElementById('connectionText');
+    
+    // Check if Quiver is running
+    async function checkConnection() {
+      try {
+        // Use text/plain to avoid CORS preflight
+        const response = await fetch(QUIVER_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain' },
+          body: JSON.stringify({ action: 'ping' })
+        });
+        
+        if (response.ok) {
+          isConnected = true;
+          isError = false;
+          statusDot.classList.remove('error');
+          statusDot.classList.add('connected');
+          connectionText.textContent = 'Connected to Quiver';
+          return true;
+        }
+      } catch (error) {
+        isConnected = false;
+        isError = true;
+        statusDot.classList.remove('connected');
+        statusDot.classList.add('error');
+        connectionText.textContent = 'Make sure Quiver is running';
+      }
+      return false;
+    }
+    
+
+    
+    
+    // Send SVG (and optional vector/text/emoji data) to Cavalry
+    async function sendToCavalry(svgCode, nodeName, frameWidth, frameHeight, vectorData, textData, emojiData) {
+      console.log('sendToCavalry called:');
+      console.log('  svgCode length:', svgCode ? svgCode.length : 'null');
+      console.log('  nodeName:', nodeName);
+      console.log('  vectorData:', vectorData ? vectorData.length + ' nodes' : 'none');
+      console.log('  textData:', textData ? textData.length + ' nodes' : 'none');
+      console.log('  emojiData:', emojiData ? emojiData.length + ' emojis' : 'none');
+      
+      try {
+        // Build payload - include vector/text data for hybrid approach if available
+        const payload = {
+          action: 'importSVG',
+          svgCode: svgCode
+        };
+        
+        // Add hybrid vector data if present (for stroke gradients)
+        if (vectorData && vectorData.length > 0) {
+          payload.vectorData = vectorData;
+          payload.frameWidth = frameWidth;
+          payload.frameHeight = frameHeight;
+          console.log('Sending hybrid data with', vectorData.length, 'stroke gradient node(s)');
+          // Debug: log the first vector data node
+          if (vectorData[0]) {
+            console.log('First vector node:', vectorData[0].name);
+            console.log('  Has vectorPaths:', vectorData[0].vectorPaths ? vectorData[0].vectorPaths.length : 0);
+            console.log('  Has strokes:', vectorData[0].strokes ? vectorData[0].strokes.length : 0);
+          }
+        }
+        
+        // Add hybrid text data if present (for accurate alignment)
+        if (textData && textData.length > 0) {
+          payload.textData = textData;
+          payload.frameWidth = frameWidth;
+          payload.frameHeight = frameHeight;
+          console.log('Sending hybrid text data with', textData.length, 'text node(s)');
+          // Debug: log the first text data node
+          if (textData[0]) {
+            console.log('First text node:', textData[0].name);
+            console.log('  Align:', textData[0].textAlignHorizontal, '/', textData[0].textAlignVertical);
+          }
+        }
+        
+        // Add emoji data if present (emojis exported as PNG images)
+        if (emojiData && emojiData.length > 0) {
+          payload.emojiData = emojiData;
+          payload.frameWidth = frameWidth;
+          payload.frameHeight = frameHeight;
+          console.log('Sending emoji data with', emojiData.length, 'emoji(s)');
+          // Debug: log the first emoji
+          if (emojiData[0]) {
+            console.log('First emoji:', emojiData[0].emojiChar, 'from', emojiData[0].textNodeName);
+            console.log('  Position:', emojiData[0].x, ',', emojiData[0].y);
+            console.log('  Base64 length:', emojiData[0].base64 ? emojiData[0].base64.length : 'missing');
+          }
+        }
+        
+        const payloadStr = JSON.stringify(payload);
+        console.log('Payload JSON length:', payloadStr.length);
+        
+        // Use text/plain to avoid CORS preflight
+        console.log('Sending to:', QUIVER_URL);
+        const response = await fetch(QUIVER_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain' },
+          body: payloadStr
+        });
+        
+        console.log('Fetch response status:', response.status);
+        
+        if (response.ok) {
+          // Tell code.js to show success toast
+          parent.postMessage({
+            pluginMessage: {
+              type: 'fetch-success',
+              nodeName: nodeName
+            }
+          }, '*');
+        } else {
+          // Tell code.js to show error toast
+          parent.postMessage({
+            pluginMessage: {
+              type: 'fetch-error',
+              message: 'HTTP error: ' + response.status
+            }
+          }, '*');
+        }
+      } catch (error) {
+        isConnected = false;
+        isError = true;
+        statusDot.classList.remove('connected');
+        connectionText.textContent = 'Quiver not found';
+
+        // Tell code.js to show error toast
+        parent.postMessage({
+          pluginMessage: {
+            type: 'fetch-error',
+            message: 'Quiver not found. Make sure Quiver is open in Cavalry.'
+          }
+        }, '*');
+      }
+    }
+    
+    // Button click handler
+    sendButton.onclick = () => {
+      // Disable button immediately to prevent multiple clicks
+      // Button will be re-enabled after Cavalry confirms receipt (or error)
+      sendButton.disabled = true;
+      sendButton.textContent = 'Firing towards Cavalry...';
+      parent.postMessage({ pluginMessage: { type: 'send-to-cavalry' } }, '*');
+    };
+
+    // Update selection info and button state based on selection
+    function updateSelectionInfo(msg) {
+      currentSelection = msg;
+
+      if (msg.hasSelection) {
+        // Enable button - keep consistent text
+        sendButton.disabled = false;
+        sendButton.textContent = 'Fire towards Cavalry';
+        console.log('Selection:', msg.name, '(' + msg.nodeType + ')');
+      } else {
+        // Disable button - same text, just greyed out
+        sendButton.disabled = true;
+        sendButton.textContent = 'Fire towards Cavalry';
+        console.log('No valid selection:', msg.message);
+      }
+    }
+    
+    // Listen for messages from main thread
+    window.onmessage = async (event) => {
+      console.log('UI received message:', event.data);
+      
+      if (!event.data || !event.data.pluginMessage) {
+        console.log('No pluginMessage in event data');
+        return;
+      }
+      
+      const msg = event.data.pluginMessage;
+      console.log('Message type:', msg.type);
+      
+      if (msg.type === 'selection-info') {
+        updateSelectionInfo(msg);
+      }
+      else if (msg.type === 'enable-button') {
+        // Re-enable the button after Cavalry response (success or error)
+        sendButton.disabled = false;
+        sendButton.textContent = 'Fire towards Cavalry';
+      }
+      else if (msg.type === 'error') {
+        // Handle error from code.js (e.g., no selection, invalid type)
+        // Re-enable button so user can try again
+        sendButton.disabled = false;
+        sendButton.textContent = 'Fire towards Cavalry';
+        console.log('Error from plugin:', msg.message);
+
+        // Show error in connection text temporarily
+        const originalText = connectionText.textContent;
+        connectionText.textContent = msg.message;
+        connectionText.style.color = 'var(--figma-color-text-danger)';
+
+        // Restore after 3 seconds
+        setTimeout(() => {
+          connectionText.textContent = originalText;
+          connectionText.style.color = '';
+        }, 3000);
+      }
+      else if (msg.type === 'send-svg') {
+        console.log('Received send-svg message');
+        console.log('  svgCode length:', msg.svgCode ? msg.svgCode.length : 'missing');
+        console.log('  vectorData:', msg.vectorData ? msg.vectorData.length + ' items' : 'none');
+        console.log('  textData:', msg.textData ? msg.textData.length + ' items' : 'none');
+        console.log('  emojiData:', msg.emojiData ? msg.emojiData.length + ' items' : 'none');
+
+        // Pass all data including hybrid vector/text/emoji data
+        await sendToCavalry(
+          msg.svgCode,
+          msg.nodeName,
+          msg.frameWidth,
+          msg.frameHeight,
+          msg.vectorData,
+          msg.textData,
+          msg.emojiData
+        );
+      }
+    };
+    
+    // Open GitHub repository
+    function openGithub() {
+      parent.postMessage({ pluginMessage: { type: 'open-github' } }, '*');
+      return false; // Prevent default link behavior
+    }
+    
+    // Initialize plugin
+    function init() {
+      console.log('Quiver for Figma: UI loaded');
+      
+      // Check connection
+      checkConnection();
+      
+      // Request selection info after a short delay
+      setTimeout(() => {
+        parent.postMessage({ pluginMessage: { type: 'check-selection' } }, '*');
+      }, 200);
+    }
+    
+    // Check connection periodically
+    setInterval(checkConnection, 5000);
+    
+    // Start initialization
+    init();
+  </script>
+</body>
+</html>
+
