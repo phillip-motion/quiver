@@ -143,7 +143,7 @@ function showLoadingIndicator() {
         
         // Read the loading SVG file using api.readFromFile (same as quiver_createUI.js)
         // Located in quiver_assets folder following the same pattern as other assets
-        var svgPath = ui.scriptLocation + '/quiver_assets/quiver_firing-loader_v02.svg';
+        var svgPath = ui.scriptLocation + '/assets/quiver_firing-loader_v02.svg';
         var svgContent = null;
         
         try {

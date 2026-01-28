@@ -31,13 +31,11 @@ if (shouldMinify) {
 // Paths
 const SRC_DIR = path.join(__dirname, 'src');
 const FUNCTIONS_DIR = path.join(SRC_DIR, 'functions');
-const SRC_ASSETS_DIR = path.join(SRC_DIR, 'quiver_assets');
-const ROOT_ASSETS_DIR = path.join(__dirname, 'quiver_assets');
+const SRC_ASSETS_DIR = path.join(SRC_DIR, 'assets');
 const DEV_FILE = path.join(SRC_DIR, 'Quiver-Dev.js');
 const OUTPUT_FILE = path.join(__dirname, 'Quiver.js');
 const FIGMA_DIR = path.join(__dirname, 'figma');
 const FIGMA_UI_FILE = path.join(FIGMA_DIR, 'ui.html');
-const FIGMA_ASSETS_DEST = path.join(ROOT_ASSETS_DIR, 'Quiver for Figma');
 const CACHE_FILE = path.join(__dirname, '.build-cache.json');
 
 /**
@@ -136,7 +134,7 @@ function generateEmbeddedAssetsCode(imageMap) {
         '// ========================================',
         '// Embedded Assets (Base64)',
         '// ========================================',
-        'var QUIVER_ASSETS_PATH = api.getTempFolder() + "/quiver_assets/";',
+        'var QUIVER_ASSETS_PATH = api.getTempFolder() + "/temp_quiver_assets/";',
         'var QUIVER_EMBEDDED_ASSETS = {'
     ];
     
@@ -381,39 +379,6 @@ async function build() {
     
     console.log(`✅ Bundled ${loadedFiles.length} files into Quiver.js`);
     
-    // Copy assets
-    console.log('\n📦 Copying assets...');
-    if (fs.existsSync(SRC_ASSETS_DIR)) {
-        // Remove old assets directory if it exists
-        if (fs.existsSync(ROOT_ASSETS_DIR)) {
-            fs.rmSync(ROOT_ASSETS_DIR, { recursive: true, force: true });
-        }
-        
-        // Copy new assets
-        copyDir(SRC_ASSETS_DIR, ROOT_ASSETS_DIR);
-        
-        const assetFiles = fs.readdirSync(SRC_ASSETS_DIR);
-        console.log(`✅ Copied ${assetFiles.length} asset files`);
-    } else {
-        console.warn('⚠️  Warning: src/quiver_assets/ not found, skipping asset copy...');
-    }
-    
-    // Copy Figma plugin to assets
-    console.log('\n📦 Copying Figma plugin...');
-    if (fs.existsSync(FIGMA_DIR)) {
-        // Remove old Figma plugin directory if it exists
-        if (fs.existsSync(FIGMA_ASSETS_DEST)) {
-            fs.rmSync(FIGMA_ASSETS_DEST, { recursive: true, force: true });
-        }
-        
-        // Copy Figma plugin
-        copyDir(FIGMA_DIR, FIGMA_ASSETS_DEST);
-        
-        const figmaFiles = fs.readdirSync(FIGMA_DIR);
-        console.log(`✅ Copied Figma plugin (${figmaFiles.length} files) to quiver_assets/Quiver for Figma`);
-    } else {
-        console.warn('⚠️  Warning: figma/ not found, skipping Figma plugin copy...');
-    }
     
     // Update Figma plugin version
     console.log('\n🎨 Updating Figma plugin...');
