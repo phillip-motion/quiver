@@ -115,7 +115,7 @@ async function processImage(filename, cache) {
  * Extract all image references from code
  */
 function extractImageReferences(code) {
-    const regex = /ui\.scriptLocation\s*\+\s*["']\/quiver_assets\/([^"']+)["']/g;
+    const regex = /ui\.scriptLocation\s*\+\s*["']\/assets\/([^"']+)["']/g;
     const images = new Set();
     let match;
     
@@ -171,7 +171,7 @@ function generateEmbeddedAssetsCode(imageMap) {
  */
 function replaceImagePaths(code) {
     return code.replace(
-        /ui\.scriptLocation\s*\+\s*["']\/quiver_assets\/([^"']+)["']/g,
+        /ui\.scriptLocation\s*\+\s*["']\/assets\/([^"']+)["']/g,
         'QUIVER_ASSETS_PATH + "$1"'
     );
 }
@@ -353,13 +353,13 @@ async function build() {
             const minified = await minify(finalContent, {
                 compress: {
                     dead_code: true,
-                    drop_console: false, // Keep console logs for Cavalry
+                    drop_console: true, // Keep console logs for Cavalry
                     drop_debugger: true,
                     pure_funcs: []
                 },
                 mangle: false, // Don't mangle names - important for Cavalry API
                 format: {
-                    comments: /^!|@preserve|@license|@cc_on|Quiver/i
+                    comments: false // Strip ALL comments in minified build
                 }
             });
             
