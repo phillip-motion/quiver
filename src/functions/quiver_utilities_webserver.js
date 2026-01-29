@@ -132,9 +132,16 @@ var LOADER_TOP_GROUP_NAME = 'Firing...';
  * parented to the loader on some systems. Instead, we find and delete
  * the loader's actual top-level group ("Firing...") by name.
  * 
+ * Can be disabled via the showLoaderEnabled setting to improve performance.
+ * 
  * @returns {void} - No return value; hideLoadingIndicator finds loader by name
  */
 function showLoadingIndicator() {
+    // Skip loader if disabled in settings (performance optimization)
+    if (typeof showLoaderEnabled !== 'undefined' && !showLoaderEnabled) {
+        return;
+    }
+    
     try {
         // Get composition dimensions for the overlay
         var compDims = getCompDimensions();
@@ -225,8 +232,15 @@ function showLoadingIndicator() {
  * 
  * We do NOT use an injected wrapper group because that caused content to be
  * incorrectly parented to the loader on some systems.
+ * 
+ * Skips the search if loader is disabled in settings (performance optimization).
  */
 function hideLoadingIndicator() {
+    // Skip if loader was never shown (disabled in settings)
+    if (typeof showLoaderEnabled !== 'undefined' && !showLoaderEnabled) {
+        return;
+    }
+    
     try {
         // Search all layers in the composition for our loader group
         var allLayers = api.getCompLayers(false);

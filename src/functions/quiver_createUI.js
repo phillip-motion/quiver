@@ -164,6 +164,7 @@ var importEmojisEnabled = true;
 var importImageryEnabled = true;
 var importEffectsEnabled = true;
 var importGroupsEnabled = true;
+var showLoaderEnabled = true; // Show "Firing..." loader during Figma imports
 var imageFilterQuality = 2; // 0=None, 1=Bilinear, 2=Mipmaps (default), 3=Bicubic
 var emojiPlaceholder = "[e]"; // Placeholder string for emoji positions (must be at least 2 chars)
 
@@ -437,6 +438,17 @@ function createSettingsWindow() {
     autoSaveLayout.setSpaceBetween(8);
     settingsLayout.add(autoSaveLayout);
     
+    // Show loader checkbox
+    var loaderLayout = new ui.HLayout();
+    var showLoaderCheckbox = new ui.Checkbox(showLoaderEnabled);
+    showLoaderCheckbox.onValueChanged = function() {
+        showLoaderEnabled = showLoaderCheckbox.getValue();
+    };
+    loaderLayout.add(showLoaderCheckbox);
+    loaderLayout.add(new ui.Label("Show Figma import loader"));
+    loaderLayout.setSpaceBetween(8);
+    settingsLayout.add(loaderLayout);
+    
     // Import groups checkbox
     var groupsLayout = new ui.HLayout();
     var importGroupsCheckbox = new ui.Checkbox(importGroupsEnabled);
@@ -598,6 +610,7 @@ var cornerRadiusInput = new ui.LineEdit();
         importImageryEnabled = importImageryCheckbox.getValue();
         importEffectsEnabled = importEffectsCheckbox.getValue();
         importGroupsEnabled = importGroupsCheckbox.getValue();
+        showLoaderEnabled = showLoaderCheckbox.getValue();
         imageFilterQuality = filterQualityDropdown.getValue();
         
         // Capture emoji placeholder with validation - must be exactly 3 characters
