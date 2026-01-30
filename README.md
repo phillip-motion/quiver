@@ -9,8 +9,9 @@
 </p>
 
 <p align="center" style="margin-top:0;margin-bottom:0;">
-  <img width="430" height="311" alt="Quiver UI" src="https://github.com/user-attachments/assets/d60bbaeb-8cb6-401e-ac9c-afd9bce1e0bd" />
+   <img width="600" height="338" alt="quiver_download" src="https://github.com/user-attachments/assets/e5f550f0-e05e-40b2-bc6e-bc39223e50b2" />
 </p>
+
 
 ### Launch your designs into Cavalry 🏹
 
@@ -38,7 +39,7 @@ https://github.com/user-attachments/assets/d99671f8-e279-4cd0-8b74-6c054f8c5147
 
 ## Cavalry 
 
-1. Extract the ZIP file and copy the content to your Cavalry Scripts folder.
+1. Copy the `Quiver.jsc` file into your Cavalry Scripts folder.
 2. Select the `Scripts` menu and open Quiver.
 
 ## Figma
