@@ -245,6 +245,7 @@ function getMaskDefinition(maskId) {
 // Create or reuse a mask shape and connect it to the target
 // svgGeometry is optional: {x, y, width, height} from the SVG rect node for optimization
 function createMaskShapeForTarget(maskId, targetShapeId, parentId, vb, model, svgGeometry) {
+    var maskStartTime = new Date().getTime();
     
     try {
         // Look up the mask definition
@@ -266,6 +267,7 @@ function createMaskShapeForTarget(maskId, targetShapeId, parentId, vb, model, sv
             }
             
             // Connect the existing shape to the new target via masks
+            var reuseConnectStart = new Date().getTime();
             try {
                 api.connect(existingShapeId, 'id', targetShapeId, 'masks');
                 addMaskShapeForTarget(targetShapeId, existingShapeId);
@@ -279,6 +281,8 @@ function createMaskShapeForTarget(maskId, targetShapeId, parentId, vb, model, sv
             } catch (eReuse) {
                 console.warn('[MASK]   ✗ FAILED to connect: ' + eReuse.message);
             }
+            var reuseConnectEnd = new Date().getTime();
+            console.log('[Mask] Reused + connected in ' + (reuseConnectEnd - maskStartTime) + 'ms (connect: ' + (reuseConnectEnd - reuseConnectStart) + 'ms)');
             return existingShapeId;
         }
         
@@ -370,12 +374,17 @@ function createMaskShapeForTarget(maskId, targetShapeId, parentId, vb, model, sv
         }
 
         // Connect mask shape to target shape via masks
+        var connectStartTime = new Date().getTime();
         try {
             api.connect(maskShapeId, 'id', targetShapeId, 'masks');
             addMaskShapeForTarget(targetShapeId, maskShapeId);
         } catch (eClipMask) {
             console.warn('[Quiver] Could not connect mask: ' + eClipMask.message);
         }
+        var connectEndTime = new Date().getTime();
+        var totalTime = connectEndTime - maskStartTime;
+        var connectTime = connectEndTime - connectStartTime;
+        console.log('[Mask] Created + connected in ' + totalTime + 'ms (connect: ' + connectTime + 'ms)');
 
         return maskShapeId;
     } catch (e) {

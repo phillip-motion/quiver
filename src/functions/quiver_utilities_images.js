@@ -236,25 +236,23 @@ function _saveDataUriToQuiverFolder(dataUri, contextNode) {
         var head = dataUri.slice(0, 120);
         var hash = _hashString(head + '|' + dataUri.length);
         
-        // Increment counter for unique numbering
         __imageCounter++;
         
-        // Build a descriptive name using parent context and unique number
         var baseName = __lastPatternOrImageName || 'img';
         
-        // If we have an ID attribute from the image element itself, use that
         if (contextNode && contextNode.attrs && contextNode.attrs.id) {
             baseName = contextNode.attrs.id;
         }
         
         var base = _sanitizeFileComponent(baseName);
         
-        // Check if the base name already ends with a number (from shader naming)
-        // If so, don't add another counter
-        var uniqueName = base;
-        if (!/_\d+$/.test(base)) {
-            uniqueName = base + '_' + __imageCounter;
+        // Prefix with source frame name when available (e.g. from Figma import)
+        if (__currentFrameName) {
+            base = _sanitizeFileComponent(__currentFrameName) + '_' + base;
         }
+        
+        // Content hash prevents overwrites when layer names collide across frames
+        var uniqueName = base + '_' + hash;
         
         var outPath = dir + '/' + uniqueName + '.' + ext;
         var wrote = false;

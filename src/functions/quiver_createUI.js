@@ -37,18 +37,21 @@ pasteButton.onClick = function() {
             return;
         }
         
+        // TESTING: Skip saveScene to test if it affects paste button speed
         // Check if auto-save is enabled
-        if (autoSaveEnabled) {
-            // Attempt to save the scene before importing
-            console.info('Saving scene...');
-            var saved = saveSceneBeforeImport();
-            
-            if (saved) {
-                console.info('Scene saved. Parsing…');
-            } else {
-                console.error('Could not save. Parsing…');
-            }
-        }
+        // if (autoSaveEnabled) {
+        //     // Attempt to save the scene before importing
+        //     console.info('Saving scene...');
+        //     var saved = saveSceneBeforeImport();
+        //     
+        //     if (saved) {
+        //         console.info('Scene saved. Parsing…');
+        //     } else {
+        //         console.error('Could not save. Parsing…');
+        //     }
+        // }
+        
+        console.info('Paste import (no save)...');
         
         // Process the SVG
         processAndImportSVG(svgCode);

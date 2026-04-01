@@ -277,6 +277,9 @@ function handleImportSVG(request) {
     
     try {
         
+        // Store source frame name for asset filename prefixes
+        __currentFrameName = request.nodeName || '';
+        
         // HYBRID TEXT: Store Figma text data BEFORE SVG import so createText can access it
         if (request.textData && request.textData.length > 0) {
             setFigmaTextData(request.textData);
@@ -286,6 +289,20 @@ function handleImportSVG(request) {
         
         // Clear the text shape registry before import (will be populated during SVG import)
         clearCreatedTextShapes();
+        
+        // Auto-save AFTER loader import but BEFORE main import
+        // This flushes Cavalry's internal state for ~200x faster layer creation
+        // Must happen after showLoadingIndicator() since that imports the loader SVG
+        if (typeof autoSaveEnabled !== 'undefined' && autoSaveEnabled) {
+            try {
+                var saved = saveSceneBeforeImport();
+                if (saved) {
+                    console.info('Scene saved. Parsing…');
+                }
+            } catch (eSave) {
+                // Save failed, continue with import anyway
+            }
+        }
         
         // Import the SVG (createText will now look up alignment from __figmaTextData)
         // Text shapes created will be registered for emoji positioning
@@ -328,9 +345,10 @@ function handleImportSVG(request) {
             }
         }
         
-        // Clear text data, text shape registry, and emoji index maps after processing
+        // Clear text data, text shape registry, frame name, and emoji index maps after processing
         clearFigmaTextData();
         clearCreatedTextShapes();
+        __currentFrameName = '';
         if (typeof clearEmojiIndexMaps === 'function') {
             clearEmojiIndexMaps();
         }
@@ -350,8 +368,8 @@ function handleImportSVG(request) {
             // Window focusing not available
         }
     } catch (e) {
-        // Hide loading indicator even on error
         hideLoadingIndicator();
+        __currentFrameName = '';
         console.error("🏹 Quiver: Import failed - " + e.message);
     }
 }

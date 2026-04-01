@@ -171,6 +171,7 @@ var __imageImportCache = {}; // href/hash -> savedPath
 var __svgPatternMap = {}; // id -> { attrs..., image: { href, x, y, width, height } }
 var __patternImageShaderCache = {}; // patternId -> shaderId
 var __lastPatternOrImageName = 'img';
+var __currentFrameName = ''; // Source frame name from Figma for asset filename prefixes
 var __imageNamingContext = {}; // Store parent context for better image naming
 var __imageCounter = 0; // Global counter for unique image numbers
 var __groupCounter = 0; // Global counter for anonymous groups

@@ -1,3 +1,29 @@
+// --- Import Step Logging ---
+var __importStepTimes = {};
+var __importLayerCount = 0;
+
+function _logImportStep(stepName) {
+    var now = new Date();
+    var timestamp = now.toTimeString().split(' ')[0] + '.' + String(now.getMilliseconds()).padStart(3, '0');
+    console.log('[Import ' + timestamp + '] ' + stepName);
+    __importStepTimes[stepName] = now.getTime();
+}
+
+function _logLayerCreated(layerType, layerName) {
+    __importLayerCount++;
+    // Log every 10 layers to show progress without flooding console
+    if (__importLayerCount % 10 === 0) {
+        var now = new Date();
+        var timestamp = now.toTimeString().split(' ')[0] + '.' + String(now.getMilliseconds()).padStart(3, '0');
+        console.log('[Import ' + timestamp + '] ...created ' + __importLayerCount + ' layers so far');
+    }
+}
+
+function _resetImportCounters() {
+    __importStepTimes = {};
+    __importLayerCount = 0;
+}
+
 function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHiddenDefs, inheritedScale, parentMatrix) {
     inheritedTranslate = inheritedTranslate || {x:0,y:0};
     inheritedScale = inheritedScale || {x:1,y:1};
@@ -337,6 +363,7 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
             gid = createGroup(groupName, parentId);
             _registerChild(parentId, gid); // Register group as child for sibling lookups (e.g., background blur)
             if (stats) stats.groups = (stats.groups || 0) + 1;
+            _logLayerCreated('group', groupName);
             applyBlendMode(gid, node.attrs);
         }
         // Propagate filter from this group to children if present
@@ -720,6 +747,7 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
         var rotDegR = getRotationDegFromTransform(node.attrs && node.attrs.transform || '');
         if (Math.abs(rotDegR) > 0.0001) api.set(rid, {"rotation": -rotDegR});
         if (stats) stats.rects = (stats.rects || 0) + 1;
+        _logLayerCreated('rect', node.name);
         return rid;
     }
     if (node.type === 'circle') {
@@ -835,6 +863,7 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
         var rotDegC = getRotationDegFromTransform(node.attrs && node.attrs.transform || '');
         if (Math.abs(rotDegC) > 0.0001) api.set(cid, {"rotation": -rotDegC});
         if (stats) stats.circles = (stats.circles || 0) + 1;
+        _logLayerCreated('circle', node.name);
         return cid;
     }
     if (node.type === 'ellipse') {
@@ -954,6 +983,7 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
         var rotDegE = getRotationDegFromTransform(node.attrs && node.attrs.transform || '');
         if (Math.abs(rotDegE) > 0.0001) api.set(eid, {"rotation": -rotDegE});
         if (stats) stats.ellipses = (stats.ellipses || 0) + 1;
+        _logLayerCreated('ellipse', node.name);
         return eid;
     }
     if (node.type === 'text') {
@@ -1043,6 +1073,7 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
         var rotDegT = getRotationDegFromTransform(node.attrs && node.attrs.transform || '');
         if (Math.abs(rotDegT) > 0.0001) api.set(tid, {"rotation": -rotDegT});
         if (stats) stats.texts = (stats.texts || 0) + 1;
+        _logLayerCreated('text', node.name);
         return tid;
     }
     if (node.type === 'image') {
@@ -1128,6 +1159,7 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
             }
         } catch (eMaskI) {}
         if (stats) stats.images = (stats.images || 0) + 1;
+        _logLayerCreated('image', node.name);
         return idImg;
     }
     if (node.type === 'use') {
@@ -1378,6 +1410,7 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
             }
             
             if (stats) stats.paths = (stats.paths || 0) + 1;
+            _logLayerCreated('line', node.name);
             return vecId;
         }
         
@@ -1399,6 +1432,7 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
             var primId = createRegularPolygonPrimitive(node.name || (node.type === 'polygon' ? 'Polygon' : 'Polyline'), polyPts, parentId, vb, translateAll, node.attrs);
             if (primId) {
                 if (stats) stats.paths = (stats.paths || 0) + 1;
+                _logLayerCreated('polygon', node.name);
                 return primId;
             }
         }
@@ -1578,6 +1612,7 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
             console.error('[DEBUG MASK PATH] Error applying mask: ' + (eMaskP.message || eMaskP));
         }
         if (stats) stats.paths = (stats.paths || 0) + 1;
+        _logLayerCreated('path', node.name);
         return vecId;
     }
     return null;
@@ -1806,7 +1841,11 @@ function hasProjectPath() {
 function processAndImportSVG(svgCode, options) {
     options = options || {};
     try {
+        _resetImportCounters();
+        _logImportStep('Starting import...');
+        
         // Validate SVG content
+        _logImportStep('Validating SVG content');
         if (!svgCode || (svgCode + '').trim() === '') {
             console.error('No valid SVG content');
             return false;
@@ -1823,6 +1862,7 @@ function processAndImportSVG(svgCode, options) {
             return false;
         }
 
+        _logImportStep('Extracting viewBox');
         var vb = extractViewBox(svgCode);
         if (!vb) vb = {x:0,y:0,width:1000,height:1000};
         
@@ -1839,26 +1879,37 @@ function processAndImportSVG(svgCode, options) {
         // Reset imported group tracking for post-import flattening
         resetImportedGroupIds();
 
+        _logImportStep('Parsing SVG structure');
         var model = parseSVGStructure(svgCode);
+        
         // Normalize: merge separate fill/stroke siblings before creating layers
+        _logImportStep('Merging fill/stroke pairs');
         try { mergeFillStrokePairs(model); } catch (eMerge) {  }
+        
         // Extract filters once for dropshadows
+        _logImportStep('Extracting filters');
         try {
             __svgFilterMap = extractFilters(svgCode) || {};
             
         } catch (eF) { __svgFilterMap = {}; }
+        
         // Extract patterns (image fills)
+        _logImportStep('Extracting patterns');
         try {
             var patterns = extractPatterns(svgCode) || {};
             setPatternContext(patterns);
         } catch (ePatt) { setPatternContext({}); }
+        
         // Extract masks (clipping/masking)
+        _logImportStep('Extracting masks');
         try {
             var masks = extractMasks(svgCode) || {};
             setMaskContext(masks);
             resetMaskShapeCache(); // Clear cache for new import to avoid stale references
         } catch (eMask) { setMaskContext({}); resetMaskShapeCache(); }
+        
         // Use the proven gradient extractor logic pattern
+        _logImportStep('Extracting gradients');
         var gradientMap = {};
         var gradsArr = extractGradients(svgCode);
         for (var gi = 0; gi < gradsArr.length; gi++) {
@@ -1870,7 +1921,7 @@ function processAndImportSVG(svgCode, options) {
         // Clear any previous deferred background blur queue
         clearDeferredBackgroundBlurs();
 
-        console.info('Creating layers…');
+        _logImportStep('Creating layers (' + model.children.length + ' top-level nodes)');
 
         // Create layers directly under scene root: use the outer-most <svg>'s children
         var rootId = null; // no extra wrapper group
@@ -1895,13 +1946,17 @@ function processAndImportSVG(svgCode, options) {
         for (var i = 0; i < model.children.length; i++) {
             importNode(model.children[i], rootId, vb, {x:0,y:0}, stats, model, false, {x:1,y:1}, null);
         }
+        
+        _logImportStep('Post-processing masks');
         postProcessMasks(rootId, model);
 
         // After creating layers, unify any path-based fill/stroke pairs to single shapes
+        _logImportStep('Unifying path stroke pairs');
         try { unifyPathStrokePairsAfterImport(); } catch (eUP) {  }
         
         // Process deferred background blurs now that all shapes are created
         // This finds underlying overlapping siblings and applies blur filters
+        _logImportStep('Processing background blurs');
         try { processDeferredBackgroundBlurs(); } catch (eBgBlurPost) { 
             console.warn('[Background Blur] Post-processing error: ' + eBgBlurPost.message);
         }
@@ -1913,6 +1968,7 @@ function processAndImportSVG(svgCode, options) {
         // Skip flattening if options.skipFlatten is true (used by loader to preserve group IDs)
         var finalGroupCount = stats.groups;
         if (!options.skipFlatten && typeof importGroupsEnabled !== 'undefined' && !importGroupsEnabled) {
+            _logImportStep('Flattening groups');
             try {
                 var flattened = flattenAllGroupsAfterImport();
                 if (flattened > 0) {
@@ -1924,6 +1980,7 @@ function processAndImportSVG(svgCode, options) {
             }
         }
 
+        _logImportStep('Import complete');
         console.info('🏹 Import complete — groups: ' + finalGroupCount + ', rects: ' + stats.rects + ', circles: ' + stats.circles + ', ellipses: ' + stats.ellipses + ', texts: ' + stats.texts + ', paths: ' + stats.paths);
         return true;
     } catch (e) {
