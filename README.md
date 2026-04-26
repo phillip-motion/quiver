@@ -3,8 +3,8 @@
   <img width="240" height="75" alt="quiver_logo" src="https://github.com/user-attachments/assets/305b99e9-4ec3-48af-9c6b-e3f131d13acc" />
 </p>
 <p align="center" style="margin-top:0;margin-bottom:0;">
-  <a href="https://github.com/phillip-motion/quiver/releases/latest">
-    <img width="186" height="108" alt="quiver_download" src="https://github.com/user-attachments/assets/9295a646-c7ba-4649-b069-2e78204dc1ce" />
+  <a href="https://github.com/phillip-motion/quiver/releases/latest/download/Quiver.jsc">
+    <img width="186" height="58px" alt="quiver_download" src="https://github.com/user-attachments/assets/9295a646-c7ba-4649-b069-2e78204dc1ce" />
   </a>
 </p>
 
