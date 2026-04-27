@@ -1858,8 +1858,14 @@ function processAndImportSVG(svgCode, options) {
 
         // Block import if SVG contains images but no project is saved
         if (svgContainsImages(svgCode) && !hasProjectPath()) {
-            console.error('🏹 Can\'t import images without a Project. Go to File > Project Settings to create one.');
-            return false;
+            var modal = new ui.Modal();
+            var userWantsImport = modal.showQuestion(
+                "No project set",
+                "Images won\'t be transferred because a Cavalry Project isn\'t set. To change this, set a Project in your Assets panel.\nContinue anyway?"
+            );
+            if (!userWantsImport) {
+                return false;
+            }
         }
 
         _logImportStep('Extracting viewBox');
