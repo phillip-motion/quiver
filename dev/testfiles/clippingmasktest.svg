@@ -1,0 +1,38 @@
+<svg width="1076" height="1062" viewBox="0 0 1076 1062" fill="none" xmlns="http://www.w3.org/2000/svg">
+<rect width="1076" height="1062" fill="#EEEEEE"/>
+<g id="Frame 28">
+<rect width="1076" height="1062" fill="white"/>
+<g id="Group 1">
+<mask id="mask0_0_1" style="mask-type:alpha" maskUnits="userSpaceOnUse" x="283" y="276" width="170" height="170">
+<circle id="Ellipse 5" cx="368" cy="361" r="85" fill="#00444E"/>
+</mask>
+<g mask="url(#mask0_0_1)">
+<path id="image 1" d="M158 119H566V382H158V119Z" fill="url(#paint0_linear_0_1)"/>
+</g>
+</g>
+<g id="Group 2">
+<mask id="mask1_0_1" style="mask-type:luminance" maskUnits="userSpaceOnUse" x="829" y="208" width="170" height="170">
+<circle id="Ellipse 5_2" cx="914" cy="293" r="85" fill="url(#paint1_linear_0_1)"/>
+</mask>
+<g mask="url(#mask1_0_1)">
+<path id="image 1_2" d="M704 51H1112V314H704V51Z" fill="url(#paint2_linear_0_1)"/>
+</g>
+</g>
+</g>
+<defs>
+<linearGradient id="paint0_linear_0_1" x1="158" y1="250.5" x2="566" y2="250.5" gradientUnits="userSpaceOnUse">
+<stop stop-color="#FFFB00"/>
+<stop offset="0.495192" stop-color="#D100B8"/>
+<stop offset="1" stop-color="#FF0000"/>
+</linearGradient>
+<linearGradient id="paint1_linear_0_1" x1="860.5" y1="252.5" x2="999" y2="293" gradientUnits="userSpaceOnUse">
+<stop/>
+<stop offset="1" stop-color="white"/>
+</linearGradient>
+<linearGradient id="paint2_linear_0_1" x1="704" y1="182.5" x2="1112" y2="182.5" gradientUnits="userSpaceOnUse">
+<stop stop-color="#FFFB00"/>
+<stop offset="0.495192" stop-color="#D100B8"/>
+<stop offset="1" stop-color="#FF0000"/>
+</linearGradient>
+</defs>
+</svg>

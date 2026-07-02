@@ -1,0 +1,12 @@
+# Figma plugin development files
+node_modules/
+.DS_Store
+
+# TypeScript build output (if we add TypeScript later)
+*.js.map
+dist/
+
+# IDE files
+.vscode/
+.idea/
+

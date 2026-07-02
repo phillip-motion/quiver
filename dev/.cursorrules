@@ -1,0 +1,68 @@
+# Quiver Project Rules 🏹
+
+## Critical: Development Location
+
+**ALWAYS work in the `/dev/src/` directory for development!**
+
+- Source files: `/dev/src/Quiver-Dev.js` and `/dev/src/functions/*.js`
+- Generated file: `/dev/Quiver.js` (AUTO-GENERATED - DO NOT EDIT)
+- Assets source: `/dev/src/assets/`
+
+## File Edit Guidelines
+
+### ✅ DO EDIT:
+- `/dev/src/Quiver-Dev.js` - Main entry point for development
+- `/dev/src/functions/*.js` - All modular function files
+- `/dev/src/assets/*` - UI assets (icons, images)
+- `/dev/build.js` - Build script
+- `/dev/README.md` - Documentation
+
+### ❌ NEVER EDIT:
+- `/dev/Quiver.js` - Auto-generated from build script
+
+## Project Structure
+
+This is a modular Cavalry script:
+- Development uses `api.load()` to load separate modules
+- Production uses a bundled single-file version (`dev/Quiver.js`)
+- Build script combines all modules into `Quiver.js`
+- The `.jsc` file at root is the encrypted Cavalry wrapper
+
+## Build Commands
+
+```bash
+cd dev
+npm run build          # Standard build (readable)
+npm run build:minify   # Minified build (production)
+```
+
+## When Making Changes
+
+1. Edit files in `/dev/src/`
+2. Test by loading `/dev/src/Quiver-Dev.js` in Cavalry
+3. Run `npm run build` to generate production version
+4. The dev version shows "Quiver-Dev [version]" in window title
+5. The production version shows just "Quiver" in window title
+
+## Cavalry Script Context
+
+- This is a JavaScript UI script for Cavalry (motion design software)
+- Uses Cavalry API: `api.*` and `ui.*` global objects
+- Main file needs `ui.show()` at the end
+- Loaded modules don't have access to `ui` until called from main script
+- Files loaded via `api.load()` share the global scope
+
+## Adding New Features
+
+1. Create new file: `dev/src/functions/quiver_myFeature.js`
+2. Add to `dev/src/Quiver-Dev.js`: `api.load(ui.scriptLocation+"/functions/quiver_myFeature.js");`
+3. Build runs automatically pick up new modules
+4. Run `npm run build` to bundle into production
+
+## Important Notes
+
+- Keep module files focused and single-purpose
+- Use descriptive function names (no minification of names in production)
+- Console logs are preserved (needed for Cavalry debugging)
+- Comments are preserved in standard builds
+- Version number in `currentVersion` constant
