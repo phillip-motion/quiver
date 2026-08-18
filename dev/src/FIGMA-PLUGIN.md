@@ -247,17 +247,12 @@ Most Figma plugins that export to other tools:
 ## Testing
 
 ### Manual Testing:
-1. **Connection Test**
-   ```bash
-   node test-webserver.js
-   ```
-
-2. **Plugin Test**
+1. **Plugin Test**
    - Load plugin in Figma
    - Check connection indicator
    - Send test frame
 
-3. **Integration Test**
+2. **Integration Test**
    - Complex designs
    - Multiple layers
    - Various effects

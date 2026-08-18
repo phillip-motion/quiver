@@ -1,6 +1,5 @@
 {
   "name": "Quiver",
-  "id": "quiver-figma",
   "api": "1.0.0",
   "main": "code.js",
   "capabilities": [],

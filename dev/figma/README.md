@@ -128,7 +128,6 @@ Individual shapes need to be inside a frame or group.
 
 1. **Check Figma's console** - Right-click in plugin window > Inspect
 2. **Check Cavalry's Log Window** - Look for Quiver messages
-3. **Try the test script** - Run `node test-webserver.js` from the Quiver repo
 
 ### Export looks different in Cavalry
 
