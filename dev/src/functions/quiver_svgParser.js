@@ -1034,89 +1034,9 @@ function applyFillAndStroke(layerId, attrs) {
                                 
                                 // Check if we have transform matrix data for precise positioning
                                 var patternData = __svgPatternMap[pid];
-                                var useTransform = patternData && patternData.useTransform;
-                                var isObjectBoundingBox = patternData && patternData.attrs && patternData.attrs.patternContentUnits === 'objectBoundingBox';
+                                var appliedPrecise = applyImageShaderPatternTransform(shaderNode, patternData, layerId);
                                 
-                                if (useTransform && isObjectBoundingBox) {
-                                    // PRECISE MODE: Use scaleMode None and calculate exact scale/offset
-                                    // The transform matrix is in objectBoundingBox coordinates (0-1 range)
-                                    
-                                    // Set scaleMode to None (0) for manual positioning
-                                    var smSet = false;
-                                    try { api.set(shaderNode, { 'scaleMode': 0 }); smSet = true; } catch (eSM0) { smSet = false; }
-                                    if (!smSet) { try { api.set(shaderNode, { 'generator.scaleMode': 0 }); } catch (eSM0b) {} }
-                                    
-                                    // Get the target shape's dimensions using api.getBoundingBox
-                                    var shapeW = 100, shapeH = 100;
-                                    try { 
-                                        var bbox = api.getBoundingBox(layerId, true);
-                                        if (bbox) {
-                                            shapeW = bbox.width || 100;
-                                            shapeH = bbox.height || 100;
-                                        }
-                                    } catch (eBB) {
-                                        // Fallback: try to get generator.dimensions
-                                        try {
-                                            var dims = api.get(layerId, 'generator.dimensions');
-                                            if (dims && dims.length >= 2) {
-                                                shapeW = dims[0] || 100;
-                                                shapeH = dims[1] || 100;
-                                            }
-                                        } catch (eDims) {}
-                                    }
-                                    
-                                    // Get source image dimensions from pattern metadata
-                                    var imgMeta = patternData.image;
-                                    var imgW = parseFloat(imgMeta && imgMeta.width) || 100;
-                                    var imgH = parseFloat(imgMeta && imgMeta.height) || 100;
-                                    
-                                    // Debug: log all input values
-                                    
-                                    // Calculate scale for Cavalry (where 1.0 = 100% = native image size)
-                                    // In objectBoundingBox with patternContentUnits="objectBoundingBox":
-                                    // - matrix.a and matrix.d are scale factors in the 0-1 coordinate space
-                                    // - The visible portion of image = a * imgW (as fraction of shape width)
-                                    // - Visible pixels = a * imgW * shapeW
-                                    // - Cavalry scale = (visible pixels / native pixels)
-                                    //                 = (a * imgW * shapeW / imgW)
-                                    //                 = a * shapeW
-                                    var cavalryScaleX = useTransform.a * shapeW;
-                                    var cavalryScaleY = useTransform.d * shapeH;
-                                    
-                                    
-                                    // Apply scale
-                                    _setFirstSupported(shaderNode, ['scale','generator.scale'], [cavalryScaleX, cavalryScaleY]);
-                                    
-                                    // Calculate offset in pixels
-                                    // e and f are in objectBoundingBox 0-1 coordinates (origin = top-left of shape)
-                                    // Cavalry offset is from center of shape
-                                    // 
-                                    // The transform positions the image such that:
-                                    // - Image top-left corner is at (e * shapeW, f * shapeH) from shape's top-left
-                                    // - The visible image size is (a * imgW * shapeW, d * imgH * shapeH)
-                                    //
-                                    // To convert to Cavalry's center-based offset:
-                                    // - Shape center is at (shapeW/2, shapeH/2)
-                                    // - Image center should be at: (e * shapeW + visibleW/2, f * shapeH + visibleH/2)
-                                    // - Cavalry offset = image center - shape center
-                                    
-                                    var visibleW = useTransform.a * imgW * shapeW;
-                                    var visibleH = useTransform.d * imgH * shapeH;
-                                    
-                                    var imgCenterX = useTransform.e * shapeW + visibleW / 2;
-                                    var imgCenterY = useTransform.f * shapeH + visibleH / 2;
-                                    
-                                    var offsetX = imgCenterX - shapeW / 2;
-                                    var offsetY = imgCenterY - shapeH / 2;
-                                    
-                                    // Cavalry Y axis is inverted (positive = up, negative = down)
-                                    var cavalryOffsetX = offsetX;
-                                    var cavalryOffsetY = -offsetY;
-                                    
-                                    
-                                    _setFirstSupported(shaderNode, ['offset','generator.offset'], [cavalryOffsetX, cavalryOffsetY]);
-                                    
-                                } else {
+                                if (!appliedPrecise) {
                                     // FALLBACK MODE: Use Fit Cover (legacy behavior)
                                 // Set Scale Mode using numeric enums only to avoid parse errors
                                 var modes = [4,3,2,1];
@@ -1331,41 +1251,9 @@ function applyFillAndStroke(layerId, attrs) {
                                     try { if (_hasAttr(addShaderNode, 'legacyGraph')) api.set(addShaderNode, { 'legacyGraph': false }); } catch (eLG2) {}
                                     
                                     var addPatternData = __svgPatternMap[addPid];
-                                    var addUseTransform = addPatternData && addPatternData.useTransform;
-                                    var addIsObjectBoundingBox = addPatternData && addPatternData.attrs && addPatternData.attrs.patternContentUnits === 'objectBoundingBox';
+                                    var addAppliedPrecise = applyImageShaderPatternTransform(addShaderNode, addPatternData, layerId);
                                     
-                                    if (addUseTransform && addIsObjectBoundingBox) {
-                                        var addSmSet = false;
-                                        try { api.set(addShaderNode, { 'scaleMode': 0 }); addSmSet = true; } catch (eSM02) { addSmSet = false; }
-                                        if (!addSmSet) { try { api.set(addShaderNode, { 'generator.scaleMode': 0 }); } catch (eSM0b2) {} }
-                                        
-                                        var addShapeW = 100, addShapeH = 100;
-                                        try {
-                                            var addBbox = api.getBoundingBox(layerId, true);
-                                            if (addBbox) { addShapeW = addBbox.width || 100; addShapeH = addBbox.height || 100; }
-                                        } catch (eBB2) {
-                                            try {
-                                                var addDims = api.get(layerId, 'generator.dimensions');
-                                                if (addDims && addDims.length >= 2) { addShapeW = addDims[0] || 100; addShapeH = addDims[1] || 100; }
-                                            } catch (eDims2) {}
-                                        }
-                                        
-                                        var addImgMeta = addPatternData.image;
-                                        var addImgW = parseFloat(addImgMeta && addImgMeta.width) || 100;
-                                        var addImgH = parseFloat(addImgMeta && addImgMeta.height) || 100;
-                                        
-                                        var addCavScaleX = addUseTransform.a * addShapeW;
-                                        var addCavScaleY = addUseTransform.d * addShapeH;
-                                        _setFirstSupported(addShaderNode, ['scale','generator.scale'], [addCavScaleX, addCavScaleY]);
-                                        
-                                        var addVisibleW = addUseTransform.a * addImgW * addShapeW;
-                                        var addVisibleH = addUseTransform.d * addImgH * addShapeH;
-                                        var addImgCenterX = addUseTransform.e * addShapeW + addVisibleW / 2;
-                                        var addImgCenterY = addUseTransform.f * addShapeH + addVisibleH / 2;
-                                        var addCavOffsetX = addImgCenterX - addShapeW / 2;
-                                        var addCavOffsetY = -(addImgCenterY - addShapeH / 2);
-                                        _setFirstSupported(addShaderNode, ['offset','generator.offset'], [addCavOffsetX, addCavOffsetY]);
-                                    } else {
+                                    if (!addAppliedPrecise) {
                                         var addModes = [4,3,2,1];
                                         var addSetDone = false;
                                         for (var ami = 0; ami < addModes.length && !addSetDone; ami++) {

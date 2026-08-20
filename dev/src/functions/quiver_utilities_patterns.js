@@ -23,6 +23,11 @@ function parseMatrixTransform(transformStr) {
         var sy = scaleMatch[2] ? parseFloat(scaleMatch[2]) : sx;
         return { a: sx, b: 0, c: 0, d: sy, e: 0, f: 0 };
     }
+    // rotate(), translate(), or combined transform lists (Figma sometimes emits these)
+    if (typeof parseTransformMatrixList === 'function' &&
+        /(rotate|translate|skewX|skewY|matrix|scale)\s*\(/.test(transformStr)) {
+        return parseTransformMatrixList(transformStr);
+    }
     return null;
 }
 
@@ -86,4 +91,99 @@ function extractPatterns(svgCode) {
         // extractPatterns error
     }
     return patterns;
+}
+
+/**
+ * Combine the pattern's <use>/<image> transform with patternTransform, if present.
+ * SVG applies patternTransform after the pattern content transform.
+ */
+function getPatternImageMatrix(patternData) {
+    if (!patternData) return null;
+    var useM = patternData.useTransform || null;
+    var patStr = patternData.attrs && patternData.attrs.patternTransform;
+    var patM = null;
+    if (patStr) {
+        patM = parseMatrixTransform(patStr);
+        if (!patM && typeof parseTransformMatrixList === 'function') {
+            patM = parseTransformMatrixList(patStr);
+        }
+    }
+    if (useM && patM && typeof _matMultiply === 'function') {
+        return _matMultiply(patM, useM);
+    }
+    return useM || patM || null;
+}
+
+function _readShapeSize(layerId) {
+    try {
+        var dims = api.get(layerId, 'generator.dimensions');
+        if (dims) {
+            if (dims.length >= 2 && dims[0] && dims[1]) {
+                return { w: dims[0], h: dims[1] };
+            }
+            if (dims.x && dims.y) {
+                return { w: dims.x, h: dims.y };
+            }
+        }
+    } catch (eDims) {}
+    try {
+        var bboxLocal = api.getBoundingBox(layerId, false);
+        if (bboxLocal && bboxLocal.width && bboxLocal.height) {
+            return { w: bboxLocal.width, h: bboxLocal.height };
+        }
+    } catch (eLocal) {}
+    try {
+        var bbox = api.getBoundingBox(layerId, true);
+        if (bbox) {
+            return { w: bbox.width || 100, h: bbox.height || 100 };
+        }
+    } catch (eBB) {}
+    return { w: 100, h: 100 };
+}
+
+/**
+ * Map an SVG pattern image transform onto a Cavalry imageShader.
+ * Previously only a/d (scale) and e/f (translate) were used — rotation in b/c was dropped.
+ * Returns true if precise scale/offset/rotation were applied.
+ */
+function applyImageShaderPatternTransform(shaderNode, patternData, layerId) {
+    var mat = getPatternImageMatrix(patternData);
+    var isOBB = patternData && patternData.attrs && patternData.attrs.patternContentUnits === 'objectBoundingBox';
+    if (!mat || !isOBB) return false;
+
+    var smSet = false;
+    try { api.set(shaderNode, { 'scaleMode': 0 }); smSet = true; } catch (eSM0) { smSet = false; }
+    if (!smSet) { try { api.set(shaderNode, { 'generator.scaleMode': 0 }); } catch (eSM0b) {} }
+
+    var size = _readShapeSize(layerId);
+    var shapeW = size.w;
+    var shapeH = size.h;
+
+    var imgMeta = patternData.image;
+    var imgW = parseFloat(imgMeta && imgMeta.width) || 100;
+    var imgH = parseFloat(imgMeta && imgMeta.height) || 100;
+
+    var decomposed = (typeof decomposeMatrix === 'function')
+        ? decomposeMatrix(mat)
+        : {
+            scaleX: Math.sqrt(mat.a * mat.a + mat.b * mat.b) || mat.a,
+            scaleY: Math.sqrt(mat.c * mat.c + mat.d * mat.d) || mat.d,
+            rotationDeg: Math.atan2(mat.b, mat.a) * 180 / Math.PI
+        };
+
+    _setFirstSupported(shaderNode, ['scale', 'generator.scale'], [decomposed.scaleX * shapeW, decomposed.scaleY * shapeH]);
+
+    // SVG Y-down vs Cavalry Y-up: negate, matching gradient shader handling
+    _setFirstSupported(shaderNode, ['rotation', 'generator.rotation'], -(decomposed.rotationDeg || 0));
+
+    var imgCx = imgW / 2;
+    var imgCy = imgH / 2;
+    var obbCx = mat.a * imgCx + mat.c * imgCy + mat.e;
+    var obbCy = mat.b * imgCx + mat.d * imgCy + mat.f;
+    _setFirstSupported(shaderNode, ['offset', 'generator.offset'], [
+        obbCx * shapeW - shapeW / 2,
+        -(obbCy * shapeH - shapeH / 2)
+    ]);
+
+    return true;
 }
