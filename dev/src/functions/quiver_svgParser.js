@@ -846,7 +846,7 @@ function applyFillAndStroke(layerId, attrs) {
         }
 
         // Fill
-        if (!fill || fill === 'none') {
+        if (!fill || isNoPaintValue(fill)) {
             // Check if we have a Figma gradient that should override the 'none' fill
             if (gradientId === '__figma_angular__' || gradientId === '__figma_diamond__') {
                 // Already handled above - special Figma gradient was applied
@@ -1279,7 +1279,7 @@ function applyFillAndStroke(layerId, attrs) {
                         } catch (eAddPat) {
                         }
                     }
-                } else if (addFillValue && addFillValue !== 'none') {
+                } else if (addFillValue && !isNoPaintValue(addFillValue)) {
                     // SOLID COLOR fill: create a colorShader
                     try {
                         // Use clean name with fill number and color hex
@@ -1325,7 +1325,7 @@ function applyFillAndStroke(layerId, attrs) {
         }
 
         // Stroke
-        if (!stroke || stroke === 'none') {
+        if (!stroke || isNoPaintValue(stroke)) {
             api.setStroke(layerId, false);
         } else {
             api.setStroke(layerId, true);

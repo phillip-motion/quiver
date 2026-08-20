@@ -16,40 +16,246 @@ function parseOpacityValue(value) {
     return clamp01(n);
 }
 
+// --- Colour resolution ---
+// Cavalry silently renders any colour string it cannot parse as opaque black rather
+// than raising, so every value must be reduced to a plain sRGB hex before api.set.
+
+var CSS_NAMED_COLORS = {
+    aliceblue:"#F0F8FF", antiquewhite:"#FAEBD7", aqua:"#00FFFF", aquamarine:"#7FFFD4",
+    azure:"#F0FFFF", beige:"#F5F5DC", bisque:"#FFE4C4", black:"#000000",
+    blanchedalmond:"#FFEBCD", blue:"#0000FF", blueviolet:"#8A2BE2", brown:"#A52A2A",
+    burlywood:"#DEB887", cadetblue:"#5F9EA0", chartreuse:"#7FFF00", chocolate:"#D2691E",
+    coral:"#FF7F50", cornflowerblue:"#6495ED", cornsilk:"#FFF8DC", crimson:"#DC143C",
+    cyan:"#00FFFF", darkblue:"#00008B", darkcyan:"#008B8B", darkgoldenrod:"#B8860B",
+    darkgray:"#A9A9A9", darkgreen:"#006400", darkgrey:"#A9A9A9", darkkhaki:"#BDB76B",
+    darkmagenta:"#8B008B", darkolivegreen:"#556B2F", darkorange:"#FF8C00",
+    darkorchid:"#9932CC", darkred:"#8B0000", darksalmon:"#E9967A", darkseagreen:"#8FBC8F",
+    darkslateblue:"#483D8B", darkslategray:"#2F4F4F", darkslategrey:"#2F4F4F",
+    darkturquoise:"#00CED1", darkviolet:"#9400D3", deeppink:"#FF1493",
+    deepskyblue:"#00BFFF", dimgray:"#696969", dimgrey:"#696969", dodgerblue:"#1E90FF",
+    firebrick:"#B22222", floralwhite:"#FFFAF0", forestgreen:"#228B22", fuchsia:"#FF00FF",
+    gainsboro:"#DCDCDC", ghostwhite:"#F8F8FF", gold:"#FFD700", goldenrod:"#DAA520",
+    gray:"#808080", green:"#008000", greenyellow:"#ADFF2F", grey:"#808080",
+    honeydew:"#F0FFF0", hotpink:"#FF69B4", indianred:"#CD5C5C", indigo:"#4B0082",
+    ivory:"#FFFFF0", khaki:"#F0E68C", lavender:"#E6E6FA", lavenderblush:"#FFF0F5",
+    lawngreen:"#7CFC00", lemonchiffon:"#FFFACD", lightblue:"#ADD8E6", lightcoral:"#F08080",
+    lightcyan:"#E0FFFF", lightgoldenrodyellow:"#FAFAD2", lightgray:"#D3D3D3",
+    lightgreen:"#90EE90", lightgrey:"#D3D3D3", lightpink:"#FFB6C1", lightsalmon:"#FFA07A",
+    lightseagreen:"#20B2AA", lightskyblue:"#87CEFA", lightslategray:"#778899",
+    lightslategrey:"#778899", lightsteelblue:"#B0C4DE", lightyellow:"#FFFFE0",
+    lime:"#00FF00", limegreen:"#32CD32", linen:"#FAF0E6", magenta:"#FF00FF",
+    maroon:"#800000", mediumaquamarine:"#66CDAA", mediumblue:"#0000CD",
+    mediumorchid:"#BA55D3", mediumpurple:"#9370DB", mediumseagreen:"#3CB371",
+    mediumslateblue:"#7B68EE", mediumspringgreen:"#00FA9A", mediumturquoise:"#48D1CC",
+    mediumvioletred:"#C71585", midnightblue:"#191970", mintcream:"#F5FFFA",
+    mistyrose:"#FFE4E1", moccasin:"#FFE4B5", navajowhite:"#FFDEAD", navy:"#000080",
+    oldlace:"#FDF5E6", olive:"#808000", olivedrab:"#6B8E23", orange:"#FFA500",
+    orangered:"#FF4500", orchid:"#DA70D6", palegoldenrod:"#EEE8AA", palegreen:"#98FB98",
+    paleturquoise:"#AFEEEE", palevioletred:"#DB7093", papayawhip:"#FFEFD5",
+    peachpuff:"#FFDAB9", peru:"#CD853F", pink:"#FFC0CB", plum:"#DDA0DD",
+    powderblue:"#B0E0E6", purple:"#800080", rebeccapurple:"#663399", red:"#FF0000",
+    rosybrown:"#BC8F8F", royalblue:"#4169E1", saddlebrown:"#8B4513", salmon:"#FA8072",
+    sandybrown:"#F4A460", seagreen:"#2E8B57", seashell:"#FFF5EE", sienna:"#A0522D",
+    silver:"#C0C0C0", skyblue:"#87CEEB", slateblue:"#6A5ACD", slategray:"#708090",
+    slategrey:"#708090", snow:"#FFFAFA", springgreen:"#00FF7F", steelblue:"#4682B4",
+    tan:"#D2B48C", teal:"#008080", thistle:"#D8BFD8", tomato:"#FF6347",
+    turquoise:"#40E0D0", violet:"#EE82EE", wheat:"#F5DEB3", white:"#FFFFFF",
+    whitesmoke:"#F5F5F5", yellow:"#FFFF00", yellowgreen:"#9ACD32"
+};
+
+// Linear Display P3 -> CIE XYZ (D65) -> linear sRGB
+var _P3_TO_XYZ = [
+    [0.4865709486482162, 0.26566769316909306, 0.19821728523436250],
+    [0.2289745640697488, 0.69173852183650640, 0.07928691409374500],
+    [0.0000000000000000, 0.04511338185890264, 1.04394436890097600]
+];
+var _XYZ_TO_SRGB = [
+    [ 3.24096994190452260, -1.53738317757009400, -0.49861076029300340],
+    [-0.96924363628087960,  1.87596750150772020,  0.04155505740717559],
+    [ 0.05563007969699366, -0.20397695888897652,  1.05697151424287860]
+];
+
+function _srgbEncode(x) {
+    if (x <= 0) return 0;
+    if (x >= 1) return 1;
+    return x <= 0.0031308 ? x * 12.92 : 1.055 * Math.pow(x, 1 / 2.4) - 0.055;
+}
+
+function _srgbDecode(x) {
+    if (x <= 0) return 0;
+    if (x >= 1) return 1;
+    return x <= 0.04045 ? x / 12.92 : Math.pow((x + 0.055) / 1.055, 2.4);
+}
+
+function _hexByte(n) {
+    var v = Math.max(0, Math.min(255, Math.round(n)));
+    var h = v.toString(16).toUpperCase();
+    return h.length < 2 ? "0" + h : h;
+}
+
+function _channelsToHex(r, g, b) {
+    return "#" + _hexByte(r) + _hexByte(g) + _hexByte(b);
+}
+
+function _normaliseHex(value) {
+    var h = ("" + value).trim().replace(/^#/, "");
+    if (!/^[0-9a-fA-F]+$/.test(h)) return null;
+    if (h.length === 3 || h.length === 4) {
+        return ("#" + h.charAt(0) + h.charAt(0) + h.charAt(1) + h.charAt(1) + h.charAt(2) + h.charAt(2)).toUpperCase();
+    }
+    if (h.length === 6 || h.length === 8) {
+        return ("#" + h.substring(0, 6)).toUpperCase();
+    }
+    return null;
+}
+
+// Splits the inside of a colour function, tolerating both comma and space separated
+// forms and discarding any "/ alpha" component (alpha travels via fill-opacity).
+function _splitColorArgs(inner) {
+    var s = ("" + inner).trim();
+    var slash = s.indexOf("/");
+    if (slash !== -1) s = s.substring(0, slash);
+    s = s.replace(/,/g, " ");
+    return s.split(/\s+/).filter(function (t) { return t !== ""; });
+}
+
+function _numOr(token, scale, fallback) {
+    var t = ("" + token).trim();
+    var isPct = t.charAt(t.length - 1) === "%";
+    var n = parseFloat(isPct ? t.slice(0, -1) : t);
+    if (isNaN(n)) return fallback;
+    return isPct ? (n / 100) * scale : n;
+}
+
+function _hslToHex(h, s, l) {
+    h = ((h % 360) + 360) % 360;
+    s = Math.max(0, Math.min(1, s));
+    l = Math.max(0, Math.min(1, l));
+    var c = (1 - Math.abs(2 * l - 1)) * s;
+    var hp = h / 60;
+    var x = c * (1 - Math.abs((hp % 2) - 1));
+    var r = 0, g = 0, b = 0;
+    if (hp >= 0 && hp < 1) { r = c; g = x; }
+    else if (hp < 2) { r = x; g = c; }
+    else if (hp < 3) { g = c; b = x; }
+    else if (hp < 4) { g = x; b = c; }
+    else if (hp < 5) { r = x; b = c; }
+    else { r = c; b = x; }
+    var m = l - c / 2;
+    return _channelsToHex((r + m) * 255, (g + m) * 255, (b + m) * 255);
+}
+
+function _wideGamutToHex(space, args) {
+    var comps = [
+        _numOr(args[0], 1, NaN),
+        _numOr(args[1], 1, NaN),
+        _numOr(args[2], 1, NaN)
+    ];
+    if (isNaN(comps[0]) || isNaN(comps[1]) || isNaN(comps[2])) return null;
+
+    if (space === "srgb") {
+        return _channelsToHex(comps[0] * 255, comps[1] * 255, comps[2] * 255);
+    }
+    if (space === "srgb-linear") {
+        return _channelsToHex(_srgbEncode(comps[0]) * 255, _srgbEncode(comps[1]) * 255, _srgbEncode(comps[2]) * 255);
+    }
+    if (space !== "display-p3") return null;
+
+    var lin = [_srgbDecode(comps[0]), _srgbDecode(comps[1]), _srgbDecode(comps[2])];
+    var xyz = [0, 0, 0];
+    var i, j;
+    for (i = 0; i < 3; i++) {
+        xyz[i] = _P3_TO_XYZ[i][0] * lin[0] + _P3_TO_XYZ[i][1] * lin[1] + _P3_TO_XYZ[i][2] * lin[2];
+    }
+    var out = [0, 0, 0];
+    for (i = 0; i < 3; i++) {
+        out[i] = 0;
+        for (j = 0; j < 3; j++) out[i] += _XYZ_TO_SRGB[i][j] * xyz[j];
+    }
+    return _channelsToHex(_srgbEncode(out[0]) * 255, _srgbEncode(out[1]) * 255, _srgbEncode(out[2]) * 255);
+}
+
+// Returns a "#RRGGBB" string, or null when the value names no paint at all
+// ("none"/"transparent") or cannot be understood.
+function resolveColorToHex(value) {
+    if (value === null || value === undefined) return null;
+    var s = ("" + value).trim();
+    if (s === "") return null;
+    var lower = s.toLowerCase();
+    if (lower === "none" || lower === "transparent") return null;
+    if (lower === "currentcolor") return "#000000";
+    if (s.charAt(0) === "#") return _normaliseHex(s);
+    if (CSS_NAMED_COLORS[lower]) return CSS_NAMED_COLORS[lower];
+
+    var fn = /^([a-z-]+)\s*\(([\s\S]*)\)$/.exec(lower);
+    if (!fn) return null;
+    var name = fn[1];
+    var args = _splitColorArgs(fn[2]);
+
+    if (name === "rgb" || name === "rgba") {
+        if (args.length < 3) return null;
+        var r = _numOr(args[0], 255, NaN);
+        var g = _numOr(args[1], 255, NaN);
+        var b = _numOr(args[2], 255, NaN);
+        if (isNaN(r) || isNaN(g) || isNaN(b)) return null;
+        return _channelsToHex(r, g, b);
+    }
+    if (name === "hsl" || name === "hsla") {
+        if (args.length < 3) return null;
+        var hRaw = ("" + args[0]).replace(/deg$/, "");
+        var h = parseFloat(hRaw);
+        var sV = _numOr(args[1], 1, NaN);
+        var lV = _numOr(args[2], 1, NaN);
+        if (isNaN(h) || isNaN(sV) || isNaN(lV)) return null;
+        return _hslToHex(h, sV, lV);
+    }
+    if (name === "color") {
+        if (args.length < 4) return null;
+        return _wideGamutToHex(args[0], args.slice(1));
+    }
+    return null;
+}
+
+// True for any value that meaningfully specifies a paint, including the explicit
+// no-paint keywords and gradient/pattern references.
+function isUsableColorValue(value) {
+    if (value === null || value === undefined) return false;
+    var s = ("" + value).trim();
+    if (s === "") return false;
+    var lower = s.toLowerCase();
+    if (lower === "none" || lower === "transparent" || lower === "inherit" || lower === "currentcolor") return true;
+    if (lower.indexOf("url(") === 0) return true;
+    return resolveColorToHex(s) !== null;
+}
+
+function isNoPaintValue(value) {
+    if (value === null || value === undefined) return false;
+    var lower = ("" + value).trim().toLowerCase();
+    return lower === "none" || lower === "transparent";
+}
+
+// Wide-gamut function forms carry colours Cavalry cannot represent directly; when an
+// exporter also supplies an sRGB declaration we prefer that authored value.
+function isWideGamutColorValue(value) {
+    if (value === null || value === undefined) return false;
+    var lower = ("" + value).trim().toLowerCase();
+    if (lower.indexOf("color(") !== 0) return false;
+    return !/^color\(\s*srgb(-linear)?[\s)]/.test(lower);
+}
+
+var __quiverUnresolvedColors = {};
+
 function parseColor(colorString) {
     if (!colorString || colorString === "none") return null;
-    if (colorString[0] === '#') return colorString;
-    var named = {
-        white: "#FFFFFF",
-        black: "#000000",
-        red: "#FF0000",
-        green: "#008000",
-        blue: "#0000FF",
-        yellow: "#FFFF00",
-        cyan: "#00FFFF",
-        magenta: "#FF00FF",
-        gray: "#808080",
-        grey: "#808080"
-    };
-    var lower = (colorString + "").toLowerCase();
-    if (named[lower]) return named[lower];
-    if (lower.indexOf("rgb(") === 0) {
-        var m = lower.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
-        if (m) {
-            var r = parseInt(m[1]).toString(16).padStart(2, '0');
-            var g = parseInt(m[2]).toString(16).padStart(2, '0');
-            var b = parseInt(m[3]).toString(16).padStart(2, '0');
-            return "#" + r + g + b;
-        }
-    }
-    if (lower.indexOf("rgba(") === 0) {
-        var mr = lower.match(/rgba\((\d+),\s*(\d+),\s*(\d+),\s*([\d.]+)\)/);
-        if (mr) {
-            var rr = parseInt(mr[1]).toString(16).padStart(2, '0');
-            var gr = parseInt(mr[2]).toString(16).padStart(2, '0');
-            var br = parseInt(mr[3]).toString(16).padStart(2, '0');
-            return "#" + rr + gr + br;
-        }
+    var hex = resolveColorToHex(colorString);
+    if (hex) return hex;
+    if (isNoPaintValue(colorString)) return null;
+    var key = "" + colorString;
+    if (!__quiverUnresolvedColors[key]) {
+        __quiverUnresolvedColors[key] = true;
+        try {
+            console.warn('🏹 Quiver: could not resolve colour "' + key + '" - Cavalry will draw it black.');
+        } catch (e) {}
     }
     return colorString; // best effort
 }
@@ -101,11 +307,38 @@ function extractStyleProperty(styleString, propertyName) {
     return null;
 }
 
+var STYLE_PAINT_PROPS = {
+    'fill': 1,
+    'stroke': 1,
+    'stop-color': 1,
+    'flood-color': 1,
+    'lighting-color': 1
+};
+
+// Exporters such as Figma declare a paint twice for progressive enhancement, e.g.
+// style="fill:#F5F5F5;fill:color(display-p3 0.9608 0.9608 0.9608)". Plain last-wins
+// would keep the wide-gamut form and lose the authored sRGB value.
+function pickPaintDeclaration(values) {
+    var lastUsable = null;
+    var lastSrgb = null;
+    for (var i = 0; i < values.length; i++) {
+        var v = values[i];
+        if (!isUsableColorValue(v)) continue;
+        lastUsable = v;
+        if (!isWideGamutColorValue(v)) lastSrgb = v;
+    }
+    if (lastSrgb !== null) return lastSrgb;
+    if (lastUsable !== null) return lastUsable;
+    return values[values.length - 1];
+}
+
 function mergeInlineStyleIntoAttrs(openingTag) {
     var styleAttr = extractAttribute(openingTag, "style");
     var merged = {};
     if (!styleAttr) return merged;
     var parts = styleAttr.split(';');
+    var collected = {};
+    var keyOrder = [];
     for (var i = 0; i < parts.length; i++) {
         var seg = parts[i];
         if (!seg) continue;
@@ -113,7 +346,18 @@ function mergeInlineStyleIntoAttrs(openingTag) {
         if (kv.length < 2) continue;
         var key = kv[0].trim();
         var val = kv.slice(1).join(':').trim();
-        merged[key] = val;
+        if (!collected[key]) {
+            collected[key] = [];
+            keyOrder.push(key);
+        }
+        collected[key].push(val);
+    }
+    for (var k = 0; k < keyOrder.length; k++) {
+        var name = keyOrder[k];
+        var vals = collected[name];
+        merged[name] = STYLE_PAINT_PROPS[name.toLowerCase()]
+            ? pickPaintDeclaration(vals)
+            : vals[vals.length - 1];
     }
     return merged;
 }
