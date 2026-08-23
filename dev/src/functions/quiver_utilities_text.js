@@ -1,6 +1,66 @@
 // Parse font family with embedded variant (Affinity SVG format)
 // e.g., 'CanvaSansDisplay-Medium' -> { family: 'Canva Sans Display', variant: 'Medium' }
 // e.g., 'Arial-ItalicMT' -> { family: 'Arial', variant: 'Italic' }
+// Apple ships the 'SF Pro' family only as a VARIABLE font, which Cavalry
+// renders at the default instance for every named style (Bold and Medium
+// come out identical). The static optical families render true weights -
+// map by size, matching Apple's own Text/Display convention.
+function resolveFontFamilyForCavalry(family, fontSize) {
+    if (String(family) === 'SF Pro') {
+        var target = (typeof fontSize === 'number' && fontSize >= 20) ? 'SF Pro Display' : 'SF Pro Text';
+        try {
+            var styles = cavalry.getFontStyles(target) || [];
+            if (styles.length) return target;
+        } catch (eFam) {}
+    }
+    return family;
+}
+
+// Variable font axis ORDER differs per font (SF Pro is width/optical/WEIGHT),
+// so writing into fontAxes.0 blindly can slam a width axis to its ceiling.
+// Identify the axis by its CURRENT value instead: the weight axis is the one
+// holding a standard weight (300-900), a slant/italic axis idles at 0.
+// Writes nothing when the guess would be ambiguous.
+function _findVariableAxis(layerId, kind) {
+    var found = -1;
+    for (var i = 0; i < 8; i++) {
+        var v = null;
+        try {
+            if (!api.getAttributeDefinition(layerId, 'fontAxes.' + i)) break;
+            v = api.get(layerId, 'fontAxes.' + i);
+        } catch (eAx) { break; }
+        if (typeof v !== 'number') continue;
+        var match = (kind === 'weight') ? (v >= 300 && v <= 900) : (v === 0);
+        if (match) {
+            if (found >= 0) return -1; // two candidates - do not guess
+            found = i;
+        }
+    }
+    return found;
+}
+
+function setVariableFontWeight(layerId, numericWeight) {
+    var idx = _findVariableAxis(layerId, 'weight');
+    if (idx < 0) return false;
+    try {
+        var upd = {};
+        upd['fontAxes.' + idx] = numericWeight;
+        api.set(layerId, upd);
+        return true;
+    } catch (eW) { return false; }
+}
+
+function setVariableFontSlant(layerId, slantValue) {
+    var idx = _findVariableAxis(layerId, 'slant');
+    if (idx < 0) return false;
+    try {
+        var upd = {};
+        upd['fontAxes.' + idx] = slantValue;
+        api.set(layerId, upd);
+        return true;
+    } catch (eS) { return false; }
+}
+
 function parseFontFamilyVariant(fontFamilyStr) {
     if (!fontFamilyStr) return null;
     
@@ -891,7 +951,7 @@ function createText(node, parentId, vb, inheritedScale) {
     var textSettings = {
         "text": combined,
         "fontSize": fontSize,
-        "font.font": family,
+        "font.font": resolveFontFamilyForCavalry(family, fontSize),
         "font.style": finalStyle,
         "autoWidth": true,
         "autoHeight": true,
@@ -1013,8 +1073,9 @@ function createText(node, parentId, vb, inheritedScale) {
             // Set weight axis (fontAxes.0)
             if (numericWeightForAxis !== null) {
                 try {
-                    api.set(id, { "fontAxes.0": numericWeightForAxis });
-                    console.log('[Variable Font] Set fontAxes.0 (weight) to ' + numericWeightForAxis + ' for ' + family);
+                    if (setVariableFontWeight(id, numericWeightForAxis)) {
+                        console.log('[Variable Font] Set weight axis to ' + numericWeightForAxis + ' for ' + family);
+                    }
                 } catch (eWght) {
                     // Silently ignore - axis might not exist for this specific variable font
                 }
@@ -1044,8 +1105,9 @@ function createText(node, parentId, vb, inheritedScale) {
                 try {
                     var slantAxisCheck = api.getAttributeDefinition(id, "fontAxes.1");
                     if (slantAxisCheck) {
-                        api.set(id, { "fontAxes.1": slantValue });
-                        console.log('[Variable Font] Set fontAxes.1 (slant) to ' + slantValue);
+                        if (setVariableFontSlant(id, slantValue)) {
+                            console.log('[Variable Font] Set slant axis to ' + slantValue);
+                        }
                     }
                 } catch (eSlnt) {
                     // Silently ignore - slant axis might not exist
@@ -1428,7 +1490,7 @@ function createTextFromFigmaData(figmaData, parentId, vb, inheritedScale, fills,
             "position.x": cavalryX,
             "position.y": cavalryY,
             "fontSize": fontSize,
-            "font.font": fontFamily,
+            "font.font": resolveFontFamilyForCavalry(fontFamily, fontSize),
             "font.style": fontStyle,
             "horizontalAlignment": horizontalAlignment,
             "verticalAlignment": verticalAlignment,
@@ -1601,8 +1663,9 @@ function createTextFromFigmaData(figmaData, parentId, vb, inheritedScale, fills,
                 // Set weight axis (fontAxes.0)
                 if (numericWeight !== null) {
                     try {
-                        api.set(id, { "fontAxes.0": numericWeight });
-                        console.log('[Variable Font] Set fontAxes.0 (weight) to ' + numericWeight + ' for ' + fontFamily);
+                        if (setVariableFontWeight(id, numericWeight)) {
+                            console.log('[Variable Font] Set weight axis to ' + numericWeight + ' for ' + fontFamily);
+                        }
                     } catch (eWghtSet) {
                         // Silently ignore
                     }
@@ -1648,8 +1711,9 @@ function createTextFromFigmaData(figmaData, parentId, vb, inheritedScale, fills,
                     try {
                         var slantAxisCheckFigma = api.getAttributeDefinition(id, "fontAxes.1");
                         if (slantAxisCheckFigma) {
-                            api.set(id, { "fontAxes.1": slantVal });
-                            console.log('[Variable Font] Set fontAxes.1 (slant) to ' + slantVal);
+                            if (setVariableFontSlant(id, slantVal)) {
+                                console.log('[Variable Font] Set slant axis to ' + slantVal);
+                            }
                         }
                     } catch (eSlntSet) {
                         // Silently ignore
@@ -1739,7 +1803,7 @@ function createTextFromFigmaData(figmaData, parentId, vb, inheritedScale, fills,
                     
                     // Set font separately (font.font and font.style)
                     api.set(applyTypefaceId, {
-                        "font.font": group.fontFamily,
+                        "font.font": resolveFontFamilyForCavalry(group.fontFamily, (typeof fontSize === 'number' ? fontSize : 14)),
                         "font.style": group.fontStyle
                     });
                     
@@ -1750,8 +1814,9 @@ function createTextFromFigmaData(figmaData, parentId, vb, inheritedScale, fills,
                             // Check if Apply Typeface has fontAxes.0 (font is variable)
                             var applyTypefaceAxisCheck = api.getAttributeDefinition(applyTypefaceId, "fontAxes.0");
                             if (applyTypefaceAxisCheck) {
-                                api.set(applyTypefaceId, { "fontAxes.0": group.fontWeight });
-                                console.log('[Variable Font] Apply Typeface: Set fontAxes.0 to ' + group.fontWeight + ' for ' + group.fontStyle);
+                                if (setVariableFontWeight(applyTypefaceId, group.fontWeight)) {
+                                    console.log('[Variable Font] Apply Typeface: set weight axis to ' + group.fontWeight + ' for ' + group.fontStyle);
+                                }
                             }
                         } catch (eApplyAxis) {
                             // Font might not be variable - silently ignore
@@ -1765,8 +1830,9 @@ function createTextFromFigmaData(figmaData, parentId, vb, inheritedScale, fills,
                         try {
                             var applyTypefaceSlantCheck = api.getAttributeDefinition(applyTypefaceId, "fontAxes.1");
                             if (applyTypefaceSlantCheck) {
-                                api.set(applyTypefaceId, { "fontAxes.1": -12 });
-                                console.log('[Variable Font] Apply Typeface: Set fontAxes.1 (slant) to -12 for ' + group.fontStyle);
+                                if (setVariableFontSlant(applyTypefaceId, -12)) {
+                                    console.log('[Variable Font] Apply Typeface: set slant axis to -12 for ' + group.fontStyle);
+                                }
                             }
                         } catch (eApplySlant) {
                             // Slant axis might not exist - silently ignore

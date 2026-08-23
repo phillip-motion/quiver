@@ -177,6 +177,47 @@ function replaceImagePaths(code) {
 }
 
 /**
+ * Embed Glass plugin text files so production Quiver.jsc can auto-install them.
+ */
+function generateGlassPluginEmbed() {
+    const glassDir = path.join(SRC_DIR, 'plugins', 'Glass');
+    const textFiles = [
+        'definitions.json',
+        'strings.json',
+        'setup.js',
+        'versioning.js',
+        'frostH.sksl',
+        'frostV.sksl',
+        'wideH.sksl',
+        'wideV.sksl',
+        'glassPass.sksl'
+    ];
+
+    if (!fs.existsSync(glassDir)) {
+        console.warn('  ⚠️  Glass plugin folder not found, skipping embed');
+        return '';
+    }
+
+    const lines = [
+        '// ========================================',
+        '// Embedded Cavalry Glass plugin (text files)',
+        '// ========================================',
+        'QUIVER_GLASS_TEXT_FILES = {'
+    ];
+
+    const present = textFiles.filter((filename) => fs.existsSync(path.join(glassDir, filename)));
+    present.forEach((filename, index) => {
+        const contents = fs.readFileSync(path.join(glassDir, filename), 'utf8');
+        const isLast = index === present.length - 1;
+        lines.push(`  ${JSON.stringify(filename)}: ${JSON.stringify(contents)}${isLast ? '' : ','}`);
+    });
+    lines.push('};');
+    lines.push('');
+    console.log(`  ✓ Embedded ${present.length} Glass plugin file(s)`);
+    return lines.join('\n');
+}
+
+/**
  * Recursively copy directory
  */
 function copyDir(src, dest) {
@@ -338,9 +379,12 @@ async function build() {
     // Replace image paths
     finalContent = replaceImagePaths(finalContent);
     
+    // Embed Cavalry Glass plugin text files for auto-install in production
+    const glassPluginCode = generateGlassPluginEmbed();
+    
     // Prepend embedded assets code after the header
     const headerEndIndex = finalContent.indexOf('\n\n') + 2;
-    finalContent = finalContent.slice(0, headerEndIndex) + embeddedAssetsCode + '\n' + finalContent.slice(headerEndIndex);
+    finalContent = finalContent.slice(0, headerEndIndex) + embeddedAssetsCode + '\n' + glassPluginCode + '\n' + finalContent.slice(headerEndIndex);
     
     console.log('  ✓ Embedded assets and updated image paths');
     

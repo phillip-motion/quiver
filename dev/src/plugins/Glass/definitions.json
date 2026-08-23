@@ -1,0 +1,179 @@
+[
+  {
+    "author": "jackJaeschke",
+    "type": "glass",
+    "superType": "thirdPartyFilter",
+    "version": "1.0",
+    "javaScriptSetupFile": "setup.js",
+    "passes": [
+      {
+        "skslFile": "frostH.sksl",
+        "uniforms": [
+          "depth",
+          "frost"
+        ]
+      },
+      {
+        "skslFile": "frostV.sksl",
+        "uniforms": [
+          "depth",
+          "frost"
+        ]
+      },
+      {
+        "skslFile": "wideH.sksl",
+        "uniforms": [
+          "depth",
+          "frost"
+        ]
+      },
+      {
+        "skslFile": "wideV.sksl",
+        "uniforms": [
+          "depth",
+          "frost"
+        ]
+      },
+      {
+        "skslFile": "glassPass.sksl",
+        "uniforms": [
+          "refraction",
+          "depth",
+          "dispersion",
+          "frost",
+          "lightAngle",
+          "lightIntensity",
+          "splay"
+        ]
+      }
+    ],
+    "attributes": {
+      "refraction": {
+        "type": "double",
+        "default": 70,
+        "min": 0,
+        "max": 100,
+        "step": 1
+      },
+      "depth": {
+        "type": "double",
+        "default": 20,
+        "min": 1,
+        "max": 100
+      },
+      "dispersion": {
+        "type": "double",
+        "default": 35,
+        "min": 0,
+        "max": 100,
+        "step": 1
+      },
+      "frost": {
+        "type": "double",
+        "default": 5,
+        "min": 0,
+        "max": 100,
+        "step": 0.1,
+        "prefix": "px"
+      },
+      "lightAngle": {
+        "type": "double",
+        "default": -45,
+        "step": 1,
+        "prefix": "°"
+      },
+      "lightIntensity": {
+        "type": "double",
+        "default": 80,
+        "min": 0,
+        "max": 100,
+        "step": 1,
+        "prefix": "%"
+      },
+      "splay": {
+        "type": "double",
+        "default": 0,
+        "min": 0,
+        "max": 100,
+        "step": 1
+      },
+      "allowViewportClipping": {
+        "default": false
+      },
+      "filterInputCompositing": {
+        "default": 1
+      },
+      "matteApplyMode": {
+        "default": 0
+      },
+      "blendMode": {
+        "default": 1
+      },
+      "aboutVersion": {
+        "type": "string",
+        "default": "Glass v1.0",
+        "readOnly": true
+      },
+      "aboutMadeBy": {
+        "type": "string",
+        "default": "Canva Creative Team for Quiver",
+        "readOnly": true
+      },
+      "aboutLinks": {
+        "type": "string",
+        "default": "https://canvacreative.team/motion"
+      },
+      "aboutGlazier": {
+        "type": "string",
+        "default": "https://your-link-here.example"
+      }
+    },
+    "triggers": {
+      "out": [
+        "refraction",
+        "depth",
+        "dispersion",
+        "frost",
+        "lightAngle",
+        "lightIntensity",
+        "splay"
+      ]
+    },
+    "UI": {
+      "icon": "glassIcon.png",
+      "hide": [
+        "allowViewportClipping",
+        "autoPadding",
+        "filterInputCompositing",
+        "matteTileMode",
+        "padding"
+      ],
+      "tabs": [
+        {
+          "id": "glass",
+          "attributeOrder": [
+            "---Light",
+            "lightAngle",
+            "lightIntensity",
+            "---Glass",
+            "refraction",
+            "depth",
+            "dispersion",
+            "frost",
+            "splay"
+          ]
+        },
+        {
+          "id": "filter",
+          "attributeOrder": [
+            "---About",
+            "aboutVersion",
+            "aboutMadeBy",
+            "aboutLinks",
+            "aboutGlazier"
+          ]
+        }
+      ]
+    }
+  }
+]

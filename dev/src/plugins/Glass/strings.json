@@ -1,0 +1,69 @@
+[
+  {
+    "type": "layerStrings",
+    "value": {
+      "layerType": "glass",
+      "author": "jackJaeschke",
+      "niceName": "Glass",
+      "layerInfo": "Liquid glass effect. Apply to backdrop layer(s), and connect any matte.",
+      "language": "en",
+      "attributes": {
+        "refraction": [
+          "Refraction",
+          "Optical distortion along the curved edge"
+        ],
+        "depth": [
+          "Depth",
+          "How far the edge dome reaches inward"
+        ],
+        "dispersion": [
+          "Dispersion",
+          "Rainbow fringing along the edges"
+        ],
+        "frost": [
+          "Frost",
+          "Background blur on the glass"
+        ],
+        "lightAngle": [
+          "Light Angle",
+          "Direction the light comes from"
+        ],
+        "lightIntensity": [
+          "Light Intensity",
+          "Brightness of the main light"
+        ],
+        "splay": [
+          "Splay",
+          "Splays the edge refraction around the shape's centre"
+        ],
+        "blendMode": [
+          "Blend Mode",
+          "How the glass composites over the layer"
+        ],
+        "matteApplyMode": [
+          "Apply Mode",
+          "Keep on Filter Input - the matte pre-clips what the glass sees"
+        ],
+        "aboutVersion": [
+          "Version",
+          "Glass plugin version"
+        ],
+        "aboutMadeBy": [
+          "Made by",
+          "Who made this plugin"
+        ],
+        "aboutLinks": [
+          "More Plugins",
+          "More plugins from the Canva Creative Team - select and copy the link"
+        ],
+        "aboutGlazier": [
+          "Glazier",
+          "Glass's bigger sibling with ridges, droplets and more - select and copy the link"
+        ]
+      },
+      "tabs": {
+        "glass": "Glass"
+      }
+    }
+  }
+]

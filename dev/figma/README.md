@@ -133,10 +133,9 @@ Individual shapes need to be inside a frame or group.
 
 SVG has some limitations compared to Figma's native format. Some features like:
 - Complex blend modes
-- Advanced effects
 - Constraints and auto-layout
 
-...are lost during SVG export. This is a Figma SVG limitation, not a Quiver limitation.
+...are lost during SVG export. Glass is sent separately by the plugin (not via SVG), so it still comes through when you Fire to Cavalry.
 
 ## Development
 

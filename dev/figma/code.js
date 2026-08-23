@@ -869,6 +869,130 @@ function findTextNodes(node, results, parentPath, frameAbsX, frameAbsY, frameWid
 }
 
 // ============================================================================
+// FIGMA GLASS EFFECT EXTRACTION
+// Glass is not included in SVG export, so we send a sidecar payload.
+// If a node has both GLASS and BACKGROUND_BLUR, Figma only renders the first.
+// ============================================================================
+
+var __glassNodeNameCounts = {};
+
+function resetGlassNodeNameTracking() {
+  __glassNodeNameCounts = {};
+}
+
+function getUniqueGlassSvgId(originalName) {
+  if (!__glassNodeNameCounts[originalName]) {
+    __glassNodeNameCounts[originalName] = 1;
+    return originalName;
+  }
+  __glassNodeNameCounts[originalName]++;
+  return originalName + '_' + __glassNodeNameCounts[originalName];
+}
+
+function pickGlassEffect(node) {
+  if (!node) return null;
+  var effects = null;
+  try { effects = node.effects; } catch (e) { return null; }
+  if (!effects || !effects.length) return null;
+  for (var i = 0; i < node.effects.length; i++) {
+    var effect = node.effects[i];
+    if (!effect || effect.visible === false) continue;
+    if (effect.type === 'GLASS') return effect;
+    if (effect.type === 'BACKGROUND_BLUR') return null;
+  }
+  return null;
+}
+
+function findGlassNodes(node, results, parentPath, frameAbsX, frameAbsY, frameWidth, frameHeight) {
+  results = results || [];
+  parentPath = parentPath || '';
+  // The SVG exporter skips invisible nodes and numbers duplicate ids across
+  // ALL exported nodes - mirror both, or the sidecar svgIds drift off the
+  // SVG ids whenever a same-named non-glass node exists (a plain 'Button'
+  // used to swallow a glass Button's entry and the last button lost glass).
+  try { if (node.visible === false) return results; } catch (eVis) {}
+  frameAbsX = frameAbsX || 0;
+  frameAbsY = frameAbsY || 0;
+  frameWidth = frameWidth || 0;
+  frameHeight = frameHeight || 0;
+
+  var nodePath = parentPath ? (parentPath + '/' + node.name) : node.name;
+  var svgIdForNode = getUniqueGlassSvgId(node.name);
+  var glassEffect = pickGlassEffect(node);
+  if (glassEffect) {
+    var pageAbsoluteX = node.x || 0;
+    var pageAbsoluteY = node.y || 0;
+    try {
+      if (node.absoluteTransform) {
+        pageAbsoluteX = node.absoluteTransform[0][2];
+        pageAbsoluteY = node.absoluteTransform[1][2];
+      }
+    } catch (eAbs) {}
+    // For the bounds cull use the TRUE footprint: width/height are unrotated,
+    // so a 90-degree rotated node poking over the frame edge used to compute
+    // as fully outside and lose its glass entirely.
+    var cullX = pageAbsoluteX, cullY = pageAbsoluteY;
+    var cullW = node.width || 0, cullH = node.height || 0;
+    try {
+      if (node.absoluteBoundingBox) {
+        cullX = node.absoluteBoundingBox.x;
+        cullY = node.absoluteBoundingBox.y;
+        cullW = node.absoluteBoundingBox.width;
+        cullH = node.absoluteBoundingBox.height;
+      }
+    } catch (eBB) {}
+    var relativeX = pageAbsoluteX - frameAbsX;
+    var relativeY = pageAbsoluteY - frameAbsY;
+    var nodeWidth = node.width || 0;
+    var nodeHeight = node.height || 0;
+    var cullRelX = cullX - frameAbsX;
+    var cullRelY = cullY - frameAbsY;
+    var tolerance = 1;
+    var isOutside = frameWidth > 0 && frameHeight > 0 && (
+      cullRelX > frameWidth + tolerance ||
+      cullRelY > frameHeight + tolerance ||
+      cullRelX + cullW < -tolerance ||
+      cullRelY + cullH < -tolerance
+    );
+    if (!isOutside) {
+      results.push({
+        name: node.name,
+        svgId: svgIdForNode,
+        nodeType: node.type,
+        path: nodePath,
+        relativeX: relativeX,
+        relativeY: relativeY,
+        width: nodeWidth,
+        height: nodeHeight,
+        lightIntensity: glassEffect.lightIntensity,
+        lightAngle: glassEffect.lightAngle,
+        refraction: glassEffect.refraction,
+        depth: glassEffect.depth,
+        dispersion: glassEffect.dispersion,
+        radius: glassEffect.radius,
+        splay: (typeof glassEffect.splay === 'number') ? glassEffect.splay : 0
+      });
+      console.log('  Found glass node: ' + node.name);
+    }
+  }
+
+  // Guard each child walk: one inaccessible node (e.g. an instance whose
+  // library is still loading) must lose only its own subtree, never abort
+  // the whole scan and silently ship the design with no glass at all.
+  if ('children' in node) {
+    for (var c = 0; c < node.children.length; c++) {
+      try {
+        findGlassNodes(node.children[c], results, nodePath, frameAbsX, frameAbsY, frameWidth, frameHeight);
+      } catch (eChild) {
+        console.error('Glass scan skipped "' + (node.children[c] && node.children[c].name) + '": ' + eChild.message);
+      }
+    }
+  }
+
+  return results;
+}
+
+// ============================================================================
 // EMOJI DETECTION AND EXPORT (for emojis that Cavalry can't render)
 // ============================================================================
 
@@ -1637,6 +1761,18 @@ async function sendSelectionToCavalry() {
     if (hasTextData) {
       console.log('Found ' + textDataNodes.length + ' text node(s) - sending alignment data');
     }
+
+    let glassDataNodes = [];
+    try {
+      resetGlassNodeNameTracking();
+      glassDataNodes = findGlassNodes(node, [], '', frameAbsoluteX, frameAbsoluteY, node.width, node.height);
+    } catch (e) {
+      console.error('Error finding glass nodes:', e.message);
+    }
+    const hasGlassData = glassDataNodes.length > 0;
+    if (hasGlassData) {
+      console.log('Found ' + glassDataNodes.length + ' glass node(s)');
+    }
     
     // EMOJI EXTRACTION: Find and export emojis as images
     // Cavalry can't render emoji fonts, so we export them as PNGs
@@ -1719,14 +1855,17 @@ async function sendSelectionToCavalry() {
       vectorData: hasStrokeGradients ? vectorDataNodes : null,
       // Hybrid data: text nodes with alignment info
       textData: hasTextData ? textDataNodes : null,
+      // Figma Glass effects (not present in SVG export)
+      glassData: hasGlassData ? glassDataNodes : null,
       // Emoji data: emojis exported as PNG images with positions
       emojiData: hasEmojiData ? emojiDataNodes : null
     };
     
     var vectorDataInfo = hasStrokeGradients ? (vectorDataNodes.length + ' nodes') : 'none';
     var textDataInfo = hasTextData ? (textDataNodes.length + ' nodes') : 'none';
+    var glassDataInfo = hasGlassData ? (glassDataNodes.length + ' nodes') : 'none';
     var emojiDataInfo = hasEmojiData ? (emojiDataNodes.length + ' emojis') : 'none';
-    console.log('Sending payload: SVG ' + svgString.length + ' chars, vectorData: ' + vectorDataInfo + ', textData: ' + textDataInfo + ', emojiData: ' + emojiDataInfo);
+    console.log('Sending payload: SVG ' + svgString.length + ' chars, vectorData: ' + vectorDataInfo + ', textData: ' + textDataInfo + ', glassData: ' + glassDataInfo + ', emojiData: ' + emojiDataInfo);
     
     // IMPORTANT: Sanitize vectorData by going through JSON round-trip
     // This strips out Symbols and other non-serializable Figma internals
@@ -1758,6 +1897,19 @@ async function sendSelectionToCavalry() {
       }
     }
     
+    // Sanitize glassData the same way
+    if (payload.glassData) {
+      try {
+        var glassJsonStr = JSON.stringify(payload.glassData);
+        console.log('glassData JSON: ' + glassJsonStr.length + ' chars');
+        payload.glassData = JSON.parse(glassJsonStr);
+        console.log('glassData sanitized successfully');
+      } catch (e) {
+        console.error('glassData sanitization failed: ' + e.message);
+        payload.glassData = null;
+      }
+    }
+
     // Sanitize emojiData the same way
     if (payload.emojiData) {
       try {

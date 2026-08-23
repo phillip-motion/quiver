@@ -7,7 +7,7 @@
 
 
 // IMPORTANT!!!!!! Version number must be in the format x.x.x for update checking to work!!!
-const currentVersion = "1.6.4";
+const currentVersion = "1.7.0";
 
 const SCRIPT_KEY = "com.canva.quiver"; 
 ui.setTitle("Quiver-Dev " + currentVersion);
@@ -29,6 +29,7 @@ api.load(ui.scriptLocation+"/functions/quiver_utilities_gradient.js");
 api.load(ui.scriptLocation+"/functions/quiver_utilities_patterns.js");
 api.load(ui.scriptLocation+"/functions/quiver_utilities_images.js");
 api.load(ui.scriptLocation+"/functions/quiver_utilities_filters.js");
+api.load(ui.scriptLocation+"/functions/quiver_utilities_glass.js");
 api.load(ui.scriptLocation+"/functions/quiver_utilities_masks.js");
 api.load(ui.scriptLocation+"/functions/quiver_utilities_transform.js");
 api.load(ui.scriptLocation+"/functions/quiver_svgParser.js");

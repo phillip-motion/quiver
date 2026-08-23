@@ -124,7 +124,7 @@
   <div class="connection-status">
     <div id="statusDot" class="status-dot"></div>
     <div id="connectionText" class="connection-text">Checking connection...</div>
-    <div id="versionNumber" class="version-number"><a href="#" onclick="openGithub(); return false;">v1.6.4↗</a></div>
+    <div id="versionNumber" class="version-number"><a href="#" onclick="openGithub(); return false;">v1.7.0↗</a></div>
   </div>
   
   <script>
@@ -172,13 +172,14 @@
     
     
     // Send SVG (and optional vector/text/emoji data) to Cavalry
-    async function sendToCavalry(svgCode, nodeName, frameWidth, frameHeight, vectorData, textData, emojiData) {
+    async function sendToCavalry(svgCode, nodeName, frameWidth, frameHeight, vectorData, textData, emojiData, glassData) {
       console.log('sendToCavalry called:');
       console.log('  svgCode length:', svgCode ? svgCode.length : 'null');
       console.log('  nodeName:', nodeName);
       console.log('  vectorData:', vectorData ? vectorData.length + ' nodes' : 'none');
       console.log('  textData:', textData ? textData.length + ' nodes' : 'none');
       console.log('  emojiData:', emojiData ? emojiData.length + ' emojis' : 'none');
+      console.log('  glassData:', glassData ? glassData.length + ' nodes' : 'none');
       
       try {
         // Build payload - include vector/text data for hybrid approach if available
@@ -215,6 +216,14 @@
           }
         }
         
+        // Add Figma Glass data if present
+        if (glassData && glassData.length > 0) {
+          payload.glassData = glassData;
+          payload.frameWidth = frameWidth;
+          payload.frameHeight = frameHeight;
+          console.log('Sending glass data with', glassData.length, 'node(s)');
+        }
+
         // Add emoji data if present (emojis exported as PNG images)
         if (emojiData && emojiData.length > 0) {
           payload.emojiData = emojiData;
@@ -345,8 +354,9 @@
         console.log('  vectorData:', msg.vectorData ? msg.vectorData.length + ' items' : 'none');
         console.log('  textData:', msg.textData ? msg.textData.length + ' items' : 'none');
         console.log('  emojiData:', msg.emojiData ? msg.emojiData.length + ' items' : 'none');
+        console.log('  glassData:', msg.glassData ? msg.glassData.length + ' items' : 'none');
 
-        // Pass all data including hybrid vector/text/emoji data
+        // Pass all data including hybrid vector/text/emoji/glass data
         await sendToCavalry(
           msg.svgCode,
           msg.nodeName,
@@ -354,7 +364,8 @@
           msg.frameHeight,
           msg.vectorData,
           msg.textData,
-          msg.emojiData
+          msg.emojiData,
+          msg.glassData
         );
       }
     };

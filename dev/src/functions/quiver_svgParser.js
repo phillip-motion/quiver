@@ -618,6 +618,12 @@ function mergeFillStrokePairs(node) {
                 // This prevents incorrectly merging shapes from different groups
                 if (aEnt.holder !== bEnt.holder) continue;
                 
+                // Same geometry attributes is NOT enough: shapes whose
+                // position lives in a transform (Figma exports moved/mirrored
+                // rects with no x/y, only a matrix) would falsely merge two
+                // different layers into "one shape with two fills". Genuine
+                // multi-fill stacked copies share the exact same transform.
+                if ((a.attrs.transform || '') !== (b.attrs.transform || '')) continue;
                 if (isIdenticalFn(a, b)) {
                     group.push({ idx: j, node: b, holder: bEnt.holder });
                     used[j] = true;
@@ -682,6 +688,11 @@ function mergeFillStrokePairs(node) {
                     fillOpacity: secondary.attrs['fill-opacity'] || '1',
                     opacity: secondary.attrs.opacity || '1'
                 };
+                // fill-level blend mode (Figma exports it as a style on the
+                // stacked copy) - applied to the Cavalry SHADER's blendMode
+                var secBlend = secondary.attrs['mix-blend-mode'] ||
+                               (typeof extractStyleProperty === 'function' ? extractStyleProperty(secondary.attrs.style, 'mix-blend-mode') : null);
+                if (secBlend) fillInfo.blendMode = String(secBlend).trim().toLowerCase();
                 
                 // Also check for Figma gradient marker (angular/diamond gradients)
                 if (secondary.attrs['data-figma-gradient-fill']) {
@@ -782,6 +793,30 @@ function svgToCavalryPosition(xSvg, ySvg, vb) {
 }
 
 // --- Style application ---
+// CSS mix-blend-mode -> Cavalry SHADER blendMode enum
+// [1:Replace, 3:Normal, 14:Screen, 15:Overlay, 16:Darken, 17:Lighten,
+//  18:Color Dodge, 19:Color Burn, 20:Hard Light, 21:Soft Light,
+//  22:Difference, 23:Exclusion, 24:Multiply, 25:Hue, 26:Saturation,
+//  27:Color, 28:Luminosity]
+function shaderBlendModeFromCss(name) {
+    var map = {
+        'normal': 3, 'multiply': 24, 'screen': 14, 'overlay': 15,
+        'darken': 16, 'lighten': 17, 'color-dodge': 18, 'color-burn': 19,
+        'hard-light': 20, 'soft-light': 21, 'difference': 22,
+        'exclusion': 23, 'hue': 25, 'saturation': 26, 'color': 27,
+        'luminosity': 28,
+        'plus-lighter': 14 // no additive shader mode - Screen is the nearest
+    };
+    var key = String(name || '').trim().toLowerCase();
+    return map.hasOwnProperty(key) ? map[key] : null;
+}
+
+function applyShaderBlendMode(shaderId, cssName) {
+    var mode = shaderBlendModeFromCss(cssName);
+    if (mode === null || !shaderId) return;
+    try { api.set(shaderId, { 'blendMode': mode }); } catch (eBM) {}
+}
+
 function applyFillAndStroke(layerId, attrs) {
     try {
         var fill = attrs.fill || (attrs.style && extractStyleProperty(attrs.style, 'fill'));
@@ -1020,7 +1055,7 @@ function applyFillAndStroke(layerId, attrs) {
                             // Set alpha on the image shader based on fill-opacity only (0-100 percentage)
                             // Shape-level opacity is handled separately via shape's 'opacity' attribute
                             try {
-                                var imgShaderAlpha = Math.round(fillAlpha * 100);
+                                var imgShaderAlpha = Math.round(fillAlpha * 100000) / 1000;
                                 api.set(shaderNode, { 'alpha': imgShaderAlpha });
                                 if (imgShaderAlpha < 100) {
                                 }
@@ -1087,7 +1122,7 @@ function applyFillAndStroke(layerId, attrs) {
                                 'shaderColor.b': bValP,
                                 'shaderColor.a': aValP
                             });
-                            api.set(primaryColorShaderId, { 'alpha': Math.round(fillAlpha * 100) });
+                            api.set(primaryColorShaderId, { 'alpha': Math.round(fillAlpha * 100000) / 1000 });
                             api.connect(primaryColorShaderId, 'id', layerId, 'material.colorShaders');
                             try { api.parent(primaryColorShaderId, layerId); } catch (eParP) {}
                         }
@@ -1095,14 +1130,14 @@ function applyFillAndStroke(layerId, attrs) {
                         // Fallback to materialColor
                 api.set(layerId, {
                     "material.materialColor": color,
-                            "material.alpha": Math.round(fillAlpha * 100)
+                            "material.alpha": Math.round(fillAlpha * 100000) / 1000
                         });
                     }
                 } else {
                     // No stacking needed, use materialColor directly
                     api.set(layerId, {
                         "material.materialColor": color,
-                        "material.alpha": Math.round(fillAlpha * 100)
+                        "material.alpha": Math.round(fillAlpha * 100000) / 1000
                     });
                 }
             }
@@ -1197,9 +1232,12 @@ function applyFillAndStroke(layerId, attrs) {
                         if (addGradShader) {
                             connectShaderToShape(addGradShader, layerId, svgShapeCenterMulti);
                             addShaderConnected = true;
+                            if (typeof addFillInfo === 'object' && addFillInfo.blendMode) {
+                                applyShaderBlendMode(addGradShader, addFillInfo.blendMode);
+                            }
                             
                             // Set the alpha on the gradient shader based on fill-opacity only (0-100 percentage)
-                            var gradAlphaPercent = Math.round(addFillOpacity * 100);
+                            var gradAlphaPercent = Math.round(addFillOpacity * 100000) / 1000;
                             try {
                                 api.set(addGradShader, { 'alpha': gradAlphaPercent });
                             } catch (eGradAlpha) {
@@ -1236,11 +1274,12 @@ function applyFillAndStroke(layerId, attrs) {
                                     }
                                 }
                                 try { api.connect(addShaderNode, 'id', layerId, 'material.colorShaders'); } catch (eConn2) {}
+                                if (typeof addFillInfo === 'object' && addFillInfo.blendMode) { applyShaderBlendMode(addShaderNode, addFillInfo.blendMode); }
                                 try { if (!api.getParent(addShaderNode)) api.parent(addShaderNode, layerId); } catch (ePar2) {}
                                 
                                 // Set alpha on the additional image shader based on fill-opacity only (0-100 percentage)
                                 try {
-                                    var addImgAlphaPercent = Math.round(addFillOpacity * 100);
+                                    var addImgAlphaPercent = Math.round(addFillOpacity * 100000) / 1000;
                                     api.set(addShaderNode, { 'alpha': addImgAlphaPercent });
                                     if (addImgAlphaPercent < 100) {
                                     }
@@ -1461,6 +1500,13 @@ function resetImportedGroupIds() {
 
 function getImportedGroupIds() {
     return __importedGroupIds;
+}
+
+function removeImportedGroupId(id) {
+    if (!id || !__importedGroupIds || !__importedGroupIds.length) return;
+    for (var i = __importedGroupIds.length - 1; i >= 0; i--) {
+        if (__importedGroupIds[i] === id) __importedGroupIds.splice(i, 1);
+    }
 }
 
 function createGroup(name, parentId) {

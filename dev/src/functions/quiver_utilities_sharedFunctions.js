@@ -423,6 +423,7 @@ var __groupCounter = 0; // Global counter for anonymous groups
 // Deferred background blur queue - processed after all shapes are created
 // Each entry: { overlayShapeId, amount, parentId }
 var __deferredBackgroundBlurs = [];
+// Deferred Figma Glass queue lives in quiver_utilities_glass.js
 
 function setPatternContext(map) {
     __svgPatternMap = map || {};
@@ -504,7 +505,7 @@ function connectShaderToShape(shaderId, shapeId, svgShapeCenter, fillAlpha, shap
         // Apply fill-opacity to the shader's alpha (not material.alpha)
         // This is how Cavalry handles gradient/shader opacity vs shape opacity
         if (typeof fillAlpha === 'number' && fillAlpha < 1) {
-            var shaderAlphaPct = Math.round(fillAlpha * 100);
+            var shaderAlphaPct = Math.round(fillAlpha * 100000) / 1000;
             try {
                 api.set(shaderId, {'alpha': shaderAlphaPct});
             } catch (eShaderAlpha) {

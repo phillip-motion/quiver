@@ -52,7 +52,7 @@ function createRect(node, parentId, vb) {
             'fill', 'fill-opacity', 'stroke', 'stroke-width', 'stroke-opacity', 'opacity', 
             'transform', '_stroke_align', 'mix-blend-mode', 'filter',
             // Internal tracking attributes
-            '_additionalFills', '_inheritedFilterId', '_inheritedMaskIds', 'data-figma-bg-blur-radius'
+            '_additionalFills', '_inheritedFilterId', '_inheritedMaskIds', 'data-figma-bg-blur-radius', '_figmaGlass'
         ];
         for (var si = 0; si < styleKeys.length; si++) {
             var k = styleKeys[si];
@@ -87,6 +87,17 @@ function createRect(node, parentId, vb) {
         } catch (eRot) {
         }
     }
+
+    // Apply MIRRORS from the matrix transform: decomposeMatrix expresses a
+    // flip as rotation + a negative scale, and dropping the sign turned
+    // horizontal mirrors into upside-down 180-degree turns (a flipped image
+    // rendered nowhere). Magnitudes stay baked into width/height by the
+    // exporter - only the SIGN applies here.
+    try {
+        var sxSign = (node.attrs._scaleX !== undefined && node.attrs._scaleX < 0) ? -1 : 1;
+        var sySign = (node.attrs._scaleY !== undefined && node.attrs._scaleY < 0) ? -1 : 1;
+        if (sxSign < 0 || sySign < 0) api.set(id, { "scale.x": sxSign, "scale.y": sySign });
+    } catch (eMir) {}
 
     applyFillAndStroke(id, node.attrs);
     applyBlendMode(id, node.attrs);
@@ -165,6 +176,17 @@ function createEllipse(node, parentId, vb) {
             api.set(id, {"rotation": -node.attrs._rotationDeg});
         }
     } catch (eRotE) {}
+
+    // Apply MIRRORS from the matrix transform: decomposeMatrix expresses a
+    // flip as rotation + a negative scale, and dropping the sign turned
+    // horizontal mirrors into upside-down 180-degree turns (a flipped image
+    // rendered nowhere). Magnitudes stay baked into width/height by the
+    // exporter - only the SIGN applies here.
+    try {
+        var sxSign = (node.attrs._scaleX !== undefined && node.attrs._scaleX < 0) ? -1 : 1;
+        var sySign = (node.attrs._scaleY !== undefined && node.attrs._scaleY < 0) ? -1 : 1;
+        if (sxSign < 0 || sySign < 0) api.set(id, { "scale.x": sxSign, "scale.y": sySign });
+    } catch (eMir) {}
     
     // rotate(cx,cy) compensation for explicit rotate() transforms
     try {

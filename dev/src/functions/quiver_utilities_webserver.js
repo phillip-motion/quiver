@@ -287,6 +287,12 @@ function handleImportSVG(request) {
             clearFigmaTextData(); // Clear any previous data
         }
         
+        if (request.glassData && request.glassData.length > 0) {
+            setFigmaGlassData(request.glassData);
+        } else {
+            clearFigmaGlassData();
+        }
+        
         // Clear the text shape registry before import (will be populated during SVG import)
         clearCreatedTextShapes();
         
@@ -312,6 +318,7 @@ function handleImportSVG(request) {
         if (!importSuccess) {
             hideLoadingIndicator();
             clearFigmaTextData();
+            clearFigmaGlassData();
             clearCreatedTextShapes();
             return;
         }
@@ -347,6 +354,7 @@ function handleImportSVG(request) {
         
         // Clear text data, text shape registry, frame name, and emoji index maps after processing
         clearFigmaTextData();
+        clearFigmaGlassData();
         clearCreatedTextShapes();
         __currentFrameName = '';
         if (typeof clearEmojiIndexMaps === 'function') {
@@ -370,6 +378,7 @@ function handleImportSVG(request) {
     } catch (e) {
         hideLoadingIndicator();
         __currentFrameName = '';
+        try { clearFigmaGlassData(); } catch (eGlass) {}
         console.error("🏹 Quiver: Import failed - " + e.message);
     }
 }
@@ -406,12 +415,15 @@ function setFigmaTextData(textDataArray) {
             }
             __figmaTextData[td.name].push(td);
             
-            // Also index by content for disambiguation
+            // Also index by content for disambiguation - ALL entries per
+            // content (duplicated designs repeat the same string at several
+            // positions; the caller disambiguates by position)
             if (td.characters) {
                 var contentKey = td.characters.substring(0, 50); // Use first 50 chars as key
                 if (!__figmaTextDataByContent[contentKey]) {
-                    __figmaTextDataByContent[contentKey] = td;
+                    __figmaTextDataByContent[contentKey] = [];
                 }
+                __figmaTextDataByContent[contentKey].push(td);
             }
             
         }
@@ -474,11 +486,12 @@ function getFigmaTextData(name, content, svgPosition) {
     if (allCandidates.length === 0) {
         if (content) {
             var contentKey = content.substring(0, 50);
-            if (__figmaTextDataByContent[contentKey]) {
-                return __figmaTextDataByContent[contentKey];
+            var byContentList = __figmaTextDataByContent[contentKey];
+            if (byContentList && byContentList.length) {
+                allCandidates = byContentList.slice();
             }
         }
-        return null;
+        if (allCandidates.length === 0) return null;
     }
     
     // Filter by content if provided - narrows down to text with matching content
@@ -490,7 +503,20 @@ function getFigmaTextData(name, content, svgPosition) {
             }
         }
     }
-    
+
+    // CONTENT WINS: when none of the name-based candidates hold this text's
+    // actual characters, a same-named entry is the WRONG node (designs reuse
+    // names like Title/Label heavily) - and matching one would REPLACE the
+    // real string with the entry's characters. Pull the right-content entries
+    // instead and let position matching below pick among them.
+    if (content && contentMatches.length === 0) {
+        var exactKey = content.substring(0, 50);
+        var rightContent = __figmaTextDataByContent[exactKey];
+        if (rightContent && rightContent.length) {
+            contentMatches = rightContent.slice();
+        }
+    }
+
     // Use content matches if we have them, otherwise all candidates
     var candidateEntries = contentMatches.length > 0 ? contentMatches : allCandidates;
     
@@ -790,7 +816,7 @@ function processStrokeGradientNodes(vectorDataArray, viewBox) {
                 }
                 
                 // Filter types to look for
-                var filterTypes = ['dropShadowFilter', 'dropShadow', 'blurFilter', 'blur', 'shadowFilter'];
+                var filterTypes = ['dropShadowFilter', 'dropShadow', 'blurFilter', 'blur', 'shadowFilter', 'jackJaeschke::glass'];
                 
                 // Helper to check a layer and its children for shaders/filters
                 function collectShadersAndFilters(layerId, depth) {

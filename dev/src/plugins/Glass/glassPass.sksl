@@ -1,0 +1,182 @@
+uniform shader childShader;
+uniform shader original;
+uniform float2 resolution;
+uniform float refraction;
+uniform float depth;
+const float depthMode = 0.0;
+uniform float dispersion;
+uniform float lightAngle;
+uniform float lightIntensity;
+uniform float splay;
+uniform float frost;
+const float2 refractionBias = float2(0.0, 0.0);
+const float4 lightColor = float4(1.0, 1.0, 1.0, 1.0);
+const float4 secondLightColor = float4(1.0, 1.0, 1.0, 1.0);
+
+const float PI = 3.14159265;
+
+half4 main(float2 coord) {
+    half rawA = original.eval(coord).a;
+    if (rawA < 0.002) { return half4(0.0); }
+
+    half covA = half(smoothstep(0.003, 0.012, float(rawA)));
+
+    float t = (depthMode > 0.5)
+            ? max(depth * 0.005 * min(resolution.x, resolution.y), 1.0)
+            : max(depth, 1.0);
+    float sigmaW = clamp(0.35 * t, 4.0, 250.0);
+
+    float refr01 = clamp(refraction / 100.0, 0.0, 1.0);
+    float disp01 = clamp(dispersion / 100.0, 0.0, 1.0);
+    float lint01 = clamp(lightIntensity / 100.0, 0.0, 1.0);
+    float splay01 = clamp(splay / 100.0, 0.0, 1.0);
+
+    half4 selfTap = childShader.eval(coord);
+
+    float delta = max(1.5 * sigmaW, 2.0);
+    float gx = (float(childShader.eval(coord + float2(delta,0)).a)
+              - float(childShader.eval(coord - float2(delta,0)).a)) / (2.0 * delta);
+    float gy = (float(childShader.eval(coord + float2(0,delta)).a)
+              - float(childShader.eval(coord - float2(0,delta)).a)) / (2.0 * delta);
+    float2 g = float2(gx, gy);
+    float gm = length(g);
+    float2 nOut = (gm > 1e-5) ? -g / gm : float2(0.0, -1.0);
+
+    float gate = smoothstep(0.1, 0.35, gm * sigmaW * 2.5);
+
+    float reach = 2.28 * sigmaW;
+    float dAxX = reach; float dAxY = reach; float dNear = reach;
+    float dNOutP = reach;
+    for (int k = 0; k < 5; k++) {
+        float2 dirP = (k == 0) ? float2(1.0, 0.0)
+                    : (k == 1) ? float2(-1.0, 0.0)
+                    : (k == 2) ? float2(0.0, 1.0)
+                    : (k == 3) ? float2(0.0, -1.0) : nOut;
+        float dHit = reach;
+        if (float(original.eval(coord + dirP * reach).a) < 0.5) {
+            float dLo = 0.0; float dHi = reach;
+            for (int j = 0; j < 9; j++) {
+                float dMid = 0.5 * (dLo + dHi);
+                if (float(original.eval(coord + dirP * dMid).a) < 0.5) { dHi = dMid; }
+                else { dLo = dMid; }
+            }
+            dHit = 0.5 * (dLo + dHi);
+        }
+        if (k < 2) { dAxX = min(dAxX, dHit); }
+        else if (k < 4) { dAxY = min(dAxY, dHit); }
+        else { dNOutP = dHit; }
+    }
+    dNear = min(min(dAxX, dAxY), dNOutP);
+    float u = clamp(1.0 - dNear / reach, 0.0, 1.0);
+    float prof = pow(u, 2.4);
+    float dispMag = 1.08 * t * prof;
+
+    float2 nEff = nOut + refractionBias;
+    nEff = (length(nEff) > 1e-5) ? normalize(nEff) : nOut;
+
+    float sp = splay01;
+    float2 radialIn = nEff;
+    float2 dispDir = nEff;
+    if (sp > 0.0) {
+        float reachFar = 0.75 * (resolution.x + resolution.y);
+        float2 axDist = float2(0.0);
+        for (int k = 0; k < 4; k++) {
+            float2 dirF = (k == 0) ? float2(1.0, 0.0)
+                        : (k == 1) ? float2(-1.0, 0.0)
+                        : (k == 2) ? float2(0.0, 1.0) : float2(0.0, -1.0);
+            float dLo = 0.0; float dHi = reachFar;
+            for (int j = 0; j < 10; j++) {
+                float dMid = 0.5 * (dLo + dHi);
+                if (float(original.eval(coord + dirF * dMid).a) < 0.5) { dHi = dMid; }
+                else { dLo = dMid; }
+            }
+            float dHit = 0.5 * (dLo + dHi);
+            if (k == 0) { axDist.x += dHit; }
+            else if (k == 1) { axDist.x -= dHit; }
+            else if (k == 2) { axDist.y += dHit; }
+            else { axDist.y -= dHit; }
+        }
+        float2 toCentre = 0.5 * axDist;
+        float tcLen = length(toCentre);
+        radialIn = (tcLen > 1e-3) ? toCentre / tcLen : nEff;
+        dispDir = mix(nEff, -radialIn, sp);
+    }
+    float2 disp = -dispDir * (refr01 * dispMag) * gate;
+
+    float smearR = clamp(0.05 * dispMag, 0.0, 8.0) * gate;
+    float2 sN = nEff * smearR;
+    float2 sT = float2(-nEff.y, nEff.x) * smearR;
+
+    float la = (-lightAngle - 90.0) * PI / 180.0;
+    float2 L = float2(-cos(la), -sin(la));
+
+    float li = 0.378 * pow(lint01, 0.85);
+
+    float li2 = li * 0.97;
+    float fall1 = 1.0; float fall2 = 1.0;
+
+    half3 selfRgb = selfTap.rgb;
+
+    float dk = disp01 * 0.05;
+    half4 cR = (childShader.eval(coord + disp * (1.0 + dk)) * 2.0
+              + childShader.eval(coord + disp * (1.0 + dk) + sN) + childShader.eval(coord + disp * (1.0 + dk) - sN)
+              + childShader.eval(coord + disp * (1.0 + dk) + sT) + childShader.eval(coord + disp * (1.0 + dk) - sT)) * (1.0 / 6.0);
+    half4 cG = (childShader.eval(coord + disp) * 2.0
+              + childShader.eval(coord + disp + sN) + childShader.eval(coord + disp - sN)
+              + childShader.eval(coord + disp + sT) + childShader.eval(coord + disp - sT)) * (1.0 / 6.0);
+    half4 cB = (childShader.eval(coord + disp * (1.0 - dk)) * 2.0
+              + childShader.eval(coord + disp * (1.0 - dk) + sN) + childShader.eval(coord + disp * (1.0 - dk) - sN)
+              + childShader.eval(coord + disp * (1.0 - dk) + sT) + childShader.eval(coord + disp * (1.0 - dk) - sT)) * (1.0 / 6.0);
+    half4 oD = original.eval(coord + disp);
+    half wC = half(smoothstep(0.003, 0.012, float(oD.a)));
+    half3 rgb = half3(
+        mix(selfRgb.r, cR.r, wC),
+        mix(selfRgb.g, cG.g, wC),
+        mix(selfRgb.b, cB.b, wC));
+
+    float aOut1 = float(original.eval(coord + nOut * 1.2).a);
+    float thin = 0.66 * clamp(float(rawA), 0.0, 1.0) * (1.0 - smoothstep(0.006, 0.5, aOut1));
+    float2 nLit = nOut;
+    float gateL = gate;
+
+    float2 nLitS = nLit;
+    if (sp > 0.0) {
+        float2 nMixS = mix(nLit, -radialIn, sp);
+        float nmL = length(nMixS);
+        nLitS = (nmL > 1e-4) ? nMixS / nmL : nLit;
+    }
+    float cF = dot(nLitS, L);
+
+    float facing = smoothstep(0.30, 0.93, cF);
+    float back   = smoothstep(0.44, 1.03, -cF);
+
+    float facingB = smoothstep(0.30, 0.93, cF);
+    float backB   = smoothstep(0.30, 0.93, -cF);
+
+    float2 tanV = float2(-nLit.y, nLit.x);
+    float2 pIn = coord - nLit * 8.0;
+    float ctA = float(original.eval(pIn + tanV * 60.0).a);
+    float ctB = float(original.eval(pIn - tanV * 60.0).a);
+    float rimCurve = mix(0.73, 1.0, 0.5 * (ctA + ctB));
+    float rimAmt = thin * rimCurve;
+    float rim = 2.0 * facing * rimAmt * li * gateL * fall1;
+
+    half3 lit = clamp(rgb + half3(float3(rim) * lightColor.rgb), half3(0.0), half3(1.0));
+
+    if (li2 > 0.0) {
+        float rim2 = 2.0 * back * rimAmt * li2 * gateL * fall2;
+        lit = clamp(lit + half3(float3(rim2) * secondLightColor.rgb),
+                    half3(0.0), half3(1.0));
+    }
+
+    float bandN = clamp(1.0 - dNear / reach, 0.0, 1.0);
+    float liN = pow(lint01, 0.85);
+    float shadeB = 0.081 * facingB * bandN * liN * gateL;
+    float glowB  = 0.070 * backB * bandN * bandN * liN * gateL;
+    lit = clamp(lit * half3(half(1.0 - 0.5 * shadeB)) - half3(half(0.35 * shadeB)),
+                half3(0.0), half3(1.0));
+    lit = clamp(lit + half3(half(glowB)) * (half3(0.33) + half3(0.68) * (half3(1.0) - lit)),
+                half3(0.0), half3(1.0));
+
+    return half4(lit * covA, covA);
+}

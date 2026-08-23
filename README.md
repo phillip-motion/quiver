@@ -132,6 +132,7 @@ Coming soon!
 | Blend modes  | ✅ |
 | Masks and clip paths  | ✅  |
 | Background blur  | ✅  |
+| Glass  | ✅ (Figma plugin) |
 
 ## Roadmap
 We're actively working on:

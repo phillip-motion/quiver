@@ -5,6 +5,14 @@
  */
 function parseMatrixTransform(transformStr) {
     if (!transformStr) return null;
+    // A transform LIST (e.g. "translate(-0.25) scale(0.0016)") must compose
+    // ALL functions: the single-function shortcuts below used to match just
+    // the scale() and silently DROP the translate, shifting every image crop
+    // whose pattern pans the image.
+    var fnCount = (transformStr.match(/(matrix|translate|scale|rotate|skewX|skewY)\s*\(/g) || []).length;
+    if (fnCount > 1 && typeof parseTransformMatrixList === 'function') {
+        return parseTransformMatrixList(transformStr);
+    }
     var matrixMatch = /matrix\s*\(\s*([^,\s]+)[\s,]+([^,\s]+)[\s,]+([^,\s]+)[\s,]+([^,\s]+)[\s,]+([^,\s]+)[\s,]+([^,\s]+)\s*\)/.exec(transformStr);
     if (matrixMatch) {
         return {
@@ -116,7 +124,16 @@ function getPatternImageMatrix(patternData) {
 
 function _readShapeSize(layerId) {
     try {
-        var dims = api.get(layerId, 'generator.dimensions');
+        // editableShapes have no generator - probing logs a Cavalry console
+        // error even inside try/catch
+        var hasGen = false;
+        try {
+            var szAttrs = api.getAttributes(layerId) || [];
+            for (var ai = 0; ai < szAttrs.length; ai++) {
+                if (String(szAttrs[ai]) === 'generator.dimensions') { hasGen = true; break; }
+            }
+        } catch (eAttrs) {}
+        var dims = hasGen ? api.get(layerId, 'generator.dimensions') : null;
         if (dims) {
             if (dims.length >= 2 && dims[0] && dims[1]) {
                 return { w: dims[0], h: dims[1] };

@@ -166,6 +166,7 @@ var importLiveTextEnabled = true;
 var importEmojisEnabled = true;
 var importImageryEnabled = true;
 var importEffectsEnabled = true;
+var compositeGlassBackdropsEnabled = true;
 var importGroupsEnabled = true;
 var showLoaderEnabled = true; // Show "Firing..." loader during Figma imports
 var imageFilterQuality = 2; // 0=None, 1=Bilinear, 2=Mipmaps (default), 3=Bicubic
@@ -514,9 +515,20 @@ function createSettingsWindow() {
         importEffectsEnabled = importEffectsCheckbox.getValue();
     };
     effectsLayout.add(importEffectsCheckbox);
-    effectsLayout.add(new ui.Label("Import effects (blur, drop shadow)"));
+    effectsLayout.add(new ui.Label("Import effects (blur, drop shadow, glass)"));
     effectsLayout.setSpaceBetween(8);
     settingsLayout.add(effectsLayout);
+
+    // Composite glass backdrops: group overlapping layers into a Custom Shape
+    var glassCompositeLayout = new ui.HLayout();
+    var compositeGlassCheckbox = new ui.Checkbox(compositeGlassBackdropsEnabled);
+    compositeGlassCheckbox.onValueChanged = function() {
+        compositeGlassBackdropsEnabled = compositeGlassCheckbox.getValue();
+    };
+    glassCompositeLayout.add(compositeGlassCheckbox);
+    glassCompositeLayout.add(new ui.Label("Composite glass backdrops"));
+    glassCompositeLayout.setSpaceBetween(8);
+    settingsLayout.add(glassCompositeLayout);
     
     // Image quality dropdown
     var qualityLayout = new ui.HLayout();
@@ -612,6 +624,7 @@ var cornerRadiusInput = new ui.LineEdit();
         importEmojisEnabled = importEmojisCheckbox.getValue();
         importImageryEnabled = importImageryCheckbox.getValue();
         importEffectsEnabled = importEffectsCheckbox.getValue();
+        compositeGlassBackdropsEnabled = compositeGlassCheckbox.getValue();
         importGroupsEnabled = importGroupsCheckbox.getValue();
         showLoaderEnabled = showLoaderCheckbox.getValue();
         imageFilterQuality = filterQualityDropdown.getValue();

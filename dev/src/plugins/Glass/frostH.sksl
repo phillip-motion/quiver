@@ -1,0 +1,69 @@
+const float dirX = 1.0;
+const float dirY = 0.0;
+const float wideA = 0.0;
+
+uniform shader childShader;
+uniform float depth;
+const float depthMode = 0.0;
+uniform float2 resolution;
+uniform float frost;
+const float quality = 2.0;
+
+half4 main(float2 coord) {
+    half4 self = childShader.eval(coord);
+    float t = (depthMode > 0.5)
+            ? max(depth * 0.005 * min(resolution.x, resolution.y), 1.0)
+            : max(depth, 1.0);
+    float2 dir = float2(dirX, dirY);
+    float qs = (quality < 0.5) ? 3.0 : ((quality < 1.5) ? 1.8 : 1.0);
+
+    if (wideA > 0.5) {
+
+        float sigma = clamp(0.35 * t, 4.0, 250.0);
+        float stride = ceil(sigma * qs / 20.0);
+        float radius = min(ceil(3.0 * sigma / stride), 63.0);
+        float twoS = 2.0 * sigma * sigma;
+        float accA = 0.0; float wA = 0.0;
+        for (int i = -63; i <= 63; i++) {
+            float fi = float(i);
+            if (abs(fi) > radius) { continue; }
+            float off = fi * stride;
+            float w = exp(-off * off / twoS);
+            accA += float(childShader.eval(coord + dir * off).a) * w;
+            wA += w;
+        }
+        return half4(self.rgb, half(accA / max(wA, 0.0001)));
+    }
+
+    float sigmaC = clamp(clamp(frost, 0.0, 100.0) * 0.5, 0.35, 50.0);
+    float sigmaA = 4.0;
+    float pass1 = dirX;
+
+    float strideN = max(max(floor(qs + 0.5), 1.0), ceil(sigmaC * qs / 16.0));
+    float radius = min(ceil(3.0 * max(sigmaC, sigmaA) / strideN), 63.0);
+    float twoC = 2.0 * sigmaC * sigmaC;
+    float twoA = 2.0 * sigmaA * sigmaA;
+    half3 accC = half3(0.0); float wC = 0.0;
+    half3 accW = half3(0.0); float wW = 0.0;
+    float accA = 0.0; float wA = 0.0;
+    for (int i = -63; i <= 63; i++) {
+        float fi = float(i);
+        if (abs(fi) > radius) { continue; }
+        float off = fi * strideN;
+        half4 tp = childShader.eval(coord + dir * off);
+        float ta = float(tp.a);
+        float gC = exp(-off * off / twoC); float gA = exp(-off * off / twoA);
+        half3 rgb = (pass1 > 0.5) ? tp.rgb / max(tp.a, half(0.0001)) : tp.rgb;
+        accC += rgb * half(gC * ta); wC += gC * ta;
+        accW += rgb * half(gA * ta); wW += gA * ta;
+
+        float taM = (pass1 > 0.5) ? smoothstep(0.003, 0.012, ta) : ta;
+        accA += taM * gA; wA += gA;
+    }
+    half3 narrow = accC / half(max(wC, 0.0001));
+    half3 wide = accW / half(max(wW, 0.0001));
+
+    half3 outRgb = mix(wide, narrow, half(smoothstep(0.0, 0.6, wC)));
+    if (wW < 0.0001) { outRgb = self.rgb; }
+    return half4(outRgb, half(accA / max(wA, 0.0001)));
+}

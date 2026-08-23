@@ -30,6 +30,7 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
     parentMatrix = parentMatrix || null;
     inHiddenDefs = !!inHiddenDefs;
     var nodeT = parseTranslate(node.attrs && node.attrs.transform);
+    attachFigmaGlassToNode(node);
 
     if (node.type === 'g' || node.type === 'svg' || node.type === 'root') {
         // Skip empty groups (no children)
@@ -104,6 +105,7 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
                         if (!node.children[fi].attrs) node.children[fi].attrs = {};
                         if (!node.children[fi].attrs.filter) node.children[fi].attrs._inheritedFilterId = inheritedFilterForFlatten;
                     }
+                    if (fi === 0) propagateFigmaGlassToChild(node, node.children[fi]);
                     importNode(node.children[fi], parentId, vb, {x:0,y:0}, stats, model, false, inheritedScale, parentMatrix);
                 }
                 return parentId;
@@ -151,6 +153,7 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
                 if (node.attrs['data-figma-bg-blur-radius'] && !singleChild.attrs['data-figma-bg-blur-radius']) {
                     singleChild.attrs['data-figma-bg-blur-radius'] = node.attrs['data-figma-bg-blur-radius'];
                 }
+                propagateFigmaGlassToChild(node, singleChild);
                 
                 // Transfer filter attribute if present on the group (for layer blur, etc.)
                 var groupFilterId = extractUrlRefId(node.attrs.filter);
@@ -349,6 +352,7 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
                         }
                         
                         if (stats) stats.texts = (stats.texts || 0) + 1;
+                        maybeQueueFigmaOverlayEffects(styledTextId, node, parentId);
                         
                         // Skip processing children - we've handled this group as a single styled text
                         return styledTextId;
@@ -446,6 +450,23 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
                     if (!blurChild.attrs) blurChild.attrs = {};
                     blurChild.attrs['data-figma-bg-blur-radius'] = groupBgBlur;
                     break; // Only apply to first geometry child
+                }
+            }
+        }
+        // Propagate Figma Glass from group to geometry children. A FRAME's
+        // pane is its background rect (first geometry child); any other node
+        // type panes as its content silhouette, so EVERY geometry child gets
+        // the glass (each queues as an overlay; equal params collapse to ONE
+        // filter with one matte per path).
+        if (node.attrs && node.attrs._figmaGlass) {
+            var glassAllPaths = !!node.attrs._figmaGlassAllPaths;
+            for (var glassIdx = 0; glassIdx < childTargets.length; glassIdx++) {
+                var glassChild = childTargets[glassIdx];
+                var glassType = glassChild.type;
+                var isGlassGeom = (glassType==='path'||glassType==='rect'||glassType==='circle'||glassType==='ellipse'||glassType==='polygon'||glassType==='polyline'||glassType==='text'||glassType==='line'||glassType==='image');
+                if (isGlassGeom) {
+                    propagateFigmaGlassToChild(node, glassChild);
+                    if (!glassAllPaths) break;
                 }
             }
         }
@@ -630,6 +651,7 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
                 // Store scaleY for gradient flip detection
                 // When scaleY is negative, the gradient direction needs to be reversed
                 clone.attrs._scaleY = decomposed.scaleY;
+                clone.attrs._scaleX = decomposed.scaleX;
                 
                 // Clear transform to prevent double-application in createRect
                 delete clone.attrs.transform;
@@ -705,20 +727,7 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
             } else {  }
         } catch (eDs) {  }
         
-        // Check for Figma Background Blur (frosted glass effect)
-        // Figma exports this as data-figma-bg-blur-radius attribute
-        // Queue for deferred processing so we can find underlying siblings
-        try {
-            var bgBlurRadius = node.attrs && node.attrs['data-figma-bg-blur-radius'];
-            if (bgBlurRadius) {
-                var bgBlurAmount = parseFloat(bgBlurRadius);
-                if (!isNaN(bgBlurAmount) && bgBlurAmount > 0) {
-                    queueBackgroundBlur(rid, bgBlurAmount, parentId);
-                }
-            }
-        } catch (eBgBlur) {
-            console.warn('[Background Blur] Error processing rect: ' + eBgBlur.message);
-        }
+        maybeQueueFigmaOverlayEffects(rid, node, parentId);
         // Mask/Clip: apply ALL masks (nested clip intersection)
         try {
             var allMaskIds = (node.attrs && node.attrs._inheritedMaskIds) ? node.attrs._inheritedMaskIds.slice() : [];
@@ -779,6 +788,7 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
             // Store scaleY for gradient flip detection
             // When scaleY is negative (Y-flip), the gradient direction needs to be reversed
             cloneC.attrs._scaleY = decomposedC.scaleY;
+            cloneC.attrs._scaleX = decomposedC.scaleX;
             
             // Clear transform to prevent double-application in createCircle
             delete cloneC.attrs.transform;
@@ -822,19 +832,7 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
             }
         } catch (eDsC) {  }
         
-        // Check for Figma Background Blur (frosted glass effect)
-        // Queue for deferred processing so we can find underlying siblings
-        try {
-            var bgBlurRadiusC = node.attrs && node.attrs['data-figma-bg-blur-radius'];
-            if (bgBlurRadiusC) {
-                var bgBlurAmountC = parseFloat(bgBlurRadiusC);
-                if (!isNaN(bgBlurAmountC) && bgBlurAmountC > 0) {
-                    queueBackgroundBlur(cid, bgBlurAmountC, parentId);
-                }
-            }
-        } catch (eBgBlurC) {
-            console.warn('[Background Blur] Error processing circle: ' + eBgBlurC.message);
-        }
+        maybeQueueFigmaOverlayEffects(cid, node, parentId);
         
         // Mask/Clip: apply ALL masks (nested clip intersection)
         try {
@@ -897,6 +895,7 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
             // Store scaleY for gradient flip detection
             // When scaleY is negative (Y-flip), the gradient direction needs to be reversed
             cloneE.attrs._scaleY = decomposedE.scaleY;
+            cloneE.attrs._scaleX = decomposedE.scaleX;
             
             // Clear transform to prevent double-application in createEllipse
             delete cloneE.attrs.transform;
@@ -941,19 +940,7 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
             }
         } catch (eDsE) {  }
         
-        // Check for Figma Background Blur (frosted glass effect)
-        // Queue for deferred processing so we can find underlying siblings
-        try {
-            var bgBlurRadiusE = node.attrs && node.attrs['data-figma-bg-blur-radius'];
-            if (bgBlurRadiusE) {
-                var bgBlurAmountE = parseFloat(bgBlurRadiusE);
-                if (!isNaN(bgBlurAmountE) && bgBlurAmountE > 0) {
-                    queueBackgroundBlur(eid, bgBlurAmountE, parentId);
-                }
-            }
-        } catch (eBgBlurE) {
-            console.warn('[Background Blur] Error processing ellipse: ' + eBgBlurE.message);
-        }
+        maybeQueueFigmaOverlayEffects(eid, node, parentId);
         
         // Mask/Clip: apply ALL masks (nested clip intersection)
         try {
@@ -1070,6 +1057,7 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
                 }
             }
         } catch (eMaskT) {  }
+        maybeQueueFigmaOverlayEffects(tid, node, parentId);
         var rotDegT = getRotationDegFromTransform(node.attrs && node.attrs.transform || '');
         if (Math.abs(rotDegT) > 0.0001) api.set(tid, {"rotation": -rotDegT});
         if (stats) stats.texts = (stats.texts || 0) + 1;
@@ -1158,6 +1146,7 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
                 }
             }
         } catch (eMaskI) {}
+        maybeQueueFigmaOverlayEffects(idImg, node, parentId);
         if (stats) stats.images = (stats.images || 0) + 1;
         _logLayerCreated('image', node.name);
         return idImg;
@@ -1395,19 +1384,7 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
                 }
             } catch (eMaskL) {}
             
-            // Check for Figma Background Blur (frosted glass effect)
-            // Queue for deferred processing so we can find underlying siblings
-            try {
-                var bgBlurRadiusL = node.attrs && node.attrs['data-figma-bg-blur-radius'];
-                if (bgBlurRadiusL) {
-                    var bgBlurAmountL = parseFloat(bgBlurRadiusL);
-                    if (!isNaN(bgBlurAmountL) && bgBlurAmountL > 0) {
-                        queueBackgroundBlur(vecId, bgBlurAmountL, parentId);
-                    }
-                }
-            } catch (eBgBlurL) {
-                console.warn('[Background Blur] Error processing line: ' + eBgBlurL.message);
-            }
+            maybeQueueFigmaOverlayEffects(vecId, node, parentId);
             
             if (stats) stats.paths = (stats.paths || 0) + 1;
             _logLayerCreated('line', node.name);
@@ -1431,6 +1408,8 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
             // Try to recreate as primitives (regular polygon/star)
             var primId = createRegularPolygonPrimitive(node.name || (node.type === 'polygon' ? 'Polygon' : 'Polyline'), polyPts, parentId, vb, translateAll, node.attrs);
             if (primId) {
+                _registerChild(parentId, primId);
+                maybeQueueFigmaOverlayEffects(primId, node, parentId);
                 if (stats) stats.paths = (stats.paths || 0) + 1;
                 _logLayerCreated('polygon', node.name);
                 return primId;
@@ -1534,19 +1513,7 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
             }
         } catch (eDsP) {  }
         
-        // Check for Figma Background Blur (frosted glass effect)
-        // Queue for deferred processing so we can find underlying siblings
-        try {
-            var bgBlurRadiusP = node.attrs && node.attrs['data-figma-bg-blur-radius'];
-            if (bgBlurRadiusP) {
-                var bgBlurAmountP = parseFloat(bgBlurRadiusP);
-                if (!isNaN(bgBlurAmountP) && bgBlurAmountP > 0) {
-                    queueBackgroundBlur(vecId, bgBlurAmountP, parentId);
-                }
-            }
-        } catch (eBgBlurP) {
-            console.warn('[Background Blur] Error processing path: ' + eBgBlurP.message);
-        }
+        maybeQueueFigmaOverlayEffects(vecId, node, parentId);
         
         var rotDegP = getRotationDegFromTransform(node.attrs && node.attrs.transform || '');
         if (Math.abs(rotDegP) > 0.0001) api.set(vecId, {"rotation": -rotDegP});
@@ -1924,8 +1891,9 @@ function processAndImportSVG(svgCode, options) {
         }
         setGradientContext(gradientMap);
         
-        // Clear any previous deferred background blur queue
+        // Clear any previous deferred background blur / glass queues
         clearDeferredBackgroundBlurs();
+        clearDeferredGlass();
 
         _logImportStep('Creating layers (' + model.children.length + ' top-level nodes)');
 
@@ -1965,6 +1933,11 @@ function processAndImportSVG(svgCode, options) {
         _logImportStep('Processing background blurs');
         try { processDeferredBackgroundBlurs(); } catch (eBgBlurPost) { 
             console.warn('[Background Blur] Post-processing error: ' + eBgBlurPost.message);
+        }
+
+        _logImportStep('Processing glass');
+        try { processDeferredGlass(); } catch (eGlassPost) {
+            console.warn('[Glass] Post-processing error: ' + eGlassPost.message);
         }
 
         // No scene group creation - imports go directly to scene root
