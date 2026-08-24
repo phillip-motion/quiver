@@ -521,10 +521,17 @@ function _findUnderlyingOverlappingSiblings(overlayShapeId, parentId) {
     // row's icon has the other rows below it at the list level, none of which
     // touch it, while its real backdrop (the panel) sits levels further up -
     // stopping at the first level with any underlying siblings skipped it.
+    // Collect underlying overlapping siblings across EVERY ancestor level -
+    // the visible backdrop can span levels (a text at one level over a
+    // Background at the root), and stopping at the first level with any
+    // overlap used to host glass on the text alone. The list stays in
+    // z-order: deeper (closer) levels draw ABOVE rootward levels, so each
+    // new level's finds go to the FRONT of the bottom-first list. One
+    // occlusion cull at the end keeps only what is visually beneath.
     var node = overlayShapeId;
     var par = parentId;
     var guard = 0;
-    var translucentOnly = null;
+    var collected = [];
     while (par && guard < 12) {
         var siblings = __groupDirectChildren[par] || [];
         var idx = -1;
@@ -533,7 +540,7 @@ function _findUnderlyingOverlappingSiblings(overlayShapeId, parentId) {
         }
         if (idx > 0) {
             var underlying = siblings.slice(0, idx);
-            var overlapping = [];
+            var levelHits = [];
             for (var j = 0; j < underlying.length; j++) {
                 var siblingId = underlying[j];
                 if (__glassOverlayShapes[siblingId] || __blurOverlayShapes[siblingId]) continue;
@@ -541,25 +548,21 @@ function _findUnderlyingOverlappingSiblings(overlayShapeId, parentId) {
                 for (var r = 0; r < refined.length; r++) {
                     var pickedId = refined[r];
                     if (__glassOverlayShapes[pickedId] || __blurOverlayShapes[pickedId]) continue;
-                    overlapping.push(pickedId);
+                    levelHits.push(pickedId);
                 }
             }
-            if (overlapping.length) {
-                var res = _occlusionCull(overlapping, overlayBBox);
-                if (res.culled.length) return res.culled;
-                // only see-through coverage at this level: remember it and
-                // keep climbing - the opaque backdrop (the frame's base) may
-                // sit at a higher level in the sibling stack
-                if (!translucentOnly && res.excluded.length) translucentOnly = res.excluded;
-            }
+            if (levelHits.length) collected = levelHits.concat(collected);
         }
         node = par;
         try { par = api.getParent(par); } catch (eGP) { break; }
         guard++;
     }
+    if (!collected.length) return [];
+    var res = _occlusionCull(collected, overlayBBox);
+    if (res.culled.length) return res.culled;
     // nothing opaque anywhere: better to refract the translucent stack than
     // to skip the overlay entirely
-    return translucentOnly || [];
+    return res.excluded;
 }
 
 // A backdrop layer must be effectively OPAQUE to host the glass: the shader
@@ -718,22 +721,21 @@ function _copyLocalTransform(fromId, toId) {
 function _compositeGlassBackdrops(overlapping, overlayShapeId) {
     var overlayName = 'Glass';
     try { overlayName = api.getNiceName(overlayShapeId) || 'Glass'; } catch (eN) {}
-    var customName = overlayName + ' Backdrop';
-
-    var customShapeId = null;
-    try { customShapeId = api.create('customShape', customName); } catch (eC) { customShapeId = null; }
-    if (!customShapeId) {
-        console.warn('[Glass] Could not create Custom Shape for backdrop composite');
-        return null;
-    }
 
     if (overlapping.length === 1) {
         // stand-in beside the (soon hidden) original, named after it
         var member = overlapping[0];
+        var customName = overlayName + ' Backdrop';
         try {
             var memberName = api.getNiceName(member);
-            if (memberName) api.rename(customShapeId, memberName + ' Backdrop');
+            if (memberName) customName = memberName + ' Backdrop';
         } catch (eRn1) {}
+        var customShapeId = null;
+        try { customShapeId = api.create('customShape', customName); } catch (eC) { customShapeId = null; }
+        if (!customShapeId) {
+            console.warn('[Glass] Could not create Custom Shape for backdrop composite');
+            return null;
+        }
         var memberParent = null;
         try { memberParent = api.getParent(member); } catch (eMP) {}
         if (memberParent) {
@@ -748,16 +750,23 @@ function _compositeGlassBackdrops(overlapping, overlayShapeId) {
         return customShapeId;
     }
 
-    // several members: hidden wrapper group at the topmost member's slot
-    // (topmost measured by real render order, so a swallowed full-bleed
-    // background can never end up above content that drew on top of it)
-    var topMember = _topmostByRenderOrder(overlapping);
+    // several members: hidden wrapper group inside a Custom Shape, placed at
+    // the BOTTOM-MOST member's slot - backdrops sit beneath their overlays,
+    // and anything that drew between the members and the overlay (a wordmark
+    // between a background and its images) must STAY above the composite.
+    var customShapeId = null;
+    try { customShapeId = api.create('customShape', overlayName + ' Backdrop'); } catch (eC2) { customShapeId = null; }
+    if (!customShapeId) {
+        console.warn('[Glass] Could not create Custom Shape for backdrop composite');
+        return null;
+    }
+    var bottomMember = _bottommostByRenderOrder(overlapping);
     var overlapParent = null;
-    try { overlapParent = api.getParent(topMember); } catch (eOP) {}
+    try { overlapParent = api.getParent(bottomMember); } catch (eOP) {}
     if (overlapParent) {
         try { api.parent(customShapeId, overlapParent); } catch (ePar) {}
     }
-    try { api.reorder(customShapeId, topMember); } catch (eR) {}
+    try { api.reorder(customShapeId, bottomMember); } catch (eR) {}
 
     var groupId = null;
     try { groupId = api.create('group', overlayName + ' Backdrop Group'); } catch (eG) { groupId = null; }
@@ -780,6 +789,23 @@ function _compositeGlassBackdrops(overlapping, overlayShapeId) {
     try { api.set(groupId, { hidden: true }); } catch (eH) {}
 
     return customShapeId;
+}
+
+function _bottommostByRenderOrder(members) {
+    var worst = members[0];
+    var worstPath = _renderPath(worst);
+    for (var i = 1; i < members.length; i++) {
+        var p = _renderPath(members[i]);
+        var len = Math.max(p.length, worstPath.length);
+        for (var d = 0; d < len; d++) {
+            var a = (d < p.length) ? p[d] : -1;
+            var b = (d < worstPath.length) ? worstPath[d] : -1;
+            if (a === b) continue;
+            if (a > b) { worst = members[i]; worstPath = p; }
+            break;
+        }
+    }
+    return worst;
 }
 
 
