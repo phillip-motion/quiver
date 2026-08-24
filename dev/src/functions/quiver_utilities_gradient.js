@@ -25,9 +25,8 @@ function getGradientShader(gradientId) {
 
 // --- Gradients (M2) ---
 function _gradGetAttr(element, name) {
-    var regex = new RegExp(name + '\\s*=\\s*["\']([^"\']*)["\']');
-    var match = regex.exec(element);
-    return match ? match[1] : null;
+    // Delegates to the anchored shared helper to avoid matching attribute-name suffixes.
+    return extractAttribute(element, name);
 }
 
 function colorWithOpacity(hexColor, opacity) {

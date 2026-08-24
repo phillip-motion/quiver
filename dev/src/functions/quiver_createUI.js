@@ -171,6 +171,7 @@ var importGroupsEnabled = true;
 var showLoaderEnabled = true; // Show "Firing..." loader during Figma imports
 var imageFilterQuality = 2; // 0=None, 1=Bilinear, 2=Mipmaps (default), 3=Bicubic
 var emojiPlaceholder = "[e]"; // Placeholder string for emoji positions (must be at least 2 chars)
+var updateCheckEnabled = isUpdateCheckEnabled(); // Persisted - see quiver_utilities_checkVersion.js
 
 // Settings button
 var settingsButton = new ui.ImageButton(ui.scriptLocation+"/assets/quiver_icon-settings_v01.png");
@@ -452,7 +453,40 @@ function createSettingsWindow() {
     loaderLayout.add(new ui.Label("Show Figma import loader"));
     loaderLayout.setSpaceBetween(8);
     settingsLayout.add(loaderLayout);
-    
+
+    // Check for updates checkbox
+    var updateCheckLayout = new ui.HLayout();
+    var updateCheckCheckbox = new ui.Checkbox(updateCheckEnabled);
+    updateCheckCheckbox.onValueChanged = function() {
+        updateCheckEnabled = updateCheckCheckbox.getValue();
+        setUpdateCheckEnabled(updateCheckEnabled);
+    };
+    updateCheckLayout.add(updateCheckCheckbox);
+    updateCheckLayout.add(new ui.Label("Check for updates on launch"));
+    updateCheckLayout.setSpaceBetween(8);
+    settingsLayout.add(updateCheckLayout);
+
+    // Manual update check - works even when the automatic check is switched off
+    var updateCheckNowLayout = new ui.HLayout();
+    var updateCheckNowButton = new ui.Button("Check for updates now");
+    updateCheckNowButton.setMinimumHeight(24);
+    var updateCheckStatusLabel = new ui.Label("");
+    updateCheckNowButton.onClick = function() {
+        checkForUpdate(GITHUB_REPO, scriptName, currentVersion, function(updateAvailable, newVersion, failed) {
+            if (failed) {
+                updateCheckStatusLabel.setText("Couldn't reach GitHub");
+            } else if (updateAvailable) {
+                updateCheckStatusLabel.setText("Update available: " + newVersion);
+            } else {
+                updateCheckStatusLabel.setText("Up to date (" + currentVersion + ")");
+            }
+        }, true);
+    };
+    updateCheckNowLayout.add(updateCheckNowButton);
+    updateCheckNowLayout.add(updateCheckStatusLabel);
+    updateCheckNowLayout.setSpaceBetween(8);
+    settingsLayout.add(updateCheckNowLayout);
+
     // Import groups checkbox
     var groupsLayout = new ui.HLayout();
     var importGroupsCheckbox = new ui.Checkbox(importGroupsEnabled);
@@ -627,6 +661,8 @@ var cornerRadiusInput = new ui.LineEdit();
         compositeGlassBackdropsEnabled = compositeGlassCheckbox.getValue();
         importGroupsEnabled = importGroupsCheckbox.getValue();
         showLoaderEnabled = showLoaderCheckbox.getValue();
+        updateCheckEnabled = updateCheckCheckbox.getValue();
+        setUpdateCheckEnabled(updateCheckEnabled);
         imageFilterQuality = filterQualityDropdown.getValue();
         
         // Capture emoji placeholder with validation - must be exactly 3 characters
@@ -749,7 +785,7 @@ newVersionAvailable.setBackgroundColor("#4a53fa");
 newVersionAvailable.setLayout(newVersionAvailableLayout);
 
 // Check if there's a newer version available (version checker stores in scriptName + "_update_check")
-if (api.hasPreferenceObject(scriptName + "_update_check")) {
+if (updateCheckEnabled && api.hasPreferenceObject(scriptName + "_update_check")) {
     var updatePrefs = api.getPreferenceObject(scriptName + "_update_check");
     if (updatePrefs.latestVersion && compareVersions(updatePrefs.latestVersion, currentVersion) > 0) {
         mainLayout.add(newVersionAvailable);

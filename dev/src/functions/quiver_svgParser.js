@@ -481,14 +481,18 @@ function mergeFillStrokePairs(node) {
         var bx = parseFloat(b.attrs.x||0), by = parseFloat(b.attrs.y||0);
         var bw = parseFloat(b.attrs.width||0), bh = parseFloat(b.attrs.height||0);
         var brx = parseFloat(b.attrs.rx||0), bry = parseFloat(b.attrs.ry||0);
-        return nearly(ax, bx) && nearly(ay, by) && nearly(aw, bw) && nearly(ah, bh) && nearly(arx, brx) && nearly(ary, bry);
+        var aTransform = (a.attrs.transform || '').trim();
+        var bTransform = (b.attrs.transform || '').trim();
+        return nearly(ax, bx) && nearly(ay, by) && nearly(aw, bw) && nearly(ah, bh) && nearly(arx, brx) && nearly(ary, bry) && aTransform === bTransform;
     }
     function areEllipsesIdentical(a, b) {
         var acx = parseFloat(a.attrs.cx||0), acy = parseFloat(a.attrs.cy||0);
         var arx = parseFloat(a.attrs.rx||0), ary = parseFloat(a.attrs.ry||0);
         var bcx = parseFloat(b.attrs.cx||0), bcy = parseFloat(b.attrs.cy||0);
         var brx = parseFloat(b.attrs.rx||0), bry = parseFloat(b.attrs.ry||0);
-        return nearly(acx, bcx) && nearly(acy, bcy) && nearly(arx, brx) && nearly(ary, bry);
+        var aTransform = (a.attrs.transform || '').trim();
+        var bTransform = (b.attrs.transform || '').trim();
+        return nearly(acx, bcx) && nearly(acy, bcy) && nearly(arx, brx) && nearly(ary, bry) && aTransform === bTransform;
     }
     function arePathsIdentical(a, b) {
         // Compare path 'd' attribute and transform
@@ -521,7 +525,9 @@ function mergeFillStrokePairs(node) {
         var ax2 = parseFloat(a.attrs.x2||0), ay2 = parseFloat(a.attrs.y2||0);
         var bx1 = parseFloat(b.attrs.x1||0), by1 = parseFloat(b.attrs.y1||0);
         var bx2 = parseFloat(b.attrs.x2||0), by2 = parseFloat(b.attrs.y2||0);
-        return nearly(ax1, bx1) && nearly(ay1, by1) && nearly(ax2, bx2) && nearly(ay2, by2);
+        var aTransform = (a.attrs.transform || '').trim();
+        var bTransform = (b.attrs.transform || '').trim();
+        return nearly(ax1, bx1) && nearly(ay1, by1) && nearly(ax2, bx2) && nearly(ay2, by2) && aTransform === bTransform;
     }
     function areTextsIdentical(a, b) {
         // Compare text position, transform, and content
