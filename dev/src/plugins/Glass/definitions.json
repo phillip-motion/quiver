@@ -122,10 +122,6 @@
       "aboutLinks": {
         "type": "string",
         "default": "https://canvacreative.team/motion"
-      },
-      "aboutGlazier": {
-        "type": "string",
-        "default": "https://your-link-here.example"
       }
     },
     "triggers": {
@@ -150,7 +146,7 @@
       ],
       "tabs": [
         {
-          "id": "glass",
+          "id": "filter",
           "attributeOrder": [
             "---Light",
             "lightAngle",
@@ -164,13 +160,12 @@
           ]
         },
         {
-          "id": "filter",
+          "id": "about",
           "attributeOrder": [
             "---About",
             "aboutVersion",
             "aboutMadeBy",
-            "aboutLinks",
-            "aboutGlazier"
+            "aboutLinks"
           ]
         }
       ]

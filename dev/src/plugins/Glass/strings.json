@@ -55,14 +55,11 @@
         "aboutLinks": [
           "More Plugins",
           "More plugins from the Canva Creative Team - select and copy the link"
-        ],
-        "aboutGlazier": [
-          "Glazier",
-          "Glass's bigger sibling with ridges, droplets and more - select and copy the link"
         ]
       },
       "tabs": {
-        "glass": "Glass"
+        "filter": "Filter",
+        "about": "About"
       }
     }
   }
