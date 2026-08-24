@@ -168,6 +168,7 @@ var importImageryEnabled = true;
 var importEffectsEnabled = true;
 var compositeGlassBackdropsEnabled = true;
 var importGroupsEnabled = true;
+var centreGroupPivotsEnabled = true; // Centre each imported group's pivot on its contents
 var showLoaderEnabled = true; // Show "Firing..." loader during Figma imports
 var imageFilterQuality = 2; // 0=None, 1=Bilinear, 2=Mipmaps (default), 3=Bicubic
 var emojiPlaceholder = "[e]"; // Placeholder string for emoji positions (must be at least 2 chars)
@@ -498,6 +499,17 @@ function createSettingsWindow() {
     groupsLayout.setSpaceBetween(8);
     settingsLayout.add(groupsLayout);
 
+    // Centre group pivots checkbox
+    var centrePivotsLayout = new ui.HLayout();
+    var centreGroupPivotsCheckbox = new ui.Checkbox(centreGroupPivotsEnabled);
+    centreGroupPivotsCheckbox.onValueChanged = function() {
+        centreGroupPivotsEnabled = centreGroupPivotsCheckbox.getValue();
+    };
+    centrePivotsLayout.add(centreGroupPivotsCheckbox);
+    centrePivotsLayout.add(new ui.Label("Centre group pivots"));
+    centrePivotsLayout.setSpaceBetween(8);
+    settingsLayout.add(centrePivotsLayout);
+
     // Import gradients checkbox
     var gradientsLayout = new ui.HLayout();
     var importGradientsCheckbox = new ui.Checkbox(importGradientsEnabled);
@@ -660,6 +672,7 @@ var cornerRadiusInput = new ui.LineEdit();
         importEffectsEnabled = importEffectsCheckbox.getValue();
         compositeGlassBackdropsEnabled = compositeGlassCheckbox.getValue();
         importGroupsEnabled = importGroupsCheckbox.getValue();
+        centreGroupPivotsEnabled = centreGroupPivotsCheckbox.getValue();
         showLoaderEnabled = showLoaderCheckbox.getValue();
         updateCheckEnabled = updateCheckCheckbox.getValue();
         setUpdateCheckEnabled(updateCheckEnabled);

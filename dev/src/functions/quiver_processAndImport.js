@@ -1660,6 +1660,31 @@ function unifyPathStrokePairsAfterImport() {
     }
 }
 
+// --- Centre Group Pivots After Import ---
+/**
+ * Centres the pivot of every group created during import, matching Shape > Centre Pivot.
+ * api.centrePivot is transform-neutral (pivot and position both move to the content
+ * centre, so the group's net transform stays identity) - children keep their absolute
+ * scene coordinates and later passes that write absolute positions into groups
+ * (stroke gradients, emojis) are unaffected.
+ */
+function centreImportedGroupPivots() {
+    var groupIds = getImportedGroupIds();
+    if (!groupIds || groupIds.length === 0) return 0;
+
+    var centredCount = 0;
+    for (var i = 0; i < groupIds.length; i++) {
+        try {
+            if (!api.layerExists(groupIds[i])) continue;
+            api.centrePivot(groupIds[i], false);
+            centredCount++;
+        } catch (eCentre) {
+            // Empty group or invalid bounding box - leave pivot as-is
+        }
+    }
+    return centredCount;
+}
+
 // --- Flatten Groups After Import ---
 /**
  * Flattens all groups that were created during import.
@@ -1956,6 +1981,18 @@ function processAndImportSVG(svgCode, options) {
                 }
             } catch (eFlatten) {
                 console.warn('[Flatten] Error: ' + eFlatten.message);
+            }
+        }
+
+        // Centre group pivots so selecting a group shows its pivot at the content centre
+        // Skipped for the loader SVG (options.skipFlatten) and when the setting is off
+        if (!options.skipFlatten && (typeof centreGroupPivotsEnabled === 'undefined' || centreGroupPivotsEnabled)) {
+            _logImportStep('Centring group pivots');
+            try {
+                var centred = centreImportedGroupPivots();
+                if (centred > 0) console.info('🏹 Centred pivots on ' + centred + ' group(s)');
+            } catch (eCentrePivots) {
+                console.warn('[Centre Pivots] Error: ' + eCentrePivots.message);
             }
         }
 
