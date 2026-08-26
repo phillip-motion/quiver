@@ -6012,8 +6012,19 @@ function _registerGlassOrAskRestart() {
         return _installGlassFromPath(installedPath);
     }
     __glassNeedsRestart = true;
-    console.warn('[Glass] Glass filter installed - RESTART Cavalry to finish loading it, then send the design again');
+    // Keep this quiet - the loud instruction is emitted LAST by
+    // glassRestartReminderAtEnd() so it owns the status bar after the import.
+    console.info('[Glass] Glass filter files installed (loads on next launch)');
     return false;
+}
+
+
+// Called at the very end of an import so the restart instruction is the LAST
+// line in the log (the status bar shows the last message - a warning buried
+// mid-import is easy to miss).
+function glassRestartReminderAtEnd() {
+    if (!__glassNeedsRestart) return;
+    console.warn('[Glass] RESTART CAVALRY - the Glass filter was just installed and only loads on launch. Restart, then send the design again to apply glass.');
 }
 
 function ensureGlassInstalled(force) {
@@ -13947,6 +13958,7 @@ function handleImportSVG(request) {
             clearFigmaTextData();
             clearFigmaGlassData();
             clearCreatedTextShapes();
+            if (typeof glassRestartReminderAtEnd === 'function') glassRestartReminderAtEnd();
             return;
         }
         
@@ -14002,11 +14014,16 @@ function handleImportSVG(request) {
         } catch (e) {
             // Window focusing not available
         }
+
+        // LAST line on purpose: if Glass was installed this session, the
+        // restart instruction must be the message left showing in the status bar.
+        if (typeof glassRestartReminderAtEnd === 'function') glassRestartReminderAtEnd();
     } catch (e) {
         hideLoadingIndicator();
         __currentFrameName = '';
         try { clearFigmaGlassData(); } catch (eGlass) {}
         console.error("🏹 Quiver: Import failed - " + e.message);
+        if (typeof glassRestartReminderAtEnd === 'function') glassRestartReminderAtEnd();
     }
 }
 

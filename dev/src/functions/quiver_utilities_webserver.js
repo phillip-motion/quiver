@@ -320,6 +320,7 @@ function handleImportSVG(request) {
             clearFigmaTextData();
             clearFigmaGlassData();
             clearCreatedTextShapes();
+            if (typeof glassRestartReminderAtEnd === 'function') glassRestartReminderAtEnd();
             return;
         }
         
@@ -375,11 +376,16 @@ function handleImportSVG(request) {
         } catch (e) {
             // Window focusing not available
         }
+
+        // LAST line on purpose: if Glass was installed this session, the
+        // restart instruction must be the message left showing in the status bar.
+        if (typeof glassRestartReminderAtEnd === 'function') glassRestartReminderAtEnd();
     } catch (e) {
         hideLoadingIndicator();
         __currentFrameName = '';
         try { clearFigmaGlassData(); } catch (eGlass) {}
         console.error("🏹 Quiver: Import failed - " + e.message);
+        if (typeof glassRestartReminderAtEnd === 'function') glassRestartReminderAtEnd();
     }
 }
 
