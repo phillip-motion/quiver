@@ -9,6 +9,7 @@ var GLASS_ANCHOR_NAME = 'Glass Anchor (auto)';
 // Populated by the production build. Dev uses ui.scriptLocation/plugins/Glass.
 // Keep any pre-set embed from the production bundle (assigned before this file).
 var QUIVER_GLASS_TEXT_FILES = (typeof QUIVER_GLASS_TEXT_FILES === 'object' && QUIVER_GLASS_TEXT_FILES) ? QUIVER_GLASS_TEXT_FILES : null;
+var QUIVER_GLASS_BINARY_FILES = (typeof QUIVER_GLASS_BINARY_FILES === 'object' && QUIVER_GLASS_BINARY_FILES) ? QUIVER_GLASS_BINARY_FILES : null;
 
 var __figmaGlassEntries = [];
 var __deferredGlass = [];
@@ -333,6 +334,25 @@ function _writeGlassFile(rel, text) {
     }
 }
 
+// Write one binary plugin file (icons) from base64. Icons are optional, so
+// this quietly no-ops on builds without the binary write API.
+function _writeGlassBinaryFile(rel, b64) {
+    if (typeof api.writeEncodedToBinaryFile !== 'function') return false;
+    try {
+        var base = _glassPluginsFolder();
+        if (!base) return false;
+        var target = base + '/Glass';
+        var haveDir = false;
+        try { haveDir = !!(api.isDirectory && api.isDirectory(target)); } catch (eChk) {}
+        if (!haveDir && typeof api.makeFolder === 'function') { try { api.makeFolder(target); } catch (eMk) {} }
+        api.writeEncodedToBinaryFile(target + '/' + rel, b64);
+        return true;
+    } catch (eWB) {
+        console.warn('[Glass] Could not write ' + rel + ': ' + eWB.message);
+        return false;
+    }
+}
+
 // Copy the dev plugin folder file-by-file (for builds without installPlugin).
 function _copyGlassFromDev(devPath) {
     var textFiles = ['definitions.json', 'strings.json', 'setup.js', 'versioning.js',
@@ -403,6 +423,13 @@ function ensureGlassInstalled(force) {
         for (var rel in QUIVER_GLASS_TEXT_FILES) {
             if (!QUIVER_GLASS_TEXT_FILES.hasOwnProperty(rel)) continue;
             if (!_writeGlassFile(rel, QUIVER_GLASS_TEXT_FILES[rel])) wroteAll = false;
+        }
+        // icons are optional - the filter works without them
+        if (typeof QUIVER_GLASS_BINARY_FILES === 'object' && QUIVER_GLASS_BINARY_FILES) {
+            for (var relB in QUIVER_GLASS_BINARY_FILES) {
+                if (!QUIVER_GLASS_BINARY_FILES.hasOwnProperty(relB)) continue;
+                _writeGlassBinaryFile(relB, QUIVER_GLASS_BINARY_FILES[relB]);
+            }
         }
         if (wroteAll) return _registerGlassOrAskRestart();
     }

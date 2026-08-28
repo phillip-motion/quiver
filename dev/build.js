@@ -177,7 +177,8 @@ function replaceImagePaths(code) {
 }
 
 /**
- * Embed Glass plugin text files so production Quiver.jsc can auto-install them.
+ * Embed Glass plugin files so production Quiver.jsc can auto-install them:
+ * text files as-is, icon PNGs as base64 for api.writeEncodedToBinaryFile.
  */
 function generateGlassPluginEmbed() {
     const glassDir = path.join(SRC_DIR, 'plugins', 'Glass');
@@ -191,6 +192,12 @@ function generateGlassPluginEmbed() {
         'wideH.sksl',
         'wideV.sksl',
         'glassPass.sksl'
+    ];
+    const binaryFiles = [
+        'glassIcon.png',
+        'glassIcon@2x.png',
+        'glassIcon_ae.png',
+        'glassIcon_ae@2x.png'
     ];
 
     if (!fs.existsSync(glassDir)) {
@@ -213,7 +220,18 @@ function generateGlassPluginEmbed() {
     });
     lines.push('};');
     lines.push('');
-    console.log(`  ✓ Embedded ${present.length} Glass plugin file(s)`);
+
+    lines.push('// Embedded Cavalry Glass plugin (binary files, base64)');
+    lines.push('QUIVER_GLASS_BINARY_FILES = {');
+    const presentBinary = binaryFiles.filter((filename) => fs.existsSync(path.join(glassDir, filename)));
+    presentBinary.forEach((filename, index) => {
+        const base64 = fs.readFileSync(path.join(glassDir, filename)).toString('base64');
+        const isLast = index === presentBinary.length - 1;
+        lines.push(`  ${JSON.stringify(filename)}: ${JSON.stringify(base64)}${isLast ? '' : ','}`);
+    });
+    lines.push('};');
+    lines.push('');
+    console.log(`  ✓ Embedded ${present.length} Glass plugin text file(s) + ${presentBinary.length} icon(s)`);
     return lines.join('\n');
 }
 
