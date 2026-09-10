@@ -43,11 +43,24 @@ function initializeQuiverWebServer() {
                 var post = quiverServer.getNextPost();
                 var request;
                 
-                try {
-                    request = JSON.parse(post.result);
-                } catch (e) {
-                    console.error("🏹 Quiver: Failed to parse request as JSON");
-                    return;
+                // Affinity cannot set a request body — its HttpRequest exposes
+                // only URL, method and headers — so it sends file paths in
+                // headers instead. Figma still posts JSON in the body.
+                var affinityAction = getQuiverHeader(post.headers, "X-Quiver-Action");
+                if (affinityAction) {
+                    if (affinityAction === "ping") {
+                        handlePing();
+                        return;
+                    }
+                    request = buildAffinityRequest(post.headers);
+                    if (!request) return;
+                } else {
+                    try {
+                        request = JSON.parse(post.result);
+                    } catch (e) {
+                        console.error("🏹 Quiver: Failed to parse request as JSON");
+                        return;
+                    }
                 }
                 
                 // Only log non-ping requests to avoid spam
@@ -271,6 +284,76 @@ function hideLoadingIndicator() {
 /**
  * Handle SVG import request (with optional hybrid vector data for stroke gradients)
  */
+/**
+ * Case-insensitive lookup in Cavalry's post.headers array.
+ * @param {Array} headers - [{name, value}, ...] from getNextPost()
+ * @param {string} name - header to find
+ * @returns {string} the value, or "" when absent
+ */
+function getQuiverHeader(headers, name) {
+    if (!headers || !headers.length) return "";
+    var wanted = name.toLowerCase();
+    for (var i = 0; i < headers.length; i++) {
+        var h = headers[i];
+        if (h && h.name && String(h.name).toLowerCase() === wanted) {
+            return h.value ? String(h.value) : "";
+        }
+    }
+    return "";
+}
+
+/**
+ * Turn an Affinity POST into the same request object the Figma path builds,
+ * so it can go straight into handleImportSVG. The SVG and its metadata sidecar
+ * are read from disk and then deleted — Affinity has no way to clean up after
+ * itself once the request is away.
+ *
+ * @param {Array} headers - [{name, value}, ...] from getNextPost()
+ * @returns {object|null} a request for handleImportSVG, or null if unusable
+ */
+function buildAffinityRequest(headers) {
+    var svgPath = getQuiverHeader(headers, "X-Quiver-Svg");
+    if (!svgPath) {
+        console.error("🏹 Quiver: Affinity request has no X-Quiver-Svg header");
+        return null;
+    }
+    var metaPath = getQuiverHeader(headers, "X-Quiver-Meta");
+
+    var request = { action: "importSVG" };
+    try {
+        request.svgCode = api.readFromFile(svgPath);
+    } catch (e) {
+        console.error("🏹 Quiver: Could not read " + svgPath + " - " + e.message);
+        return null;
+    }
+
+    if (metaPath) {
+        try {
+            var meta = JSON.parse(api.readFromFile(metaPath));
+            request.nodeName = meta.name || "";
+            request.frameWidth = meta.frameWidth;
+            request.frameHeight = meta.frameHeight;
+            request.textData = meta.textData;
+        } catch (e) {
+            // The SVG alone is still a usable import; don't lose it over metadata.
+            console.warn("🏹 Quiver: Affinity metadata unreadable, importing SVG only");
+        }
+    }
+
+    try {
+        api.deleteFilePath(svgPath);
+        if (metaPath) api.deleteFilePath(metaPath);
+    } catch (e) {
+        console.warn("🏹 Quiver: Could not clean up temp files in " + svgPath);
+    }
+
+    if (!request.svgCode) {
+        console.error("🏹 Quiver: Affinity exported an empty SVG");
+        return null;
+    }
+    return request;
+}
+
 function handleImportSVG(request) {
     // Show loading indicator before import starts
     showLoadingIndicator();

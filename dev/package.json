@@ -4,7 +4,8 @@
   "description": "Quiver - Fire SVGs straight into Cavalry",
   "scripts": {
     "build": "node build.js --minify",
-    "build:minify": "node build.js --minify"
+    "build:minify": "node build.js --minify",
+    "test": "node test-affinity-ingest.js && node build-afscripts.js --selfcheck affinity/template.afscripts"
   },
   "keywords": [
     "cavalry",

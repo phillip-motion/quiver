@@ -95,7 +95,29 @@ Batch rename selected layers. Eg. [name] 1, [name] 2 etc.
 4. Export or copy your frame as SVG!
 
 ### Affinity
-Coming soon!
+
+Requires Affinity v3 (Designer, Photo or Publisher), which added JavaScript scripting.
+
+**One-time setup**
+
+1. Double-click `Quiver.afscripts` to install it, or add it from the **Scripts** panel.
+2. In **Settings > Scripting**, allow your **Desktop** folder — Affinity sandboxes script
+   file access, and Quiver writes a temporary export there. (Allowed folders don't cover
+   subfolders, so it has to be the Desktop itself. Cavalry deletes both files the moment
+   it reads them.)
+3. Optional but recommended: create an export preset named **Quiver** with viewBox on,
+   flatten transforms off, text exported as text (not curves), and hex colours on.
+   Quiver uses it automatically if it exists, and falls back to `SVG (for export)`.
+
+**Firing**
+
+Make sure Quiver is open in Cavalry (`Scripts` menu), select your artwork in Affinity,
+then run **Fire towards Cavalry** from the Scripts panel.
+
+> [!NOTE]
+> Affinity's scripting API cannot set an HTTP request body, so Quiver exports the SVG
+> to a temporary file and sends only its path. Cavalry reads the file and deletes it.
+> This is why the Desktop permission in step 2 is required.
 
 
 ## Supported features

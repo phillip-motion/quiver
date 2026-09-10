@@ -37,6 +37,8 @@ const OUTPUT_FILE = path.join(__dirname, 'Quiver.js');
 const FIGMA_DIR = path.join(__dirname, 'figma');
 const FIGMA_UI_FILE = path.join(FIGMA_DIR, 'ui.html');
 const CACHE_FILE = path.join(__dirname, '.build-cache.json');
+const AFFINITY_DIR = path.join(__dirname, 'affinity');
+const AFSCRIPTS_FILE = path.join(__dirname, 'Quiver.afscripts');
 
 /**
  * Load or initialize build cache
@@ -462,6 +464,25 @@ async function build() {
         }
     }
     
+    // Pack the Affinity script into an .afscripts bundle
+    console.log('\n🅰️  Building Affinity bundle...');
+    try {
+        const { build: buildAfscripts } = require('./build-afscripts.js');
+        const bundle = buildAfscripts(
+            fs.readFileSync(path.join(AFFINITY_DIR, 'template.afscripts')),
+            {
+                bundleName: 'Quiver',
+                title: 'Fire towards Cavalry',
+                description: 'Send the current selection to Cavalry.',
+                code: fs.readFileSync(path.join(AFFINITY_DIR, 'quiver.js'), 'utf8'),
+            }
+        );
+        fs.writeFileSync(AFSCRIPTS_FILE, bundle);
+        console.log(`  ✓ ${path.relative(__dirname, AFSCRIPTS_FILE)} (${(bundle.length / 1024).toFixed(2)} KB)`);
+    } catch (e) {
+        console.warn(`  ⚠️  Skipped .afscripts bundle: ${e.message}`);
+    }
+
     // Summary
     console.log('\n✨ Build complete!');
     console.log(`   Version: ${VERSION}`);
