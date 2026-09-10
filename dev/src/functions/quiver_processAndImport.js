@@ -77,6 +77,9 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
             var rotG = getRotationDegFromTransform(tStrG);
             var tXYG = parseTranslate(tStrG);
             var hasStyleG = !!(node.attrs && (node.attrs.fill || node.attrs.stroke || node.attrs.opacity || node.attrs['fill-opacity'] || node.attrs['stroke-opacity'] || node.attrs.style));
+            // Clipping and compositing are not forwarded by this collapse, so a group
+            // carrying them must survive.
+            var hasClipG = !!(node.attrs && (node.attrs.mask || node.attrs['clip-path'] || node.attrs['mix-blend-mode'] || node.attrs['data-figma-bg-blur-radius']));
             var isAnonG = (rawGroupName === 'g' || rawGroupName === 'group');
             var inheritedFilterForFlatten = (function(){
                 try {
@@ -85,7 +88,8 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
                     return fidLocal || null;
                 } catch (e) { return null; }
             })();
-            if (isAnonG && Math.abs(rotG) < 0.0001 && Math.abs(tXYG.x) < 0.0001 && Math.abs(tXYG.y) < 0.0001 && !hasStyleG) {
+            var inheritedMasksForFlatten = (node.attrs && node.attrs._inheritedMaskIds && node.attrs._inheritedMaskIds.length) ? node.attrs._inheritedMaskIds.slice() : null;
+            if (isAnonG && Math.abs(rotG) < 0.0001 && Math.abs(tXYG.x) < 0.0001 && Math.abs(tXYG.y) < 0.0001 && !hasStyleG && !hasClipG) {
                 // Choose a single target child to receive the inherited filter when flattening
                 var chosenChildIndex = null;
                 if (inheritedFilterForFlatten) {
@@ -101,6 +105,17 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
                     }
                 }
                 for (var fi = 0; fi < node.children.length; fi++) {
+                    if (inheritedMasksForFlatten) {
+                        if (!node.children[fi].attrs) node.children[fi].attrs = {};
+                        if (!node.children[fi].attrs._inheritedMaskIds) {
+                            node.children[fi].attrs._inheritedMaskIds = [];
+                        }
+                        for (var mkI = 0; mkI < inheritedMasksForFlatten.length; mkI++) {
+                            if (node.children[fi].attrs._inheritedMaskIds.indexOf(inheritedMasksForFlatten[mkI]) === -1) {
+                                node.children[fi].attrs._inheritedMaskIds.push(inheritedMasksForFlatten[mkI]);
+                            }
+                        }
+                    }
                     if (inheritedFilterForFlatten && fi === chosenChildIndex) {
                         if (!node.children[fi].attrs) node.children[fi].attrs = {};
                         if (!node.children[fi].attrs.filter) node.children[fi].attrs._inheritedFilterId = inheritedFilterForFlatten;
