@@ -242,6 +242,101 @@ function getMaskDefinition(maskId) {
     return __svgMaskMap[maskId] || null;
 }
 
+// --- Clip chain reduction ---
+// Nested clipping frames stack up in _inheritedMaskIds and every one gets
+// connected to every leaf. Clipping masks intersect, so if clip A's region
+// fully contains clip B's, then A n B == B and A can be dropped from the
+// chain. This compares clips ONLY to other clips, never to their content:
+// a deliberately-clipping frame whose content currently fits must survive,
+// because the content may be animated past its edge later.
+
+// Returns a comparable region, or null when we cannot reason safely.
+function _maskRegionOf(maskId) {
+    try {
+        var def = getMaskDefinition(maskId);
+        if (!def) return null;
+        // Only true clipPaths have a purely geometric region. An alpha or
+        // luminance <mask> depends on its content's pixels, not its bounds.
+        if (def.type !== 'clip') return null;
+        if (!def.children || def.children.length !== 1) return null;
+        var c = def.children[0];
+        if (!c || !c.attrs) return null;
+        // A transform would need composing; not worth the risk here.
+        if (c.attrs.transform) return null;
+        if (c.type === 'rect') {
+            // A rounded rect's region is SMALLER than its bounds, so treating
+            // it as a plain rect would over-claim containment.
+            var rx = parseFloat(c.attrs.rx || 0), ry = parseFloat(c.attrs.ry || 0);
+            if ((rx && rx > 0) || (ry && ry > 0)) return null;
+            var w = parseFloat(c.attrs.width), h = parseFloat(c.attrs.height);
+            if (isNaN(w) || isNaN(h)) return null;
+            return { kind: 'rect', x: parseFloat(c.attrs.x || 0), y: parseFloat(c.attrs.y || 0), w: w, h: h };
+        }
+        if (c.type === 'circle') {
+            var r = parseFloat(c.attrs.r);
+            if (isNaN(r)) return null;
+            return { kind: 'ellipse', cx: parseFloat(c.attrs.cx || 0), cy: parseFloat(c.attrs.cy || 0), rx: r, ry: r };
+        }
+        if (c.type === 'ellipse') {
+            var erx = parseFloat(c.attrs.rx), ery = parseFloat(c.attrs.ry);
+            if (isNaN(erx) || isNaN(ery)) return null;
+            return { kind: 'ellipse', cx: parseFloat(c.attrs.cx || 0), cy: parseFloat(c.attrs.cy || 0), rx: erx, ry: ery };
+        }
+        return null; // paths and everything else: not reducible
+    } catch (eR) { return null; }
+}
+
+// True only when region a PROVABLY contains region b. Conservative by design.
+function _regionContains(a, b) {
+    if (!a || !b) return false;
+    var eps = 0.01;
+    // Bounding box of b. For a rect container this is sufficient: if the
+    // box is inside, the shape is inside.
+    var bx, by, bw, bh;
+    if (b.kind === 'rect') { bx = b.x; by = b.y; bw = b.w; bh = b.h; }
+    else { bx = b.cx - b.rx; by = b.cy - b.ry; bw = b.rx * 2; bh = b.ry * 2; }
+    if (a.kind === 'rect') {
+        return (a.x <= bx + eps) && (a.y <= by + eps) &&
+               (a.x + a.w >= bx + bw - eps) && (a.y + a.h >= by + bh - eps);
+    }
+    // An ellipse's bounding box is larger than the ellipse, so box containment
+    // is NOT sufficient. Only claim containment for a concentric ellipse.
+    if (a.kind === 'ellipse' && b.kind === 'ellipse') {
+        return Math.abs(a.cx - b.cx) < eps && Math.abs(a.cy - b.cy) < eps &&
+               (a.rx >= b.rx - eps) && (a.ry >= b.ry - eps);
+    }
+    return false;
+}
+
+// Dedupe, then drop any clip that provably contains another clip in the chain.
+function reduceMaskChain(ids) {
+    if (!ids || ids.length < 2) return ids ? ids.slice() : [];
+    var out = [];
+    var i, j;
+    for (i = 0; i < ids.length; i++) {
+        if (ids[i] && out.indexOf(ids[i]) === -1) out.push(ids[i]);
+    }
+    if (out.length < 2) return out;
+    var regions = [];
+    for (i = 0; i < out.length; i++) regions.push(_maskRegionOf(out[i]));
+    var keep = [];
+    for (i = 0; i < out.length; i++) {
+        var redundant = false;
+        for (j = 0; j < out.length; j++) {
+            if (i === j) continue;
+            if (!regions[i] || !regions[j]) continue;
+            if (!_regionContains(regions[i], regions[j])) continue;
+            // i contains j, so i is redundant. If they contain each other
+            // (identical regions) keep the earliest so we never drop both.
+            if (_regionContains(regions[j], regions[i])) {
+                if (j < i) { redundant = true; break; }
+            } else { redundant = true; break; }
+        }
+        if (!redundant) keep.push(out[i]);
+    }
+    return keep.length ? keep : out;
+}
+
 // Create or reuse a mask shape and connect it to the target
 // svgGeometry is optional: {x, y, width, height} from the SVG rect node for optimization
 function createMaskShapeForTarget(maskId, targetShapeId, parentId, vb, model, svgGeometry) {

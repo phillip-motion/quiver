@@ -77,7 +77,7 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
             var rotG = getRotationDegFromTransform(tStrG);
             var tXYG = parseTranslate(tStrG);
             var hasStyleG = !!(node.attrs && (node.attrs.fill || node.attrs.stroke || node.attrs.opacity || node.attrs['fill-opacity'] || node.attrs['stroke-opacity'] || node.attrs.style));
-            var isAnonG = (groupName === 'g');
+            var isAnonG = (rawGroupName === 'g' || rawGroupName === 'group');
             var inheritedFilterForFlatten = (function(){
                 try {
                     var fidLocal = extractUrlRefId(node.attrs && node.attrs.filter);
@@ -273,6 +273,7 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
                             var styledMaskIds = node.attrs && node.attrs._inheritedMaskIds || [];
                             var ownStyledMask = extractUrlRefId(node.attrs && node.attrs.mask) || extractUrlRefId(node.attrs && node.attrs['clip-path']);
                             if (ownStyledMask) styledMaskIds = styledMaskIds.concat([ownStyledMask]);
+                            styledMaskIds = reduceMaskChain(styledMaskIds);
                             for (var smi = 0; smi < styledMaskIds.length; smi++) {
                                 createMaskShapeForTarget(styledMaskIds[smi], styledTextId, parentId, vb, model);
                             }
@@ -489,6 +490,9 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
             var dbgChild = childTargets[dbgC];
         }
         
+        // Collapse the inherited chain once, rather than per descendant
+        masksToPropagate = reduceMaskChain(masksToPropagate);
+
         if (masksToPropagate.length > 0) {
             // Propagate ALL masks to all direct children
             for (var mi = 0; mi < childTargets.length; mi++) {
@@ -735,7 +739,8 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
             if (ownMask && allMaskIds.indexOf(ownMask) === -1) {
                 allMaskIds.push(ownMask);
             }
-            
+            allMaskIds = reduceMaskChain(allMaskIds);
+
             // Build geometry for redundancy check
             var svgGeometry = {
                 x: x,  // Original x before nodeT transform
@@ -841,7 +846,8 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
             if (ownMaskC && allMaskIdsC.indexOf(ownMaskC) === -1) {
                 allMaskIdsC.push(ownMaskC);
             }
-            
+            allMaskIdsC = reduceMaskChain(allMaskIdsC);
+
             // Build geometry for redundancy check
             var svgGeometryC = {
                 cx: cx,
@@ -949,7 +955,8 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
             if (ownMaskE && allMaskIdsE.indexOf(ownMaskE) === -1) {
                 allMaskIdsE.push(ownMaskE);
             }
-            
+            allMaskIdsE = reduceMaskChain(allMaskIdsE);
+
             // Build geometry for redundancy check
             var svgGeometryE = {
                 cx: cx,
@@ -1049,7 +1056,8 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
             if (ownMaskT && allMaskIdsT.indexOf(ownMaskT) === -1) {
                 allMaskIdsT.push(ownMaskT);
             }
-            
+            allMaskIdsT = reduceMaskChain(allMaskIdsT);
+
             // Apply all inherited masks - Clipping Masks naturally intersect
             if (allMaskIdsT.length > 0) {
                 for (var mti = 0; mti < allMaskIdsT.length; mti++) {
@@ -1135,7 +1143,8 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
             if (ownMaskI && allMaskIdsI.indexOf(ownMaskI) === -1) {
                 allMaskIdsI.push(ownMaskI);
             }
-            
+            allMaskIdsI = reduceMaskChain(allMaskIdsI);
+
             // Build geometry for redundancy check
             var svgGeometryI = { x: x, y: y, width: w, height: h };
             
@@ -1375,7 +1384,8 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
                 if (ownMaskL && allMaskIdsL.indexOf(ownMaskL) === -1) {
                     allMaskIdsL.push(ownMaskL);
                 }
-                
+                allMaskIdsL = reduceMaskChain(allMaskIdsL);
+
                 // Apply all inherited masks - Clipping Masks naturally intersect
                 if (allMaskIdsL.length > 0) {
                     for (var mli = 0; mli < allMaskIdsL.length; mli++) {
@@ -1556,6 +1566,7 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
             if (ownMaskP && allMaskIdsP.indexOf(ownMaskP) === -1) {
                 allMaskIdsP.push(ownMaskP);
             }
+            allMaskIdsP = reduceMaskChain(allMaskIdsP);
             
             // Build geometry for redundancy check (paths don't have simple bbox)
             var svgGeometryP = null;
@@ -1829,6 +1840,85 @@ function hasProjectPath() {
     }
 }
 
+// --- Collapse Redundant Nested Groups ---
+// Figma mirrors its layer tree exactly, so single-child group chains are common
+// and add nothing. Fold a group into its single group child, merging names.
+// Runs on the parsed model BEFORE any Cavalry layer exists.
+
+// A group must survive if it carries anything that renders or that other
+// passes match on by name. Deliberately conservative: when in doubt, keep.
+function _groupMustBeKept(n) {
+    if (!n || n.type !== 'g') return true;
+    var a = n.attrs || {};
+    if (a['mix-blend-mode']) return true;
+    try { if (a.style && extractStyleProperty(a.style, 'mix-blend-mode')) return true; } catch (eBm) {}
+    if (a.opacity !== undefined || a['fill-opacity'] !== undefined || a['stroke-opacity'] !== undefined) return true;
+    if (a.fill || a.stroke || a.style) return true;
+    if (a.filter || a._inheritedFilterId) return true;
+    if (a.mask || a['clip-path']) return true;
+    if (a['data-figma-bg-blur-radius']) return true;
+    if (a['data-figma-skip-parse']) return true;
+    if (a._figmaGlass) return true;
+    // A transform is only a blocker if it actually does something - Figma
+    // emits identity translates constantly.
+    if (a.transform) {
+        var isIdentity = false;
+        try {
+            var m = parseTransformMatrixList(a.transform);
+            var d = decomposeMatrix(m);
+            isIdentity = Math.abs(d.translateX) < 0.0001 && Math.abs(d.translateY) < 0.0001 &&
+                         Math.abs(d.rotationDeg || 0) < 0.0001 && Math.abs(d.shear || 0) < 0.0001 &&
+                         Math.abs(d.scaleX - 1) < 0.0001 && Math.abs(d.scaleY - 1) < 0.0001;
+        } catch (eT) { isIdentity = false; }
+        if (!isIdentity) return true;
+    }
+    // Glass is matched by name/svgId and consumed destructively, so a group
+    // with a sidecar entry must keep its identity.
+    var cand = a.id || n.name;
+    try { if (cand && typeof hasFigmaGlassForName === 'function' && hasFigmaGlassForName(cand)) return true; } catch (eG) {}
+    // The loader group is found and deleted by exact name.
+    if (n.name && ('' + n.name).indexOf('Firing') === 0) return true;
+    return false;
+}
+
+// "Frame 2" + "Group 2" -> "Frame 2 + Group 2". Anonymous parts are dropped
+// rather than producing names like "Frame 2 + g".
+function _mergeGroupNames(outerName, innerName) {
+    var a = ('' + (outerName || '')).trim();
+    var b = ('' + (innerName || '')).trim();
+    var aAnon = (a === '' || a === 'g' || a === 'group');
+    var bAnon = (b === '' || b === 'g' || b === 'group');
+    if (aAnon && bAnon) return outerName;
+    if (aAnon) return b;
+    if (bAnon) return a;
+    if (a === b) return a;
+    return a + ' + ' + b;
+}
+
+function collapseRedundantGroups(node) {
+    if (!node || !node.children || !node.children.length) return 0;
+    var collapsed = 0;
+    // Depth-first so chains fold from the bottom up in a single pass.
+    for (var i = 0; i < node.children.length; i++) {
+        collapsed += collapseRedundantGroups(node.children[i]);
+    }
+    // Absorb a lone group child repeatedly: A > B > C folds to "A + B + C".
+    while (node.type === 'g' &&
+           node.children.length === 1 &&
+           node.children[0].type === 'g' &&
+           !_groupMustBeKept(node) &&
+           !_groupMustBeKept(node.children[0])) {
+        var child = node.children[0];
+        node.name = _mergeGroupNames(node.name, child.name);
+        if (!node.attrs) node.attrs = {};
+        // Keep the innermost id so any remaining id-based matching still resolves.
+        if (child.attrs && child.attrs.id) node.attrs.id = child.attrs.id;
+        node.children = child.children || [];
+        collapsed++;
+    }
+    return collapsed;
+}
+
 // --- Main Import Functions ---
 function processAndImportSVG(svgCode, options) {
     options = options || {};
@@ -1876,6 +1966,8 @@ function processAndImportSVG(svgCode, options) {
         
         // Reset imported group tracking for post-import flattening
         resetImportedGroupIds();
+        // Reset created path layer tracking so stale entries don't leak across imports
+        resetCreatedPathLayers();
 
         _logImportStep('Parsing SVG structure');
         var model = parseSVGStructure(svgCode);
@@ -1883,6 +1975,17 @@ function processAndImportSVG(svgCode, options) {
         // Normalize: merge separate fill/stroke siblings before creating layers
         _logImportStep('Merging fill/stroke pairs');
         try { mergeFillStrokePairs(model); } catch (eMerge) {  }
+
+        // Collapse redundant single-child group chains (Figma mirrors its tree exactly)
+        if (typeof collapseRedundantGroupsEnabled === 'undefined' || collapseRedundantGroupsEnabled) {
+            _logImportStep('Collapsing redundant groups');
+            try {
+                var collapsedGroups = collapseRedundantGroups(model);
+                if (collapsedGroups > 0) console.info('🏹 Collapsed ' + collapsedGroups + ' redundant group(s)');
+            } catch (eCollapse) {
+                console.warn('[Collapse] Error: ' + eCollapse.message);
+            }
+        }
         
         // Extract filters once for dropshadows
         _logImportStep('Extracting filters');

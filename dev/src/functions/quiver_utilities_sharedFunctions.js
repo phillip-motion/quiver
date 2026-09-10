@@ -407,6 +407,9 @@ function extractUrlRefId(value) {
 var __svgGradientMap = {};
 var __svgGradientCache = {};
 var __createdPathLayers = [];
+
+// Cleared per import so stale entries from a previous import can't be paired against
+function resetCreatedPathLayers() { __createdPathLayers = []; }
 var __svgViewBox = null; // Store viewBox for coordinate conversions in gradient offset calculations
 var __svgFilterMap = {};
 var __filterNodesCache = {}; // id -> [nodeIds]

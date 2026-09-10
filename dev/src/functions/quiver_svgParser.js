@@ -309,8 +309,8 @@ function _hasFillOnly(attrs) {
     if (!attrs) return false;
     var f = attrs.fill;
     var s = attrs.stroke;
-    var hasF = (f && f !== 'none');
-    var hasS = (s && s !== 'none');
+    var hasF = (f && !isNoPaintValue(f));
+    var hasS = (s && !isNoPaintValue(s));
     return hasF && !hasS;
 }
 
@@ -318,8 +318,8 @@ function _hasStrokeOnly(attrs) {
     if (!attrs) return false;
     var f = attrs.fill;
     var s = attrs.stroke;
-    var hasF = (f && f !== 'none');
-    var hasS = (s && s !== 'none');
+    var hasF = (f && !isNoPaintValue(f));
+    var hasS = (s && !isNoPaintValue(s));
     return !hasF && hasS;
 }
 

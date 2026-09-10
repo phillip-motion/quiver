@@ -75,6 +75,24 @@ function _glassIdMatches(id, candidate) {
     return false;
 }
 
+// Non-destructive peek used by the group-collapse pass: mirrors
+// consumeFigmaGlassByName's matching but never removes the entry.
+function hasFigmaGlassForName(name) {
+    if (!name || !__figmaGlassEntries.length) return false;
+    var decoded = name;
+    try { decoded = decodeEntitiesForName(name) || name; } catch (eDec) {}
+    for (var i = 0; i < __figmaGlassEntries.length; i++) {
+        var entry = __figmaGlassEntries[i];
+        if (_glassIdMatches(entry.svgId, name) || _glassIdMatches(entry.svgId, decoded)) return true;
+    }
+    for (var j = 0; j < __figmaGlassEntries.length; j++) {
+        var entry2 = __figmaGlassEntries[j];
+        if (entry2.svgId !== entry2.name) continue;
+        if (_glassIdMatches(entry2.name, name) || _glassIdMatches(entry2.name, decoded)) return true;
+    }
+    return false;
+}
+
 function consumeFigmaGlassByName(name) {
     if (!name || !__figmaGlassEntries.length) return null;
     var decoded = name;
