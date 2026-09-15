@@ -496,8 +496,40 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
         
         // Combine: parent masks first, then this group's mask (order matters for intersection)
         var masksToPropagate = parentMaskIds.slice(); // clone array
+        var deferGroupMaskToBackdrop = false;
         if (ownMaskId) {
-            masksToPropagate.push(ownMaskId);
+            // Cavalry groups clip their children, so connect the mask once to this
+            // group rather than once per descendant. Falls back to propagation when
+            // no group layer was actually created for this node (eg. an <svg> node,
+            // or a group that an earlier collapse skipped).
+            var appliedAtGroup = false;
+            var groupClipEnabled = (typeof groupLevelClippingEnabled === 'undefined' || groupLevelClippingEnabled);
+            if (groupClipEnabled && gid != null && gid !== parentId) {
+                // If the group's first child already has the clip's geometry, let that
+                // real artwork act as the mask instead of synthesising a duplicate.
+                // It self-mattes when its own mask application runs, then we connect
+                // it to the group after the children exist.
+                var reusable = _findReusableBackdrop(node, ownMaskId);
+                if (reusable) {
+                    if (!reusable.attrs) reusable.attrs = {};
+                    if (!reusable.attrs._inheritedMaskIds) reusable.attrs._inheritedMaskIds = [];
+                    if (reusable.attrs._inheritedMaskIds.indexOf(ownMaskId) === -1) {
+                        reusable.attrs._inheritedMaskIds.push(ownMaskId);
+                    }
+                    deferGroupMaskToBackdrop = true;
+                    appliedAtGroup = true;
+                } else {
+                    try {
+                        var groupMaskShapeId = createMaskShapeForTarget(ownMaskId, gid, gid, vb, model);
+                        appliedAtGroup = !!groupMaskShapeId;
+                    } catch (eGroupMask) {
+                        appliedAtGroup = false;
+                    }
+                }
+            }
+            if (!appliedAtGroup) {
+                masksToPropagate.push(ownMaskId);
+            }
         }
         
         // Log all children for debugging
@@ -556,6 +588,14 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
         
         for (var i = 0; i < node.children.length; i++) {
             importNode(node.children[i], gid, vb, {x:0,y:0}, stats, model, false, combinedScale, composedMatrix);
+        }
+        // The backdrop has now been created and registered itself as this clip's
+        // mask shape, so connect it to the group. This hits the mask cache, so no
+        // duplicate shape is made.
+        if (deferGroupMaskToBackdrop && ownMaskId) {
+            try {
+                createMaskShapeForTarget(ownMaskId, gid, gid, vb, model);
+            } catch (eDeferMask) {}
         }
         return gid;
     }
@@ -1910,6 +1950,46 @@ function _mergeGroupNames(outerName, innerName) {
     return a + ' + ' + b;
 }
 
+// Figma exports a layer blur as <g filter="url(#f)"><ellipse/></g>. The filter
+// is pushed onto the single child anyway, so the wrapper carries nothing.
+// Returns the filter id when this group is purely such a wrapper, else null.
+function _filterOnlyWrapperFilterId(n) {
+    if (!n || n.type !== 'g') return null;
+    if (!n.children || n.children.length !== 1) return null;
+    var a = n.attrs || {};
+    var fid = extractUrlRefId(a.filter);
+    if (!fid) return null;
+    // Anything else on the group means it is doing more than carrying a filter.
+    if (a['mix-blend-mode']) return null;
+    try { if (a.style && extractStyleProperty(a.style, 'mix-blend-mode')) return null; } catch (eBm) {}
+    if (a.opacity !== undefined || a['fill-opacity'] !== undefined || a['stroke-opacity'] !== undefined) return null;
+    if (a.fill || a.stroke || a.style) return null;
+    if (a.mask || a['clip-path']) return null;
+    if (a['data-figma-bg-blur-radius']) return null;
+    if (a['data-figma-skip-parse']) return null;
+    if (a._figmaGlass) return null;
+    if (a.transform) {
+        var isIdentity = false;
+        try {
+            var m = parseTransformMatrixList(a.transform);
+            var d = decomposeMatrix(m);
+            isIdentity = Math.abs(d.translateX) < 0.0001 && Math.abs(d.translateY) < 0.0001 &&
+                         Math.abs(d.rotationDeg || 0) < 0.0001 && Math.abs(d.shear || 0) < 0.0001 &&
+                         Math.abs(d.scaleX - 1) < 0.0001 && Math.abs(d.scaleY - 1) < 0.0001;
+        } catch (eT) { isIdentity = false; }
+        if (!isIdentity) return null;
+    }
+    var cand = a.id || n.name;
+    try { if (cand && typeof hasFigmaGlassForName === 'function' && hasFigmaGlassForName(cand)) return null; } catch (eG) {}
+    if (n.name && ('' + n.name).indexOf('Firing') === 0) return null;
+    // The child must not already carry a filter, or promoting would lose one.
+    var c = n.children[0];
+    if (!c) return null;
+    var ca = c.attrs || {};
+    if (extractUrlRefId(ca.filter) || ca._inheritedFilterId) return null;
+    return fid;
+}
+
 function collapseRedundantGroups(node) {
     if (!node || !node.children || !node.children.length) return 0;
     var collapsed = 0;
@@ -1917,6 +1997,52 @@ function collapseRedundantGroups(node) {
     for (var i = 0; i < node.children.length; i++) {
         collapsed += collapseRedundantGroups(node.children[i]);
     }
+    // Promote the single child out of a filter-only wrapper group.
+    var rebuilt = [];
+    for (var ci = 0; ci < node.children.length; ci++) {
+        var ch = node.children[ci];
+        var wrapFid = _filterOnlyWrapperFilterId(ch);
+        if (wrapFid) {
+            var promoted = ch.children[0];
+            if (!promoted.attrs) promoted.attrs = {};
+            promoted.attrs._inheritedFilterId = wrapFid;
+            // Give the child the wrapper's name when its own is generic.
+            var genericNames = ['rect', 'circle', 'ellipse', 'path', 'polygon', 'polyline', 'line', 'text', 'g', 'group', ''];
+            var promotedName = ('' + (promoted.name || '')).toLowerCase();
+            if (genericNames.indexOf(promotedName) !== -1 && ch.name) {
+                promoted.name = ch.name;
+            }
+            // Keep the wrapper's id for downstream id-based matching.
+            if (ch.attrs && ch.attrs.id && !promoted.attrs.id) {
+                promoted.attrs.id = ch.attrs.id;
+            }
+            rebuilt.push(promoted);
+            collapsed++;
+        } else if (ch.type === 'g' && ch.children && ch.children.length === 1 &&
+                   ch.children[0] && ch.children[0].type !== 'g' &&
+                   !_groupMustBeKept(ch)) {
+            // A group holding exactly one item adds nothing in Cavalry.
+            // Promote the item; group-into-group chains are already folded by
+            // the absorb loop below, so this removes the final wrapper.
+            var onlyChild = ch.children[0];
+            if (!onlyChild.attrs) onlyChild.attrs = {};
+            var soloGeneric = ['rect', 'circle', 'ellipse', 'path', 'polygon', 'polyline', 'line', 'text', ''];
+            var soloName = ('' + (onlyChild.name || '')).toLowerCase();
+            // Only inherit the wrapper's name when the item's own is generic -
+            // a real Figma name like "Vector_15" must win.
+            if (soloGeneric.indexOf(soloName) !== -1 && ch.name) {
+                onlyChild.name = ch.name;
+            }
+            if (ch.attrs && ch.attrs.id && !onlyChild.attrs.id) {
+                onlyChild.attrs.id = ch.attrs.id;
+            }
+            rebuilt.push(onlyChild);
+            collapsed++;
+        } else {
+            rebuilt.push(ch);
+        }
+    }
+    node.children = rebuilt;
     // Absorb a lone group child repeatedly: A > B > C folds to "A + B + C".
     while (node.type === 'g' &&
            node.children.length === 1 &&
@@ -1932,6 +2058,139 @@ function collapseRedundantGroups(node) {
         collapsed++;
     }
     return collapsed;
+}
+
+// --- Hoist clip backdrops ---
+// A Figma card's background shape usually has exactly the clip region's
+// geometry, so the clip does nothing to it. With clipping applied at group
+// level, leaving it inside means its drop shadow gets cropped. Moving it out
+// to be the preceding sibling keeps its z-position and frees the shadow.
+function hoistClipBackdrops(node, ancestorHasFilter) {
+    if (!node || !node.children || !node.children.length) return 0;
+    var hoisted = 0;
+    var i;
+    var selfHasFilter = !!(node.attrs && (extractUrlRefId(node.attrs.filter) || node.attrs._inheritedFilterId));
+    var filterInScope = !!ancestorHasFilter || selfHasFilter;
+    // depth first
+    for (i = 0; i < node.children.length; i++) {
+        hoisted += hoistClipBackdrops(node.children[i], filterInScope);
+    }
+    var out = [];
+    for (i = 0; i < node.children.length; i++) {
+        var child = node.children[i];
+        // Only hoist when a filter is in play: without one the backdrop can
+        // simply act as the group's clipping mask where it already sits.
+        var childFilterInScope = filterInScope || !!(child.attrs && (extractUrlRefId(child.attrs.filter) || child.attrs._inheritedFilterId));
+        var backdrop = childFilterInScope ? _findClipBackdrop(child) : null;
+        if (backdrop) {
+            // remove it from the group and place it immediately before
+            var idx = child.children.indexOf(backdrop);
+            if (idx !== -1) {
+                child.children.splice(idx, 1);
+                // The group's filter described the card silhouette, which IS
+                // this backdrop. Leaving it behind would push it onto a child
+                // that the group's mask then crops.
+                var carriedFilter = null;
+                try {
+                    carriedFilter = extractUrlRefId(child.attrs && child.attrs.filter) ||
+                                    (child.attrs && child.attrs._inheritedFilterId) || null;
+                } catch (eCF) { carriedFilter = null; }
+                if (carriedFilter) {
+                    if (!backdrop.attrs) backdrop.attrs = {};
+                    var backdropHasFilter = false;
+                    try {
+                        backdropHasFilter = !!(extractUrlRefId(backdrop.attrs.filter) || backdrop.attrs._inheritedFilterId);
+                    } catch (eBF) { backdropHasFilter = false; }
+                    if (!backdropHasFilter) {
+                        backdrop.attrs._inheritedFilterId = carriedFilter;
+                    }
+                    // Stop it being handed to a remaining, clipped child.
+                    if (child.attrs) {
+                        if (child.attrs.filter) { delete child.attrs.filter; }
+                        if (child.attrs._inheritedFilterId) { delete child.attrs._inheritedFilterId; }
+                    }
+                }
+                out.push(backdrop);
+                hoisted++;
+            }
+        }
+        out.push(child);
+    }
+    node.children = out;
+    return hoisted;
+}
+
+// Returns the child that can safely be hoisted out of `g`, or null.
+function _findClipBackdrop(g) {
+    if (!g || g.type !== 'g' || !g.children || !g.children.length) return null;
+    var a = g.attrs || {};
+    // A transform on the group would change the child's effective transform
+    // once it moves out, so only hoist from untransformed groups.
+    if (a.transform) return null;
+    var clipId = extractUrlRefId(a['clip-path']) || extractUrlRefId(a.mask);
+    if (!clipId) return null;
+    var def = null;
+    try { def = getMaskDefinition(clipId); } catch (eDef) { return null; }
+    if (!def || def.type !== 'clip') return null;
+    // Only the FIRST child is a candidate: it is the bottom-most layer, so
+    // moving it out cannot change the stacking of anything else.
+    var first = g.children[0];
+    if (!first || !first.attrs) return null;
+    if (first.attrs.transform) return null;
+    var geom = _svgGeometryOf(first);
+    if (!geom) return null;
+    var matches = false;
+    try { matches = doesSvgGeometryMatchClipPath(geom, def); } catch (eM) { matches = false; }
+    return matches ? first : null;
+}
+
+// The group's first child can act as the clip's mask when its geometry IS the
+// clip region. Returns that child node, or null.
+function _findReusableBackdrop(g, clipId) {
+    if (!g || !g.children || !g.children.length || !clipId) return null;
+    var def = null;
+    try { def = getMaskDefinition(clipId); } catch (eDef) { return null; }
+    if (!def || def.type !== 'clip') return null;
+    var first = g.children[0];
+    if (!first || !first.attrs) return null;
+    if (first.attrs.transform) return null;
+    // A backdrop carrying its own filter must not be clipped by the group.
+    if (extractUrlRefId(first.attrs.filter) || first.attrs._inheritedFilterId) return null;
+    var geom = _svgGeometryOf(first);
+    if (!geom) return null;
+    var matches = false;
+    try { matches = doesSvgGeometryMatchClipPath(geom, def); } catch (eM) { matches = false; }
+    return matches ? first : null;
+}
+
+// Build the geometry descriptor doesSvgGeometryMatchClipPath expects.
+function _svgGeometryOf(n) {
+    if (!n || !n.attrs) return null;
+    var a = n.attrs;
+    if (n.type === 'path') return a.d ? { d: a.d } : null;
+    if (n.type === 'rect') return { x: parseFloat(a.x || 0), y: parseFloat(a.y || 0), width: parseFloat(a.width || 0), height: parseFloat(a.height || 0) };
+    if (n.type === 'circle') return { cx: parseFloat(a.cx || 0), cy: parseFloat(a.cy || 0), r: parseFloat(a.r || 0) };
+    if (n.type === 'ellipse') return { cx: parseFloat(a.cx || 0), cy: parseFloat(a.cy || 0), rx: parseFloat(a.rx || 0), ry: parseFloat(a.ry || 0) };
+    return null;
+}
+
+// The Figma plugin forces clipsContent=true on the exported frame so the
+// viewBox comes out right, which makes Figma emit a <clipPath> even when the
+// designer had "Clip content" off. Strip that one synthetic clip. Nested
+// frames' clips are authored and must survive, so only the OUTERMOST clipping
+// group is touched.
+function stripSyntheticFrameClip(node) {
+    if (!node || !node.children || !node.children.length) return false;
+    for (var i = 0; i < node.children.length; i++) {
+        var c = node.children[i];
+        // Check this node before recursing, so the outermost clip wins.
+        if (c.type === 'g' && c.attrs && c.attrs['clip-path']) {
+            delete c.attrs['clip-path'];
+            return true;
+        }
+        if (stripSyntheticFrameClip(c)) return true;
+    }
+    return false;
 }
 
 // --- Main Import Functions ---
@@ -1986,7 +2245,20 @@ function processAndImportSVG(svgCode, options) {
 
         _logImportStep('Parsing SVG structure');
         var model = parseSVGStructure(svgCode);
-        
+
+        // Only when the plugin explicitly told us the frame did not clip. An
+        // absent value (older plugin build, or a pasted SVG) means "unknown", so
+        // the clip is assumed authored and kept.
+        if (options.frameClipsContent === false) {
+            try {
+                if (stripSyntheticFrameClip(model)) {
+                    console.info('🏹 Ignored the frame clip (Clip content is off in Figma)');
+                }
+            } catch (eStripClip) {
+                console.warn('[Clip] Error: ' + eStripClip.message);
+            }
+        }
+
         // Normalize: merge separate fill/stroke siblings before creating layers
         _logImportStep('Merging fill/stroke pairs');
         try { mergeFillStrokePairs(model); } catch (eMerge) {  }
@@ -2023,7 +2295,19 @@ function processAndImportSVG(svgCode, options) {
             setMaskContext(masks);
             resetMaskShapeCache(); // Clear cache for new import to avoid stale references
         } catch (eMask) { setMaskContext({}); resetMaskShapeCache(); }
-        
+
+        // Hoist clip backdrops now that the mask definitions are available.
+        // Only useful when clipping is applied at group level.
+        if (typeof groupLevelClippingEnabled === 'undefined' || groupLevelClippingEnabled) {
+            _logImportStep('Hoisting clip backdrops');
+            try {
+                var hoistedBackdrops = hoistClipBackdrops(model, false);
+                if (hoistedBackdrops > 0) console.info('🏹 Hoisted ' + hoistedBackdrops + ' clip backdrop(s)');
+            } catch (eHoist) {
+                console.warn('[Hoist] Error: ' + eHoist.message);
+            }
+        }
+
         // Use the proven gradient extractor logic pattern
         _logImportStep('Extracting gradients');
         var gradientMap = {};

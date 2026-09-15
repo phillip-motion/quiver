@@ -434,6 +434,19 @@ function createMaskShapeForTarget(maskId, targetShapeId, parentId, vb, model, sv
         // Cache the created shape for reuse
         __createdMaskShapes[maskId] = maskShapeId;
 
+        // Make the synthesised mask obvious in the layer list - it sits next to
+        // the real artwork and is easily confused with it otherwise.
+        try {
+            var existingMaskName = '';
+            try { existingMaskName = api.getNiceName(maskShapeId) || ''; } catch (eNm) {}
+            var maskLabel = (maskDef.type === 'clip') ? 'Clipping Mask' : 'Mask';
+            if (existingMaskName && existingMaskName.indexOf(maskLabel) === -1) {
+                api.rename(maskShapeId, existingMaskName + ' ' + maskLabel);
+            } else if (!existingMaskName) {
+                api.rename(maskShapeId, maskLabel);
+            }
+        } catch (eRename) {}
+
         // Set the mask shape as hidden
         try {
             api.set(maskShapeId, { 'hidden': true });

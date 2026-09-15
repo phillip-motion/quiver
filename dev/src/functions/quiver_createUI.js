@@ -170,6 +170,8 @@ var compositeGlassBackdropsEnabled = true;
 var importGroupsEnabled = true;
 var centreGroupPivotsEnabled = true; // Centre each imported group's pivot on its contents
 var collapseRedundantGroupsEnabled = true; // Fold single-child group chains, merging names
+var groupLevelClippingEnabled = true; // Clip once at the owning group instead of per descendant
+var simplifyPathsEnabled = true; // Drop Figma's hairline path segments on import
 var showLoaderEnabled = true; // Show "Firing..." loader during Figma imports
 var imageFilterQuality = 2; // 0=None, 1=Bilinear, 2=Mipmaps (default), 3=Bicubic
 var emojiPlaceholder = "[e]"; // Placeholder string for emoji positions (must be at least 2 chars)
@@ -522,6 +524,28 @@ function createSettingsWindow() {
     collapseGroupsLayout.setSpaceBetween(8);
     settingsLayout.add(collapseGroupsLayout);
 
+    // Clip at group level checkbox
+    var groupLevelClippingLayout = new ui.HLayout();
+    var groupLevelClippingCheckbox = new ui.Checkbox(groupLevelClippingEnabled);
+    groupLevelClippingCheckbox.onValueChanged = function() {
+        groupLevelClippingEnabled = groupLevelClippingCheckbox.getValue();
+    };
+    groupLevelClippingLayout.add(groupLevelClippingCheckbox);
+    groupLevelClippingLayout.add(new ui.Label("Clip at group level"));
+    groupLevelClippingLayout.setSpaceBetween(8);
+    settingsLayout.add(groupLevelClippingLayout);
+
+    // Simplify paths checkbox
+    var simplifyPathsLayout = new ui.HLayout();
+    var simplifyPathsCheckbox = new ui.Checkbox(simplifyPathsEnabled);
+    simplifyPathsCheckbox.onValueChanged = function() {
+        simplifyPathsEnabled = simplifyPathsCheckbox.getValue();
+    };
+    simplifyPathsLayout.add(simplifyPathsCheckbox);
+    simplifyPathsLayout.add(new ui.Label("Simplify paths"));
+    simplifyPathsLayout.setSpaceBetween(8);
+    settingsLayout.add(simplifyPathsLayout);
+
     // Import gradients checkbox
     var gradientsLayout = new ui.HLayout();
     var importGradientsCheckbox = new ui.Checkbox(importGradientsEnabled);
@@ -686,6 +710,8 @@ var cornerRadiusInput = new ui.LineEdit();
         importGroupsEnabled = importGroupsCheckbox.getValue();
         centreGroupPivotsEnabled = centreGroupPivotsCheckbox.getValue();
         collapseRedundantGroupsEnabled = collapseRedundantGroupsCheckbox.getValue();
+        groupLevelClippingEnabled = groupLevelClippingCheckbox.getValue();
+        simplifyPathsEnabled = simplifyPathsCheckbox.getValue();
         showLoaderEnabled = showLoaderCheckbox.getValue();
         updateCheckEnabled = updateCheckCheckbox.getValue();
         setUpdateCheckEnabled(updateCheckEnabled);

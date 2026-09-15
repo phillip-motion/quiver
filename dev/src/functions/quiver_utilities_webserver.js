@@ -312,7 +312,7 @@ function handleImportSVG(request) {
         
         // Import the SVG (createText will now look up alignment from __figmaTextData)
         // Text shapes created will be registered for emoji positioning
-        var importSuccess = processAndImportSVG(request.svgCode);
+        var importSuccess = processAndImportSVG(request.svgCode, { frameClipsContent: request.clipsContent });
         
         // If import failed (validation error, etc), stop here
         if (!importSuccess) {

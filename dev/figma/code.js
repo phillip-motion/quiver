@@ -1851,6 +1851,9 @@ async function sendSelectionToCavalry() {
       // Include frame dimensions for coordinate conversion
       frameWidth: node.width,
       frameHeight: node.height,
+      // We force clipsContent on above to get a correct viewBox, so tell Cavalry
+      // what it really was - otherwise an unclipped frame imports with a clip.
+      clipsContent: originalClipsContent,
       // Hybrid data: vector nodes with stroke gradients
       vectorData: hasStrokeGradients ? vectorDataNodes : null,
       // Hybrid data: text nodes with alignment info

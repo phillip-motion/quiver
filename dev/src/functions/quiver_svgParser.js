@@ -1700,7 +1700,56 @@ function parsePathDataToAbsolute(d) {
     return segments;
 }
 
+// Figma's SVG exporter emits hairline segments its own editor hides - tiny
+// `L` hops between real curves, often 0.001 units long. They show up in
+// Cavalry as clusters of anchor points. Drop the ones below a size-relative
+// tolerance; genuine geometry is orders of magnitude longer.
+function _simplifyPathSegments(segments) {
+    if (!segments || segments.length < 3) return segments;
+    // Tolerance scales with the path so a small icon is not over-simplified.
+    var minX = 1e9, minY = 1e9, maxX = -1e9, maxY = -1e9;
+    var i;
+    for (i = 0; i < segments.length; i++) {
+        var sg = segments[i];
+        if (!sg || sg.x === undefined || sg.y === undefined) continue;
+        if (sg.x < minX) minX = sg.x;
+        if (sg.x > maxX) maxX = sg.x;
+        if (sg.y < minY) minY = sg.y;
+        if (sg.y > maxY) maxY = sg.y;
+    }
+    var diag = 0;
+    if (maxX >= minX && maxY >= minY) {
+        diag = Math.sqrt((maxX - minX) * (maxX - minX) + (maxY - minY) * (maxY - minY));
+    }
+    // Bounded so simplification can never move the outline visibly: the
+    // artifacts we are targeting are ~0.001-0.015 units, while genuine short
+    // segments start an order of magnitude above that.
+    var tol = Math.min(0.05, Math.max(0.01, diag * 0.0005));
+    var out = [];
+    var px = 0, py = 0, removed = 0;
+    for (i = 0; i < segments.length; i++) {
+        var s = segments[i];
+        if (!s) continue;
+        if (s.cmd === 'Z') { out.push(s); continue; }
+        if (s.cmd === 'M') { px = s.x; py = s.y; out.push(s); continue; }
+        // Only straight hops are dropped. A short curve can still carry a
+        // visible bulge through its control points, so curves are left alone.
+        if (s.cmd === 'L') {
+            var dx = s.x - px, dy = s.y - py;
+            if (Math.sqrt(dx * dx + dy * dy) < tol) { removed++; continue; }
+        }
+        px = s.x; py = s.y;
+        out.push(s);
+    }
+    // Never simplify a path down to nothing.
+    if (out.length < 2) return segments;
+    return out;
+}
+
 function createEditableFromPathSegments(segments, nodeName, parentId, vb, translate, attrs) {
+    if (typeof simplifyPathsEnabled === 'undefined' || simplifyPathsEnabled) {
+        try { segments = _simplifyPathSegments(segments); } catch (eSimp) {}
+    }
     var path = new cavalry.Path();
     function cvt(pt) {
         var px = pt.x + (translate ? translate.x : 0);
