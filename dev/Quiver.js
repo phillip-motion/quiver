@@ -7983,13 +7983,14 @@ function mergeFillStrokePairs(node) {
     for (var k in buckets) {
         var arr = buckets[k];
         if (!arr || arr.length < 2) continue;
-        var fillNode = null, strokeNode = null;
+        var fillNode = null, strokeNodes = [];
         for (var j = 0; j < arr.length; j++) {
             var n = arr[j];
             if (!fillNode && _hasFillOnly(n.attrs)) fillNode = n;
-            if (!strokeNode && _hasStrokeOnly(n.attrs)) strokeNode = n;
+            if (_hasStrokeOnly(n.attrs)) strokeNodes.push(n);
         }
-        if (fillNode && strokeNode) {
+        if (fillNode && strokeNodes.length) {
+            var strokeNode = strokeNodes[0];
             // Merge stroke attributes into the base (prefer the fill node as base)
             var base = fillNode;
             var donor = strokeNode;
@@ -8000,6 +8001,23 @@ function mergeFillStrokePairs(node) {
             if (donor.attrs['stroke-dashoffset'] !== undefined) base.attrs['stroke-dashoffset'] = donor.attrs['stroke-dashoffset'];
             // Mark donor for removal
             donor.__remove = true;
+
+            // Figma emits one element per stroke. Extra strokes beyond the first
+            // become multiStroke entries on the same Cavalry shape.
+            if (strokeNodes.length > 1) {
+                if (!fillNode.attrs._additionalStrokes) fillNode.attrs._additionalStrokes = [];
+                for (var xs = 1; xs < strokeNodes.length; xs++) {
+                    var extra = strokeNodes[xs];
+                    if (!extra || !extra.attrs) continue;
+                    fillNode.attrs._additionalStrokes.push({
+                        stroke: extra.attrs.stroke,
+                        strokeWidth: extra.attrs['stroke-width'],
+                        strokeOpacity: extra.attrs['stroke-opacity'],
+                        opacity: extra.attrs.opacity
+                    });
+                    extra.__remove = true;
+                }
+            }
         }
     }
     // Filter out removed nodes
@@ -9134,6 +9152,43 @@ function applyFillAndStroke(layerId, attrs) {
                 }
             }
         }
+
+        // Extra strokes from Figma (one SVG element per stroke) become
+        // multiStroke entries so the shape stays a single Cavalry layer.
+        if (attrs && attrs._additionalStrokes && attrs._additionalStrokes.length > 0) {
+            for (var asi = 0; asi < attrs._additionalStrokes.length; asi++) {
+                try {
+                    var extraInfo = attrs._additionalStrokes[asi];
+                    if (!extraInfo || !extraInfo.stroke) continue;
+                    var extraWidth = parseFloat(extraInfo.strokeWidth);
+                    if (isNaN(extraWidth) || extraWidth <= 0) extraWidth = 1;
+                    var extraSO = parseFloat(extraInfo.strokeOpacity);
+                    if (isNaN(extraSO)) extraSO = 1;
+                    var extraO = parseFloat(extraInfo.opacity);
+                    if (isNaN(extraO)) extraO = 1;
+                    var extraAlpha = Math.round(clamp01(extraSO * extraO) * 100);
+
+                    var smId = api.create('strokeMaterial', 'Stroke ' + (asi + 2));
+                    api.set(smId, { 'width': extraWidth, 'alpha': extraAlpha });
+
+                    var extraGradId = extractUrlRefId(extraInfo.stroke);
+                    if (extraGradId) {
+                        var extraShader = getGradientShader(extraGradId);
+                        if (extraShader) {
+                            // Hide the flat colour so the shader shows through,
+                            // mirroring connectShaderToStroke.
+                            try { api.set(smId, { 'strokeColor.a': 0 }); } catch (eEA) {}
+                            api.connect(extraShader, 'id', smId, 'colorShaders');
+                        }
+                    } else {
+                        var extraColor = parseColor(extraInfo.stroke);
+                        if (extraColor) { api.set(smId, { 'strokeColor': extraColor }); }
+                    }
+
+                    api.connect(smId, 'id', layerId, 'multiStroke');
+                } catch (eExtraStroke) {}
+            }
+        }
     } catch (e) {
         // ignore style errors
     }
@@ -9646,7 +9701,7 @@ function createRect(node, parentId, vb) {
             'fill', 'fill-opacity', 'stroke', 'stroke-width', 'stroke-opacity', 'opacity', 
             'transform', '_stroke_align', 'mix-blend-mode', 'filter',
             // Internal tracking attributes
-            '_additionalFills', '_inheritedFilterId', '_inheritedMaskIds', 'data-figma-bg-blur-radius', '_figmaGlass'
+            '_additionalFills', '_additionalStrokes', '_inheritedFilterId', '_inheritedMaskIds', 'data-figma-bg-blur-radius', '_figmaGlass'
         ];
         for (var si = 0; si < styleKeys.length; si++) {
             var k = styleKeys[si];

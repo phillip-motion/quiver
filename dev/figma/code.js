@@ -1643,22 +1643,26 @@ function checkSelection() {
     figma.ui.postMessage({ 
       type: 'selection-info', 
       hasSelection: false,
-      message: 'No frame or group selected'
+      message: 'Nothing selected'
     });
     return;
   }
-  
+
   const node = selection[0];
-  const isValidType = node.type === 'FRAME' || 
-                      node.type === 'GROUP' || 
-                      node.type === 'COMPONENT' ||
-                      node.type === 'INSTANCE';
-  
+  // Anything Figma can export as SVG with real dimensions will do - a bare
+  // vector or text layer works as well as a frame. Page-level and slice nodes
+  // are not artwork, so they stay excluded.
+  const notArtwork = node.type === 'PAGE' || node.type === 'DOCUMENT' || node.type === 'SLICE';
+  const isValidType = !notArtwork &&
+                      typeof node.exportAsync === 'function' &&
+                      typeof node.width === 'number' && node.width > 0 &&
+                      typeof node.height === 'number' && node.height > 0;
+
   if (!isValidType) {
-    figma.ui.postMessage({ 
-      type: 'selection-info', 
+    figma.ui.postMessage({
+      type: 'selection-info',
       hasSelection: false,
-      message: 'Please select a frame, group, or component'
+      message: 'Select a frame, group or shape'
     });
     return;
   }
@@ -1680,7 +1684,7 @@ async function sendSelectionToCavalry() {
   if (selection.length === 0) {
     figma.ui.postMessage({
       type: 'error',
-      message: 'Please select a frame or group first'
+      message: 'Select something first'
     });
     return;
   }
@@ -1688,15 +1692,19 @@ async function sendSelectionToCavalry() {
   const node = selection[0];
 
   // Validate node type
-  const isValidType = node.type === 'FRAME' ||
-                      node.type === 'GROUP' ||
-                      node.type === 'COMPONENT' ||
-                      node.type === 'INSTANCE';
+  // Anything Figma can export as SVG with real dimensions will do - a bare
+  // vector or text layer works as well as a frame. Page-level and slice nodes
+  // are not artwork, so they stay excluded.
+  const notArtwork = node.type === 'PAGE' || node.type === 'DOCUMENT' || node.type === 'SLICE';
+  const isValidType = !notArtwork &&
+                      typeof node.exportAsync === 'function' &&
+                      typeof node.width === 'number' && node.width > 0 &&
+                      typeof node.height === 'number' && node.height > 0;
 
   if (!isValidType) {
     figma.ui.postMessage({
       type: 'error',
-      message: 'Please select a frame, group, or component'
+      message: 'Select a frame, group or shape'
     });
     return;
   }
