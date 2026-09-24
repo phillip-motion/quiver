@@ -2259,6 +2259,22 @@ function processAndImportSVG(svgCode, options) {
             }
         }
 
+        // Drop fills hidden beneath a fully opaque, fully covering image fill,
+        // before any layer exists - their images are then never decoded,
+        // written to disk or loaded as assets.
+        if (typeof pruneCoveredFillsEnabled === 'undefined' || pruneCoveredFillsEnabled) {
+            _logImportStep('Skipping hidden fills');
+            try {
+                var coverPatterns = extractPatterns(svgCode) || {};
+                var pruned = pruneCoveredImageFills(model, coverPatterns, {}, false);
+                if (pruned.fills > 0) {
+                    console.info('🏹 Skipped ' + pruned.fills + ' hidden fill(s); ' + pruned.images + ' image(s) never decoded');
+                }
+            } catch (ePrune) {
+                console.warn('[Hidden fills] Error: ' + ePrune.message);
+            }
+        }
+
         // Normalize: merge separate fill/stroke siblings before creating layers
         _logImportStep('Merging fill/stroke pairs');
         try { mergeFillStrokePairs(model); } catch (eMerge) {  }

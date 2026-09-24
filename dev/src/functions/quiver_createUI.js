@@ -172,6 +172,7 @@ var centreGroupPivotsEnabled = true; // Centre each imported group's pivot on it
 var collapseRedundantGroupsEnabled = true; // Fold single-child group chains, merging names
 var groupLevelClippingEnabled = true; // Clip once at the owning group instead of per descendant
 var simplifyPathsEnabled = true; // Drop Figma's hairline path segments on import
+var pruneCoveredFillsEnabled = true; // Skip fills fully hidden beneath an opaque image fill
 var showLoaderEnabled = true; // Show "Firing..." loader during Figma imports
 var imageFilterQuality = 2; // 0=None, 1=Bilinear, 2=Mipmaps (default), 3=Bicubic
 var emojiPlaceholder = "[e]"; // Placeholder string for emoji positions (must be at least 2 chars)
@@ -546,6 +547,17 @@ function createSettingsWindow() {
     simplifyPathsLayout.setSpaceBetween(8);
     settingsLayout.add(simplifyPathsLayout);
 
+    // Skip hidden image fills checkbox
+    var pruneCoveredFillsLayout = new ui.HLayout();
+    var pruneCoveredFillsCheckbox = new ui.Checkbox(pruneCoveredFillsEnabled);
+    pruneCoveredFillsCheckbox.onValueChanged = function() {
+        pruneCoveredFillsEnabled = pruneCoveredFillsCheckbox.getValue();
+    };
+    pruneCoveredFillsLayout.add(pruneCoveredFillsCheckbox);
+    pruneCoveredFillsLayout.add(new ui.Label("Skip hidden image fills"));
+    pruneCoveredFillsLayout.setSpaceBetween(8);
+    settingsLayout.add(pruneCoveredFillsLayout);
+
     // Import gradients checkbox
     var gradientsLayout = new ui.HLayout();
     var importGradientsCheckbox = new ui.Checkbox(importGradientsEnabled);
@@ -712,6 +724,7 @@ var cornerRadiusInput = new ui.LineEdit();
         collapseRedundantGroupsEnabled = collapseRedundantGroupsCheckbox.getValue();
         groupLevelClippingEnabled = groupLevelClippingCheckbox.getValue();
         simplifyPathsEnabled = simplifyPathsCheckbox.getValue();
+        pruneCoveredFillsEnabled = pruneCoveredFillsCheckbox.getValue();
         showLoaderEnabled = showLoaderCheckbox.getValue();
         updateCheckEnabled = updateCheckCheckbox.getValue();
         setUpdateCheckEnabled(updateCheckEnabled);
