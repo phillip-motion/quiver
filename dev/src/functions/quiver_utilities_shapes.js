@@ -52,7 +52,7 @@ function createRect(node, parentId, vb) {
             'fill', 'fill-opacity', 'stroke', 'stroke-width', 'stroke-opacity', 'opacity', 
             'transform', '_stroke_align', 'mix-blend-mode', 'filter',
             // Internal tracking attributes
-            '_additionalFills', '_inheritedFilterId', '_inheritedMaskIds', 'data-figma-bg-blur-radius', '_figmaGlass'
+            '_additionalFills', '_additionalStrokes', '_inheritedFilterId', '_inheritedMaskIds', 'data-figma-bg-blur-radius', '_figmaGlass'
         ];
         for (var si = 0; si < styleKeys.length; si++) {
             var k = styleKeys[si];

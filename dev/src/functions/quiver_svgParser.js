@@ -309,8 +309,8 @@ function _hasFillOnly(attrs) {
     if (!attrs) return false;
     var f = attrs.fill;
     var s = attrs.stroke;
-    var hasF = (f && f !== 'none');
-    var hasS = (s && s !== 'none');
+    var hasF = (f && !isNoPaintValue(f));
+    var hasS = (s && !isNoPaintValue(s));
     return hasF && !hasS;
 }
 
@@ -318,8 +318,8 @@ function _hasStrokeOnly(attrs) {
     if (!attrs) return false;
     var f = attrs.fill;
     var s = attrs.stroke;
-    var hasF = (f && f !== 'none');
-    var hasS = (s && s !== 'none');
+    var hasF = (f && !isNoPaintValue(f));
+    var hasS = (s && !isNoPaintValue(s));
     return !hasF && hasS;
 }
 
@@ -340,13 +340,14 @@ function mergeFillStrokePairs(node) {
     for (var k in buckets) {
         var arr = buckets[k];
         if (!arr || arr.length < 2) continue;
-        var fillNode = null, strokeNode = null;
+        var fillNode = null, strokeNodes = [];
         for (var j = 0; j < arr.length; j++) {
             var n = arr[j];
             if (!fillNode && _hasFillOnly(n.attrs)) fillNode = n;
-            if (!strokeNode && _hasStrokeOnly(n.attrs)) strokeNode = n;
+            if (_hasStrokeOnly(n.attrs)) strokeNodes.push(n);
         }
-        if (fillNode && strokeNode) {
+        if (fillNode && strokeNodes.length) {
+            var strokeNode = strokeNodes[0];
             // Merge stroke attributes into the base (prefer the fill node as base)
             var base = fillNode;
             var donor = strokeNode;
@@ -357,6 +358,23 @@ function mergeFillStrokePairs(node) {
             if (donor.attrs['stroke-dashoffset'] !== undefined) base.attrs['stroke-dashoffset'] = donor.attrs['stroke-dashoffset'];
             // Mark donor for removal
             donor.__remove = true;
+
+            // Figma emits one element per stroke. Extra strokes beyond the first
+            // become multiStroke entries on the same Cavalry shape.
+            if (strokeNodes.length > 1) {
+                if (!fillNode.attrs._additionalStrokes) fillNode.attrs._additionalStrokes = [];
+                for (var xs = 1; xs < strokeNodes.length; xs++) {
+                    var extra = strokeNodes[xs];
+                    if (!extra || !extra.attrs) continue;
+                    fillNode.attrs._additionalStrokes.push({
+                        stroke: extra.attrs.stroke,
+                        strokeWidth: extra.attrs['stroke-width'],
+                        strokeOpacity: extra.attrs['stroke-opacity'],
+                        opacity: extra.attrs.opacity
+                    });
+                    extra.__remove = true;
+                }
+            }
         }
     }
     // Filter out removed nodes
@@ -1491,6 +1509,43 @@ function applyFillAndStroke(layerId, attrs) {
                 }
             }
         }
+
+        // Extra strokes from Figma (one SVG element per stroke) become
+        // multiStroke entries so the shape stays a single Cavalry layer.
+        if (attrs && attrs._additionalStrokes && attrs._additionalStrokes.length > 0) {
+            for (var asi = 0; asi < attrs._additionalStrokes.length; asi++) {
+                try {
+                    var extraInfo = attrs._additionalStrokes[asi];
+                    if (!extraInfo || !extraInfo.stroke) continue;
+                    var extraWidth = parseFloat(extraInfo.strokeWidth);
+                    if (isNaN(extraWidth) || extraWidth <= 0) extraWidth = 1;
+                    var extraSO = parseFloat(extraInfo.strokeOpacity);
+                    if (isNaN(extraSO)) extraSO = 1;
+                    var extraO = parseFloat(extraInfo.opacity);
+                    if (isNaN(extraO)) extraO = 1;
+                    var extraAlpha = Math.round(clamp01(extraSO * extraO) * 100);
+
+                    var smId = api.create('strokeMaterial', 'Stroke ' + (asi + 2));
+                    api.set(smId, { 'width': extraWidth, 'alpha': extraAlpha });
+
+                    var extraGradId = extractUrlRefId(extraInfo.stroke);
+                    if (extraGradId) {
+                        var extraShader = getGradientShader(extraGradId);
+                        if (extraShader) {
+                            // Hide the flat colour so the shader shows through,
+                            // mirroring connectShaderToStroke.
+                            try { api.set(smId, { 'strokeColor.a': 0 }); } catch (eEA) {}
+                            api.connect(extraShader, 'id', smId, 'colorShaders');
+                        }
+                    } else {
+                        var extraColor = parseColor(extraInfo.stroke);
+                        if (extraColor) { api.set(smId, { 'strokeColor': extraColor }); }
+                    }
+
+                    api.connect(smId, 'id', layerId, 'multiStroke');
+                } catch (eExtraStroke) {}
+            }
+        }
     } catch (e) {
         // ignore style errors
     }
@@ -1700,7 +1755,56 @@ function parsePathDataToAbsolute(d) {
     return segments;
 }
 
+// Figma's SVG exporter emits hairline segments its own editor hides - tiny
+// `L` hops between real curves, often 0.001 units long. They show up in
+// Cavalry as clusters of anchor points. Drop the ones below a size-relative
+// tolerance; genuine geometry is orders of magnitude longer.
+function _simplifyPathSegments(segments) {
+    if (!segments || segments.length < 3) return segments;
+    // Tolerance scales with the path so a small icon is not over-simplified.
+    var minX = 1e9, minY = 1e9, maxX = -1e9, maxY = -1e9;
+    var i;
+    for (i = 0; i < segments.length; i++) {
+        var sg = segments[i];
+        if (!sg || sg.x === undefined || sg.y === undefined) continue;
+        if (sg.x < minX) minX = sg.x;
+        if (sg.x > maxX) maxX = sg.x;
+        if (sg.y < minY) minY = sg.y;
+        if (sg.y > maxY) maxY = sg.y;
+    }
+    var diag = 0;
+    if (maxX >= minX && maxY >= minY) {
+        diag = Math.sqrt((maxX - minX) * (maxX - minX) + (maxY - minY) * (maxY - minY));
+    }
+    // Bounded so simplification can never move the outline visibly: the
+    // artifacts we are targeting are ~0.001-0.015 units, while genuine short
+    // segments start an order of magnitude above that.
+    var tol = Math.min(0.05, Math.max(0.01, diag * 0.0005));
+    var out = [];
+    var px = 0, py = 0, removed = 0;
+    for (i = 0; i < segments.length; i++) {
+        var s = segments[i];
+        if (!s) continue;
+        if (s.cmd === 'Z') { out.push(s); continue; }
+        if (s.cmd === 'M') { px = s.x; py = s.y; out.push(s); continue; }
+        // Only straight hops are dropped. A short curve can still carry a
+        // visible bulge through its control points, so curves are left alone.
+        if (s.cmd === 'L') {
+            var dx = s.x - px, dy = s.y - py;
+            if (Math.sqrt(dx * dx + dy * dy) < tol) { removed++; continue; }
+        }
+        px = s.x; py = s.y;
+        out.push(s);
+    }
+    // Never simplify a path down to nothing.
+    if (out.length < 2) return segments;
+    return out;
+}
+
 function createEditableFromPathSegments(segments, nodeName, parentId, vb, translate, attrs) {
+    if (typeof simplifyPathsEnabled === 'undefined' || simplifyPathsEnabled) {
+        try { segments = _simplifyPathSegments(segments); } catch (eSimp) {}
+    }
     var path = new cavalry.Path();
     function cvt(pt) {
         var px = pt.x + (translate ? translate.x : 0);

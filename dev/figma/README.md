@@ -4,7 +4,7 @@ Send your Figma designs directly to Cavalry with one click!
 
 ## Features
 
-- ✅ **One-click export** - Select a frame and click "Send to Cavalry"
+- ✅ **One-click export** - Select a frame, group or shape and click "Send to Cavalry"
 - ✅ **Automatic import** - No dialogs or confirmations needed
 - ✅ **Real-time connection** - See if Cavalry/Quiver is running
 - ✅ **Smart selection** - Works with frames, groups, components, and instances
@@ -48,7 +48,7 @@ If you see this message, you're ready! ✅
 ### Basic Workflow
 
 1. **Design in Figma** - Create your frames, components, or groups
-2. **Select what to send** - Click on a frame or group
+2. **Select what to send** - Click on a frame, group, or a single shape
 3. **Open the plugin** - Go to `Plugins > Development > Quiver for Figma`
 4. **Click "Send to Cavalry"** - That's it!
 
@@ -114,15 +114,16 @@ curl -X POST http://127.0.0.1:8765/post \
   -d '{"action":"ping"}'
 ```
 
-### "Please select a frame or group"
+### "Select a frame, group or shape"
 
 You need to select something in Figma first. The plugin works with:
 - Frames
 - Groups
 - Components
 - Instances
+- Individual shapes (vectors, rectangles, ellipses, text, boolean ops, etc.)
 
-Individual shapes need to be inside a frame or group.
+Individual shapes can be sent directly - they don't need to be inside a frame or group. The only requirement is that the selection is exportable artwork with a non-zero size (not a page or slice).
 
 ### Nothing happens after clicking "Send to Cavalry"
 
