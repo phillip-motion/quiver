@@ -478,10 +478,24 @@ function _setFirstSupported(id, candidates, value) {
  * - api.parent(childId, parentId) - Parent layer
  */
 function connectShaderToShape(shaderId, shapeId, svgShapeCenter, fillAlpha, shapeScaleY, shapeRotationDeg) {
-    // shapeScaleY: the shape's Y scale from transform (negative = Y-flip)
+    // shapeScaleY: the shape's Y scale from the SVG transform (negative = Y-flip)
     // shapeRotationDeg: the shape's rotation in degrees (for userSpaceOnUse gradient compensation)
-    // Used to determine if gradient direction needs to be adjusted
-    var isFlippedY = (shapeScaleY !== undefined && shapeScaleY < 0);
+    //
+    // A Cavalry gradient lives in the shape's local space and inherits the shape's full
+    // transform (rotation AND negative scale). So the gradient only needs flip compensation
+    // when the SVG flip was NOT carried over onto the Cavalry layer itself:
+    //   - rects/ellipses: createRect/createEllipse apply the mirror as scale.y = -1 -> no compensation
+    //   - text: the flip is not applied to the textShape -> compensate here
+    // Compensating in both places double-flips the gradient (upside-down caret bug).
+    var svgFlippedY = (shapeScaleY !== undefined && shapeScaleY < 0);
+    var shapeCarriesFlipY = false;
+    if (svgFlippedY) {
+        try {
+            var liveScaleY = api.get(shapeId, 'scale.y');
+            shapeCarriesFlipY = (typeof liveScaleY === 'number' && liveScaleY < 0);
+        } catch (eLiveScale) { shapeCarriesFlipY = false; }
+    }
+    var isFlippedY = svgFlippedY && !shapeCarriesFlipY;
     var shapeRotation = (shapeRotationDeg !== undefined) ? shapeRotationDeg : 0;
     
     try { 
@@ -785,32 +799,32 @@ function connectShaderToShape(shaderId, shapeId, svgShapeCenter, fillAlpha, shap
                         }
                     }
                         
-                    // Calculate scale: gradient length relative to shape's reference dimension
-                    // In Cavalry, linear gradient scale=1.0 means the gradient spans the shape's
-                    // larger dimension (width or height). Scale > 1 extends beyond.
-                    var angleRad = Math.atan2(dy, dx); // Angle in radians
+                    // Calculate scale: gradient length relative to the shape's WIDTH.
+                    // With "Gradient Scales With Rotation" (generator.autoSetGradWidth) off, a Cavalry
+                    // linear gradient at scale 1.0 spans the shape's local bounding-box WIDTH,
+                    // centred on the shape, whatever the rotation. (Verified empirically: a 90-degree
+                    // gradient on a 100x400 rect ramps over 100px, not 400px.) Using max(w, h) here
+                    // made vertical gradients on tall, thin shapes collapse into a hard edge.
+                    var scaleL = (gradientLength / shapeWidthL);
                     
-                    // Use the larger of width or height as the reference dimension
-                    var shapeReference = Math.max(shapeWidthL, shapeHeightL);
-                    
-                    // Scale is the ratio of gradient length to shape's reference dimension
-                    var scaleL = (gradientLength / shapeReference);
-                    
-                    var angleDeg = angleRad * 180 / Math.PI;
-                    
-                    
+                    try {
+                        // Pin the reference dimension so the ratio above stays valid.
+                        api.set(shaderId, {"generator.autoSetGradWidth": false});
+                    } catch (eAutoW) {}
                     try {
                         api.set(shaderId, {"generator.scale": scaleL});
                     } catch (eScaleL) {
                         console.warn('[LINEAR GRADIENT] Could not set scale: ' + eScaleL.message);
                     }
                     
-                    // For Y-flipped shapes (scaleY < 0), we need to adjust the gradient rotation.
+                    // For Y-flipped shapes whose flip was NOT carried onto the Cavalry layer (text),
+                    // we need to adjust the gradient rotation. isFlippedY is already false when the
+                    // layer itself has scale.y < 0, because the gradient inherits that flip.
                     // 
                     // Figma exports gradients with userSpaceOnUse but coordinates relative to the
                     // untransformed shape bounds. This means the gradient is meant to transform WITH
                     // the shape. The rotation is already applied to the Cavalry shape, so we only need
-                    // to compensate for the Y-flip (which is NOT applied to the Cavalry shape).
+                    // to compensate for a Y-flip that is missing from the Cavalry shape.
                     // 
                     // Y-flip mirrors the coordinate system across the X-axis, which negates the angle:
                     // - Horizontal gradient (0°): unaffected (symmetric across X-axis)

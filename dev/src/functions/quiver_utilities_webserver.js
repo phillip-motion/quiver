@@ -662,15 +662,18 @@ function processStrokeGradientNodes(vectorDataArray, viewBox) {
         var nodeData = vectorDataArray[i];
         
         try {
-            // Find the existing layer by name (SVG import created an outlined version)
-            // Pass nodeData and viewBox for position-based matching when multiple layers share the same name
+            // Find the existing layer (SVG import created an outlined version).
+            // Same-named Figma layers ("Vector", "Vector", ...) are disambiguated by position,
+            // not by the order of their _N suffixes - see findLayerForVectorData().
             console.log('[StrokeGradient] Looking for layer named: "' + nodeData.name + '"');
-            var existingLayerId = findLayerByName(nodeData.name);
+            var match = findLayerForVectorData(nodeData, viewBox);
+            var existingLayerId = match ? match.id : null;
             
             if (existingLayerId) {
                 var foundLayerName = '';
                 try { foundLayerName = api.getNiceName(existingLayerId); } catch(e) {}
-                console.log('[StrokeGradient] Found layer: "' + foundLayerName + '" (ID: ' + existingLayerId + ')');
+                console.log('[StrokeGradient] Found layer: "' + foundLayerName + '" (ID: ' + existingLayerId + ')' +
+                    (match.distance !== null && match.distance !== undefined ? ' at ' + Math.round(match.distance) + 'px from expected position' : ''));
                 
                 // Mark this layer as being processed so we don't find it again
                 // if another layer has the same name
@@ -1013,9 +1016,144 @@ function processStrokeGradientNodes(vectorDataArray, viewBox) {
 }
 
 /**
+ * Compute where a hybrid vector node's geometry lands in Cavalry (world-space centre).
+ * Uses exactly the same transform as createPathFromVectorData*, so the result is
+ * directly comparable with the bounding box of the SVG-imported layer.
+ */
+function computeVectorDataCentre(nodeData, viewBox) {
+    try {
+        if (!nodeData || !nodeData.vectorPaths || !nodeData.vectorPaths.length) return null;
+        var pathData = nodeData.vectorPaths[0].data;
+        if (!pathData) return null;
+        var segments = parsePathDataToAbsolute(pathData);
+        if (!segments || segments.length === 0) return null;
+        var path = new cavalry.Path();
+        for (var i = 0; i < segments.length; i++) {
+            var s = segments[i];
+            if (s.cmd === 'M') {
+                var pm = figmaToCavalryCoord(s.x, s.y, nodeData, viewBox);
+                path.moveTo(pm.x, pm.y);
+            } else if (s.cmd === 'L') {
+                var pl = figmaToCavalryCoord(s.x, s.y, nodeData, viewBox);
+                path.lineTo(pl.x, pl.y);
+            } else if (s.cmd === 'C') {
+                var c1 = figmaToCavalryCoord(s.cp1x, s.cp1y, nodeData, viewBox);
+                var c2 = figmaToCavalryCoord(s.cp2x, s.cp2y, nodeData, viewBox);
+                var pc = figmaToCavalryCoord(s.x, s.y, nodeData, viewBox);
+                path.cubicTo(c1.x, c1.y, c2.x, c2.y, pc.x, pc.y);
+            } else if (s.cmd === 'Q') {
+                var cq = figmaToCavalryCoord(s.cpx, s.cpy, nodeData, viewBox);
+                var pq = figmaToCavalryCoord(s.x, s.y, nodeData, viewBox);
+                path.quadTo(cq.x, cq.y, pq.x, pq.y);
+            } else if (s.cmd === 'Z') {
+                path.close();
+            }
+        }
+        var bb = path.boundingBox();
+        if (!bb || !bb.centre) return null;
+        return { x: bb.centre.x, y: bb.centre.y, width: bb.width || 0, height: bb.height || 0 };
+    } catch (e) {
+        return null;
+    }
+}
+
+/**
+ * Find the SVG-imported layer that corresponds to a hybrid vector node.
+ *
+ * Figma layer names are NOT unique ("Vector", "Vector", "Vector"...). The SVG export
+ * de-duplicates the ids as "Vector", "Vector_2", "Vector_3"... in document order, but
+ * the hybrid sidecar only carries the bare name, so pairing by name (then by _N suffix)
+ * is order-dependent: one dropped node, one extra same-named layer anywhere in the comp,
+ * or any ordering difference shifts every later glyph onto the wrong slot.
+ *
+ * Instead, collect every unprocessed layer whose name is `name` or `name_N`, and pick the
+ * one whose world bounding-box centre is closest to where this node's geometry actually
+ * lands (the outlined SVG copy is only inflated by the stroke, so its centre matches).
+ *
+ * Returns { id, distance } or null.
+ */
+function findLayerForVectorData(nodeData, viewBox) {
+    var name = nodeData && nodeData.name;
+    if (!name) return null;
+
+    var target = computeVectorDataCentre(nodeData, viewBox);
+
+    var candidates = [];
+    try {
+        var allLayers = api.getCompLayers(false);
+        if (!allLayers || allLayers.length === 0) return null;
+
+        var escaped = String(name).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        var suffixRe = new RegExp('^' + escaped + '_\\d+$');
+
+        for (var i = 0; i < allLayers.length; i++) {
+            try {
+                if (isLayerProcessed(allLayers[i])) continue;
+                var layerName = api.getNiceName(allLayers[i]);
+                if (layerName === name || suffixRe.test(layerName)) {
+                    candidates.push({ id: allLayers[i], name: layerName });
+                }
+            } catch (e) { /* unreadable layer */ }
+        }
+    } catch (eAll) {
+        return null;
+    }
+
+    if (candidates.length === 0) return null;
+
+    // Without a computable target position we can only fall back to name order.
+    if (!target) {
+        for (var e0 = 0; e0 < candidates.length; e0++) {
+            if (candidates[e0].name === name) return { id: candidates[e0].id, distance: null };
+        }
+        return { id: candidates[0].id, distance: null };
+    }
+
+    var best = null;
+    for (var c = 0; c < candidates.length; c++) {
+        try {
+            var bb = api.getBoundingBox(candidates[c].id, true);
+            if (!bb || bb.width === undefined) continue;
+            var cx = (bb.centre && bb.centre.x !== undefined) ? bb.centre.x : (bb.x + bb.width / 2);
+            var cy = (bb.centre && bb.centre.y !== undefined) ? bb.centre.y : (bb.y + bb.height / 2);
+            var dx = cx - target.x;
+            var dy = cy - target.y;
+            var dist = Math.sqrt(dx * dx + dy * dy);
+            if (!best || dist < best.distance) {
+                best = { id: candidates[c].id, name: candidates[c].name, distance: dist };
+            }
+        } catch (eBB) { /* non-drawable candidate */ }
+    }
+
+    if (!best) return null;
+
+    // Accept the nearest candidate only if it is plausibly the same shape: within half of the
+    // node's own size (plus a small absolute allowance for stroke inflation / rounding).
+    var tolerance = Math.max(target.width, target.height) * 0.5 + 10;
+    if (best.distance <= tolerance) {
+        return best;
+    }
+
+    // Nothing near the expected position. If there is exactly one same-named layer left the
+    // pairing is unambiguous anyway; otherwise refuse rather than steal another node's layer.
+    if (candidates.length === 1) {
+        console.log('[StrokeGradient] "' + name + '": single candidate "' + candidates[0].name + '" is ' +
+            Math.round(best.distance) + 'px from expected position - using it anyway');
+        return best;
+    }
+
+    console.log('[StrokeGradient] "' + name + '": no candidate near expected position (nearest ' +
+        Math.round(best.distance) + 'px, tolerance ' + Math.round(tolerance) + 'px) - will create new layer');
+    return null;
+}
+
+/**
  * Find a layer by its name in the scene (searches entire hierarchy)
  * Skips layers that have already been processed in the hybrid approach
  * Also tries suffixed names (e.g., "Polygon 5_2") if exact match not found
+ *
+ * NOTE: kept for callers that only have a name. The hybrid stroke pass uses
+ * findLayerForVectorData() instead, which disambiguates same-named layers by position.
  */
 function findLayerByName(name) {
     
