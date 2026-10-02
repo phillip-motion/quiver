@@ -297,6 +297,62 @@ function _resolveImageHrefToAsset(href, contextNode) {
     return null;
 }
 
+// Fill a rectangle with an image: Cavalry has no image layer type that
+// api.create can make, so images are a rectangle plus an Image Shader.
+function _attachImageShader(rectId, href, node) {
+    // Create image shader and connect it
+    __imageCounter++;
+    var shaderName = (node.name || 'image') + '_' + __imageCounter;
+    var shaderNode = api.create('imageShader', shaderName);
+    
+    if (shaderNode && href) {
+        // Save the image file
+        var saved = _resolveImageHrefToAsset(href, node);
+        var linkVal = saved || href;
+        
+        if (linkVal) {
+            // Load as asset and connect
+            var assetId = null;
+            try { if (saved && api.loadAsset) assetId = api.loadAsset(saved, false); } catch (eLoad) {}
+            if (!assetId) { try { if (saved && api.importAsset) assetId = api.importAsset(saved); } catch (eImp) {} }
+            
+            if (assetId) {
+                try { api.connect(assetId, 'id', shaderNode, 'image'); } catch (eConn) {}
+                
+                // Parent asset under Quiver group
+                var quiverGroup = _ensureQuiverAssetGroup();
+                if (quiverGroup) {
+                    try { api.parent(assetId, quiverGroup); } catch (ePar) {}
+                }
+            } else {
+                // Fallback: set path directly
+                _setFirstSupported(shaderNode, ['image','generator.image','file','path'], linkVal);
+            }
+        }
+        
+        // Connect shader to rectangle
+        try {
+            api.setFill(rectId, true);
+            api.set(rectId, {"material.materialColor.a": 0});
+            api.connect(shaderNode, 'id', rectId, 'material.colorShaders');
+            api.parent(shaderNode, rectId);
+            
+            // Configure shader (same as pattern images)
+            try { if (_hasAttr(shaderNode, 'legacyGraph')) api.set(shaderNode, { 'legacyGraph': false }); } catch (eLG) {}
+            try { api.set(shaderNode, { 'scaleMode': 4 }); } catch (eSM) {}
+            try { api.set(shaderNode, { 'tilingX': 3, 'tilingY': 3 }); } catch (eT) {}
+            
+            // Set filter quality based on user setting (0=None, 1=Bilinear, 2=Mipmaps, 3=Bicubic)
+            var fqOk = false;
+            try { api.set(shaderNode, { 'filterQuality': imageFilterQuality }); fqOk = true; } catch (eFQ1) { fqOk = false; }
+            if (!fqOk) { try { api.set(shaderNode, { 'generator.filterQuality': imageFilterQuality }); } catch (eFQ2) {} }
+            
+            _setFirstSupported(shaderNode, ['offset','generator.offset'], [0,0]);
+        } catch (eShader) {}
+    }
+    return shaderNode;
+}
+
 function createImage(node, parentId, vb) {
     // Skip image creation if disabled in settings
     if (!importImageryEnabled) {
@@ -322,64 +378,15 @@ function createImage(node, parentId, vb) {
     try { __lastPatternOrImageName = contextualName; } catch (eNm2) {}
     
     var href = node.attrs && (node.attrs.href || node.attrs['xlink:href']);
-    var savedPath = _resolveImageHrefToAsset(href, node);
     var x = parseFloat(node.attrs.x || '0');
     var y = parseFloat(node.attrs.y || '0');
     var w = parseFloat(node.attrs.width || '0');
     var h = parseFloat(node.attrs.height || '0');
     var centre = svgToCavalryPosition(x + w/2, y + h/2, vb);
-    var id = null;
-    var types = ['image','bitmap','footage','imageShape','footageShape','imageLayer'];
-    for (var ti = 0; ti < types.length && !id; ti++) {
-        try { id = api.create(types[ti], name); } catch (eCT) { id = null; }
-    }
-    var isPlaceholder = false;
-    if (!id) { id = api.primitive('rectangle', name); isPlaceholder = true; }
+    var id = api.primitive('rectangle', name);
     if (parentId) api.parent(id, parentId);
-    try {
-        if (!isPlaceholder) {
-            try { api.set(id, { 'position.x': centre.x, 'position.y': centre.y }); } catch (eP) {}
-            var sizeSet = false;
-            try { api.set(id, { 'dimensions': [w, h] }); sizeSet = true; } catch (eD0) {}
-            if (!sizeSet) {
-                try { api.set(id, { 'generator.dimensions': [w, h] }); sizeSet = true; } catch (eD1) {}
-            }
-        } else {
-            try { api.set(id, { 'generator.dimensions': [w, h], 'position.x': centre.x, 'position.y': centre.y }); } catch (eR) {}
-        }
-    } catch (eSz) {}
-    try {
-        if (!isPlaceholder) {
-            var setOk = false;
-            var targetVal = savedPath || href || null;
-            var assetId = null;
-            if (savedPath && api.loadAsset) {
-                try { assetId = api.loadAsset(savedPath, false); } catch (eLoad) { assetId = null; }
-            }
-            if (!assetId && savedPath && api.importAsset) {
-                try { assetId = api.importAsset(savedPath); } catch (eImp) { assetId = null; }
-            }
-            if (assetId) {
-                try { api.connect(assetId, 'id', id, 'image'); setOk = true; } catch (eConImg) { setOk = false; }
-                
-                // Parent the asset under the Quiver group in Assets Window
-                var quiverGroup = _ensureQuiverAssetGroup();
-                if (quiverGroup && api.parent) {
-                    try { 
-                        api.parent(assetId, quiverGroup);
-                    } catch (eParent) {
-                        // Could not parent asset to Quiver group
-                    }
-                }
-            }
-            if (!setOk && targetVal) {
-                var isData = (typeof targetVal==='string') && targetVal.indexOf('data:') === 0;
-                var setPaths = isData ? ['uri','image.uri','path','image.path','source','file'] : ['path','image.path','source','file','uri','image.uri'];
-                var used = _setFirstSupported(id, setPaths, targetVal);
-                setOk = !!used;
-            }
-        }
-    } catch (eLink) {}
+    try { api.set(id, { 'generator.dimensions': [w, h], 'position.x': centre.x, 'position.y': centre.y }); } catch (eR) {}
+    _attachImageShader(id, href, node);
     try {
         var o = node.attrs.opacity || (node.attrs.style && extractStyleProperty(node.attrs.style, 'opacity'));
         var oNum = parseOpacityValue(o); if (oNum === null) oNum = 1;

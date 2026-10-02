@@ -5,7 +5,7 @@
 // Index corresponds to a logical grouping, but the actual enum values are sparse
 // Structure: [svgName, cavalryEnum]
 var BLEND_MODE_MAP = [
-    ['normal', 0],
+    ['normal', 3],
     ['multiply', 24],
     ['screen', 14],
     ['overlay', 15],
