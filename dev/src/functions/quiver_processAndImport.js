@@ -1287,56 +1287,7 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
             });
         } catch (eSet) {}
         
-        // Create image shader and connect it
-        __imageCounter++;
-        var shaderName = (cloneUse.name || 'image') + '_' + __imageCounter;
-        var shaderNode = api.create('imageShader', shaderName);
-        
-        if (shaderNode && actualHref) {
-            // Save the image file
-            var saved = _resolveImageHrefToAsset(actualHref, cloneUse);
-            var linkVal = saved || actualHref;
-            
-            if (linkVal) {
-                // Load as asset and connect
-                var assetId = null;
-                try { if (saved && api.loadAsset) assetId = api.loadAsset(saved, false); } catch (eLoad) {}
-                if (!assetId) { try { if (saved && api.importAsset) assetId = api.importAsset(saved); } catch (eImp) {} }
-                
-                if (assetId) {
-                    try { api.connect(assetId, 'id', shaderNode, 'image'); } catch (eConn) {}
-                    
-                    // Parent asset under Quiver group
-                    var quiverGroup = _ensureQuiverAssetGroup();
-                    if (quiverGroup) {
-                        try { api.parent(assetId, quiverGroup); } catch (ePar) {}
-                    }
-                } else {
-                    // Fallback: set path directly
-                    _setFirstSupported(shaderNode, ['image','generator.image','file','path'], linkVal);
-                }
-            }
-            
-            // Connect shader to rectangle
-            try {
-                api.setFill(rectId, true);
-                api.set(rectId, {"material.materialColor.a": 0});
-                api.connect(shaderNode, 'id', rectId, 'material.colorShaders');
-                api.parent(shaderNode, rectId);
-                
-                // Configure shader (same as pattern images)
-                try { if (_hasAttr(shaderNode, 'legacyGraph')) api.set(shaderNode, { 'legacyGraph': false }); } catch (eLG) {}
-                try { api.set(shaderNode, { 'scaleMode': 4 }); } catch (eSM) {}
-                try { api.set(shaderNode, { 'tilingX': 3, 'tilingY': 3 }); } catch (eT) {}
-                
-                // Set filter quality based on user setting (0=None, 1=Bilinear, 2=Mipmaps, 3=Bicubic)
-                var fqOk = false;
-                try { api.set(shaderNode, { 'filterQuality': imageFilterQuality }); fqOk = true; } catch (eFQ1) { fqOk = false; }
-                if (!fqOk) { try { api.set(shaderNode, { 'generator.filterQuality': imageFilterQuality }); } catch (eFQ2) {} }
-                
-                _setFirstSupported(shaderNode, ['offset','generator.offset'], [0,0]);
-            } catch (eShader) {}
-        }
+        _attachImageShader(rectId, actualHref, cloneUse);
         
         if (stats) stats.images = (stats.images || 0) + 1;
         return rectId;
@@ -2256,6 +2207,22 @@ function processAndImportSVG(svgCode, options) {
                 }
             } catch (eStripClip) {
                 console.warn('[Clip] Error: ' + eStripClip.message);
+            }
+        }
+
+        // Drop fills hidden beneath a fully opaque, fully covering image fill,
+        // before any layer exists - their images are then never decoded,
+        // written to disk or loaded as assets.
+        if (typeof pruneCoveredFillsEnabled === 'undefined' || pruneCoveredFillsEnabled) {
+            _logImportStep('Skipping hidden fills');
+            try {
+                var coverPatterns = extractPatterns(svgCode) || {};
+                var pruned = pruneCoveredImageFills(model, coverPatterns, {}, false);
+                if (pruned.fills > 0) {
+                    console.info('🏹 Skipped ' + pruned.fills + ' hidden fill(s); ' + pruned.images + ' image(s) never decoded');
+                }
+            } catch (ePrune) {
+                console.warn('[Hidden fills] Error: ' + ePrune.message);
             }
         }
 
