@@ -33,7 +33,8 @@ const SRC_DIR = path.join(__dirname, 'src');
 const FUNCTIONS_DIR = path.join(SRC_DIR, 'functions');
 const SRC_ASSETS_DIR = path.join(SRC_DIR, 'assets');
 const DEV_FILE = path.join(SRC_DIR, 'Quiver-Dev.js');
-const OUTPUT_FILE = path.join(__dirname, 'Quiver.js');
+const BUILD_DIR = path.join(__dirname, 'build');
+const OUTPUT_FILE = path.join(BUILD_DIR, 'Quiver.js');
 const FIGMA_DIR = path.join(__dirname, 'figma');
 const FIGMA_UI_FILE = path.join(FIGMA_DIR, 'ui.html');
 const CACHE_FILE = path.join(__dirname, '.build-cache.json');
@@ -436,7 +437,10 @@ async function build() {
     }
     
     // Write the bundled file
-    console.log('\n📝 Writing Quiver.js...');
+    console.log('\n📝 Writing build/Quiver.js...');
+    // Fresh build dir: encrypt picks up every build/*.js, including old "(unencrypted)" copies
+    fs.rmSync(BUILD_DIR, { recursive: true, force: true });
+    fs.mkdirSync(BUILD_DIR);
     fs.writeFileSync(OUTPUT_FILE, finalContent, 'utf8');
     
     console.log(`✅ Bundled ${loadedFiles.length} files into Quiver.js`);

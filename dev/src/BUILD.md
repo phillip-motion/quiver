@@ -15,14 +15,15 @@ quiver/
     │   │   ├── quiver_svgParser.js
     │   │   └── ... (all other modules)
     │   └── assets/               # UI assets (icons, images)
-    ├── Quiver.js                 # Generated production file
+    ├── build/                    # Generated Quiver.js / Quiver.jsc (ignored)
+    ├── CHANGELOG.md              # Release notes, used by auto-release
     ├── build.js                  # Build script
     └── package.json              # Node.js configuration
 ```
 
 ## 🔧 Prerequisites
 
-You need Node.js installed (v12 or higher). Check if you have it:
+You need Node.js 24.3 or higher. Check if you have it:
 
 ```bash
 node --version
@@ -41,43 +42,25 @@ cd dev
 npm install
 ```
 
-This installs `terser` for optional minification.
+This installs `terser`, `sharp` and `@scenery/bundler`.
 
 ## 🚀 Building
 
-### Standard Build
-
-> **Note:** `npm run build` and `npm run build:minify` currently both run the minified build. To get a readable, unminified `Quiver.js`, run `node build.js` directly (no flag).
-
-Creates a production-ready `Quiver.js`:
-
 ```bash
-npm run build
+npm run build      # readable build/Quiver.js, for testing
+npm run release    # minified build, encrypted build/Quiver.jsc, dist/Quiver_<version>.zip, copied to ../Quiver.jsc
 ```
 
-**What it does:**
-- ✅ Bundles all modules from `/dev/src/functions/` into a single file
-- ✅ Replaces `api.load()` calls with actual file contents
-- ✅ Changes window title from "Quiver-Dev" to "Quiver"
-- ✅ Embeds images as base64 directly into the build (no assets folder is copied)
-- ✅ Preserves readable formatting and comments (when run via `node build.js` without `--minify`)
+Both bundle every `api.load()` module from `Quiver-Dev.js` into one file, embed the images and Glass plugin as base64, and set the window title to "Quiver".
 
-### Minified Build
+`release` encrypts with [create-script](https://github.com/scenery-io/create-script)'s `@scenery/bundler`, which needs Cavalry open with **Stallion** running (it posts to `127.0.0.1:8080`). It needs Node 24.3+.
 
-Creates a smaller, optimized production file:
+## 🚢 Publishing a release
 
-```bash
-npm run build:minify
-```
-
-**Additional optimizations:**
-- 🗜️ Removes dead code
-- 🗜️ Compresses whitespace
-- 🗜️ Keeps console logs (needed for Cavalry)
-- 🗜️ Preserves API names (no mangling - important!)
-- 🗜️ Reduces file size by ~30-40%
-
-> **Note:** The distributable `Quiver.jsc` is not produced by `build.js` — it's generated manually as a separate step inside Cavalry.
+1. Bump `version` in `dev/package.json` and the version in `versions.json`.
+2. Move the `[Unreleased]` notes in `dev/CHANGELOG.md` under a new `## [x.y.z]` heading.
+3. `npm run release`, then commit `Quiver.jsc` with the message `Release x.y.z`.
+4. Push to `main`. `.github/workflows/auto-release.yml` tags `vx.y.z`, creates the GitHub release from the changelog entry and attaches `Quiver.jsc`.
 
 ## 🔄 Development Workflow
 
@@ -97,7 +80,7 @@ npm run build:minify
    cd dev
    npm run build
    ```
-   - Generates `/dev/Quiver.js` (single file for distribution)
+   - Generates `/dev/build/Quiver.js` (single file, not committed)
    - Window title shows just "Quiver" (production version)
 
 ### Adding New Modules
@@ -142,7 +125,7 @@ Make sure to:
 
 | Feature | Quiver-Dev.js | Quiver.js |
 |---------|---------------|-----------|
-| **Location** | `/dev/src/Quiver-Dev.js` | `/dev/Quiver.js` |
+| **Location** | `/dev/src/Quiver-Dev.js` | `/dev/build/Quiver.js` |
 | **Window Title** | "Quiver-Dev 0.9.0" | "Quiver" |
 | **Structure** | Loads multiple files | Single bundled file |
 | **File Size** | Small entry point | ~27 KB complete |
@@ -155,15 +138,14 @@ Make sure to:
 - **Keep `Quiver-Dev.js` clean** - it's the source of truth for build order
 - **Use meaningful comments** - they're preserved in standard builds
 - **Test before minifying** - minified code is harder to debug
-- **Version control** - Commit both `/dev/src/` and generated `Quiver.js`
+- **Version control** - Commit `/dev/src/` and `Quiver.jsc`; `build/` and `dist/` are ignored
 
 ## 🤝 Contributing
 
 When contributing:
 1. Make all changes in `/dev/src/`
 2. Test with `Quiver-Dev.js`
-3. Run `npm run build` before committing
-4. Commit both source and generated files
+3. Run `npm run build` and test `build/Quiver.js` before committing
 
 ---
 

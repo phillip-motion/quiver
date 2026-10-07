@@ -2,3 +2,5 @@
 node_modules/
 AGENTS.md
 dev/testfiles/*
+dev/build/
+dev/dist/

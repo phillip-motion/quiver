@@ -1,0 +1,37 @@
+name: Auto Release
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create Release
+        id: auto-release
+        uses: CupOfTea696/gh-action-auto-release@v1.0.2
+        with:
+          title: "v$semver"
+          tag: "v$semver"
+          changelog: "dev/CHANGELOG.md"
+          changelog-entry: "[$version]"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload Release Asset
+        if: steps.auto-release.outputs.released == 'true'
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.auto-release.outputs.upload_url }}
+          asset_path: ./Quiver.jsc
+          asset_name: Quiver.jsc
+          asset_content_type: application/javascript

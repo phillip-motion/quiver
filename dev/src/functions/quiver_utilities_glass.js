@@ -1274,3 +1274,6 @@ function processDeferredGlass() {
     sweepLooseGlassAnchors();
     __deferredGlass = [];
 }
+
+// Install the Glass filter at launch so the first glass import needs no restart.
+ensureGlassInstalled();
