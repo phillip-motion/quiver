@@ -1721,6 +1721,31 @@ function checkSelection() {
   });
 }
 
+// The top-level frame a node sits in (a frame directly on the page or in a
+// section), or null when the node is itself top-level or loose on the page.
+function topLevelFrameOf(node) {
+  for (var p = node.parent; p && p.parent; p = p.parent) {
+    if (p.parent.type === 'PAGE' || p.parent.type === 'SECTION') {
+      var frameLike = p.type === 'FRAME' || p.type === 'COMPONENT' || p.type === 'COMPONENT_SET' || p.type === 'INSTANCE';
+      return frameLike ? p : null;
+    }
+  }
+  return null;
+}
+
+// Where the exported SVG sits inside its top-level frame, so Cavalry can place
+// the selection where it is in that frame (as Affinity does for artboards).
+function frameContextFor(node) {
+  var frame = topLevelFrameOf(node);
+  if (!frame || !frame.absoluteTransform) return null;
+  var t = frame.absoluteTransform;
+  if (Math.abs(t[0][1]) > 1e-6 || Math.abs(t[1][0]) > 1e-6) return null; // a turned frame has no upright box to place into
+  // the SVG export covers the render bounds (strokes and shadows included)
+  var b = node.absoluteRenderBounds || node.absoluteBoundingBox;
+  if (!b) return null;
+  return { name: frame.name, width: frame.width, height: frame.height, x: b.x - t[0][2], y: b.y - t[1][2] };
+}
+
 // Export selection and send to Cavalry
 async function sendSelectionToCavalry() {
   const selection = figma.currentPage.selection;
@@ -1906,6 +1931,7 @@ async function sendSelectionToCavalry() {
       // We force clipsContent on above to get a correct viewBox, so tell Cavalry
       // what it really was - otherwise an unclipped frame imports with a clip.
       clipsContent: originalClipsContent,
+      frameContext: frameContextFor(node),
       // Hybrid data: vector nodes with stroke gradients
       vectorData: hasStrokeGradients ? vectorDataNodes : null,
       // Hybrid data: text nodes with alignment info

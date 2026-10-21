@@ -172,7 +172,7 @@
     
     
     // Send SVG (and optional vector/text/emoji data) to Cavalry
-    async function sendToCavalry(svgCode, nodeName, frameWidth, frameHeight, vectorData, textData, emojiData, glassData) {
+    async function sendToCavalry(svgCode, nodeName, frameWidth, frameHeight, vectorData, textData, emojiData, glassData, clipsContent, frameContext) {
       console.log('sendToCavalry called:');
       console.log('  svgCode length:', svgCode ? svgCode.length : 'null');
       console.log('  nodeName:', nodeName);
@@ -188,6 +188,8 @@
           svgCode: svgCode,
           nodeName: nodeName || ''
         };
+        if (typeof clipsContent === 'boolean') payload.clipsContent = clipsContent;
+        if (frameContext) payload.frameContext = frameContext;
         
         // Add hybrid vector data if present (for stroke gradients)
         if (vectorData && vectorData.length > 0) {
@@ -365,7 +367,9 @@
           msg.vectorData,
           msg.textData,
           msg.emojiData,
-          msg.glassData
+          msg.glassData,
+          msg.clipsContent,
+          msg.frameContext
         );
       }
     };

@@ -272,6 +272,8 @@ function hideLoadingIndicator() {
  * Handle SVG import request (with optional hybrid vector data for stroke gradients)
  */
 function handleImportSVG(request) {
+    var layersBefore = request.frameContext ? _compChildIds() : null;
+
     // Show loading indicator before import starts
     showLoadingIndicator();
     
@@ -364,6 +366,8 @@ function handleImportSVG(request) {
         
         // Hide loading indicator now that import is complete
         hideLoadingIndicator();
+
+        if (layersBefore) placeInFigmaFrame(request, layersBefore);
         
         // Try to bring Cavalry to the foreground
         // Note: Window focusing may not be available in Cavalry's scripting API
@@ -387,6 +391,37 @@ function handleImportSVG(request) {
         console.error("🏹 Quiver: Import failed - " + e.message);
         if (typeof glassRestartReminderAtEnd === 'function') glassRestartReminderAtEnd();
     }
+}
+
+function _compChildIds() {
+    try { return api.getChildren(api.getActiveComp()) || []; } catch (e) { return []; }
+}
+
+/**
+ * A selection from inside a Figma frame is imported centred, like a whole frame.
+ * Move the new top-level layers to where the selection sits in that frame, so it
+ * lines up with the frame fired on its own (frame centre = composition centre).
+ */
+function placeInFigmaFrame(request, layersBefore) {
+    var fc = request.frameContext;
+    if (!fc || !(fc.width > 0) || !(fc.height > 0)) return;
+    var vb = extractViewBox(request.svgCode);
+    if (!vb) return;
+    var dx = fc.x + vb.width / 2 - fc.width / 2;
+    var dy = -(fc.y + vb.height / 2 - fc.height / 2);
+    if (Math.abs(dx) < 0.01 && Math.abs(dy) < 0.01) return;
+    var existed = {};
+    for (var i = 0; i < layersBefore.length; i++) existed[layersBefore[i]] = true;
+    var moved = 0;
+    var now = _compChildIds();
+    for (var j = 0; j < now.length; j++) {
+        if (existed[now[j]]) continue;
+        try {
+            api.set(now[j], { 'position.x': api.get(now[j], 'position.x') + dx, 'position.y': api.get(now[j], 'position.y') + dy });
+            moved++;
+        } catch (e) {}
+    }
+    if (moved) console.info('🏹 Quiver: placed where it sits in frame "' + (fc.name || '') + '" (' + Math.round(fc.width) + ' x ' + Math.round(fc.height) + ')');
 }
 
 // Track layers we've already processed in the hybrid approach to avoid double-processing
