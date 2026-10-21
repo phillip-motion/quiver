@@ -2,20 +2,19 @@
 <p align="center" style="margin-top:0;margin-bottom:0;">
   <img width="240" height="75" alt="quiver_logo" src="https://github.com/user-attachments/assets/305b99e9-4ec3-48af-9c6b-e3f131d13acc" />
 </p>
-<p align="center" style="margin-top:0;margin-bottom:0;">
-  <a href="https://github.com/phillip-motion/Quiver/releases/latest/download/Quiver.jsc">
-    <img width="186" height="58px" alt="quiver_download" src="https://github.com/user-attachments/assets/9295a646-c7ba-4649-b069-2e78204dc1ce" />
-  </a>
-</p>
+
+<h3 align="center">Launch your designs into Cavalry 🏹</h3>
+<p align="center">Send art from Affinity/Figma to Cavalry in one click.</p>
 
 <p align="center" style="margin-top:0;margin-bottom:0;">
    <img width="600" height="338" alt="quiver_download" src="https://github.com/user-attachments/assets/e5f550f0-e05e-40b2-bc6e-bc39223e50b2" />
 </p>
 
-
-### Launch your designs into Cavalry 🏹
-
-Send art from Affinity/Figma to Cavalry in one click.
+<p align="center">
+  <a href="https://github.com/phillip-motion/Quiver/releases/latest/download/Quiver.jsc"><img width="258" height="48" alt="Download for Cavalry" src="https://github.com/user-attachments/assets/561a6d14-8c79-490d-9286-7e72510e5f8a" /></a> 
+<a href="https://github.com/phillip-motion/Quiver/releases/latest/download/Quiver-for-Affinity.afscripts"><img width="257" height="48" alt="Download for Affinity" src="https://github.com/user-attachments/assets/2cd2d0d1-4745-4708-b40c-a87083e3a9fc" /></a> 
+<a href="https://www.figma.com/community/plugin/1595599188685560428"><img width="186" height="48" alt="Add to Figma" src="https://github.com/user-attachments/assets/82e9d58f-b7c4-4676-b450-a3a4f49ae1c5" /></a>
+</p>
 
 ## Demo
 https://github.com/user-attachments/assets/d99671f8-e279-4cd0-8b74-6c054f8c5147
