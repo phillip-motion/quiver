@@ -397,6 +397,30 @@ function _compChildIds() {
     try { return api.getChildren(api.getActiveComp()) || []; } catch (e) { return []; }
 }
 
+// Glass mattes ignore their groups' transforms, so a moved group leaves its glass
+// behind. Move the shapes instead, and each group's pivot with its position so
+// the group itself stays put (and still turns about its own centre).
+function _shiftImportedLayer(id, dx, dy) {
+    var p = null;
+    try { p = api.get(id, 'position'); } catch (e) {}
+    if (!p) return;
+    var linked = '';
+    try { linked = String(api.getInConnection(id, 'position') || ''); } catch (e) {}
+    if (linked) return; // follows the layer it's linked to (glass matte twins)
+    var isGroup = String(api.getLayerType(id)) === 'group';
+    var upd = { 'position.x': p.x + dx, 'position.y': p.y + dy };
+    if (isGroup) {
+        var v = api.get(id, 'pivot');
+        upd['pivot.x'] = v.x + dx;
+        upd['pivot.y'] = v.y + dy;
+    }
+    api.set(id, upd);
+    if (!isGroup) return;
+    var kids = [];
+    try { kids = api.getChildren(id) || []; } catch (e) {}
+    for (var i = 0; i < kids.length; i++) _shiftImportedLayer(kids[i], dx, dy);
+}
+
 /**
  * A selection from inside a Figma frame is imported centred, like a whole frame.
  * Move the new top-level layers to where the selection sits in that frame, so it
@@ -417,7 +441,7 @@ function placeInFigmaFrame(request, layersBefore) {
     for (var j = 0; j < now.length; j++) {
         if (existed[now[j]]) continue;
         try {
-            api.set(now[j], { 'position.x': api.get(now[j], 'position.x') + dx, 'position.y': api.get(now[j], 'position.y') + dy });
+            _shiftImportedLayer(now[j], dx, dy);
             moved++;
         } catch (e) {}
     }

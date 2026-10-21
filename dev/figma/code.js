@@ -1692,17 +1692,8 @@ function checkSelection() {
     return;
   }
 
-  const node = selection[0];
-  // Anything Figma can export as SVG with real dimensions will do - a bare
-  // vector or text layer works as well as a frame. Page-level and slice nodes
-  // are not artwork, so they stay excluded.
-  const notArtwork = node.type === 'PAGE' || node.type === 'DOCUMENT' || node.type === 'SLICE';
-  const isValidType = !notArtwork &&
-                      typeof node.exportAsync === 'function' &&
-                      typeof node.width === 'number' && node.width > 0 &&
-                      typeof node.height === 'number' && node.height > 0;
-
-  if (!isValidType) {
+  const nodes = exportableNodes(selection);
+  if (nodes.length === 0) {
     figma.ui.postMessage({
       type: 'selection-info',
       hasSelection: false,
@@ -1711,13 +1702,47 @@ function checkSelection() {
     return;
   }
   
+  const node = nodes[0];
   figma.ui.postMessage({
     type: 'selection-info',
     hasSelection: true,
-    name: node.name,
+    name: nodes.length > 1 ? (nodes.length + ' layers') : node.name,
     nodeType: node.type,
     width: Math.round(node.width),
     height: Math.round(node.height)
+  });
+}
+
+// Anything Figma can export as SVG with real dimensions will do - a bare
+// vector or text layer works as well as a frame. Page-level and slice nodes
+// are not artwork, so they stay excluded.
+function isExportable(node) {
+  const notArtwork = node.type === 'PAGE' || node.type === 'DOCUMENT' || node.type === 'SLICE';
+  return !notArtwork &&
+         typeof node.exportAsync === 'function' &&
+         typeof node.width === 'number' && node.width > 0 &&
+         typeof node.height === 'number' && node.height > 0;
+}
+
+// Child indices from the page down: comparing these puts nodes in Figma's
+// back-to-front order.
+function layerOrderPath(node) {
+  var path = [];
+  for (var n = node; n.parent && n.type !== 'PAGE'; n = n.parent) path.unshift(n.parent.children.indexOf(n));
+  return path;
+}
+
+// The exportable selected nodes, back to front, so later imports stack on top
+// the way they do in Figma.
+function exportableNodes(selection) {
+  var nodes = selection.filter(isExportable);
+  var paths = new Map(nodes.map(function (n) { return [n, layerOrderPath(n)]; }));
+  return nodes.sort(function (a, b) {
+    var pa = paths.get(a), pb = paths.get(b);
+    for (var i = 0; i < Math.min(pa.length, pb.length); i++) {
+      if (pa[i] !== pb[i]) return pa[i] - pb[i];
+    }
+    return pa.length - pb.length;
   });
 }
 
@@ -1735,18 +1760,38 @@ function topLevelFrameOf(node) {
 
 // Where the exported SVG sits inside its top-level frame, so Cavalry can place
 // the selection where it is in that frame (as Affinity does for artboards).
-function frameContextFor(node) {
-  var frame = topLevelFrameOf(node);
-  if (!frame || !frame.absoluteTransform) return null;
-  var t = frame.absoluteTransform;
-  if (Math.abs(t[0][1]) > 1e-6 || Math.abs(t[1][0]) > 1e-6) return null; // a turned frame has no upright box to place into
+// Nodes outside any frame are placed within looseBox (the box around the loose
+// part of a multi-selection) so they keep their arrangement.
+function frameContextFor(node, looseBox) {
   // the SVG export covers the render bounds (strokes and shadows included)
   var b = node.absoluteRenderBounds || node.absoluteBoundingBox;
   if (!b) return null;
+  var frame = topLevelFrameOf(node);
+  if (!frame) {
+    if (!looseBox) return null;
+    return { name: 'Selection', width: looseBox.width, height: looseBox.height, x: b.x - looseBox.x, y: b.y - looseBox.y };
+  }
+  if (!frame.absoluteTransform) return null;
+  var t = frame.absoluteTransform;
+  if (Math.abs(t[0][1]) > 1e-6 || Math.abs(t[1][0]) > 1e-6) return null; // a turned frame has no upright box to place into
   return { name: frame.name, width: frame.width, height: frame.height, x: b.x - t[0][2], y: b.y - t[1][2] };
 }
 
-// Export selection and send to Cavalry
+// The box around the selected nodes that sit outside any frame, when there
+// are two or more of them (a lone one is centred like a whole frame).
+function looseBoxFor(nodes) {
+  var boxes = nodes.filter(function (n) { return !topLevelFrameOf(n); })
+                   .map(function (n) { return n.absoluteRenderBounds || n.absoluteBoundingBox; })
+                   .filter(Boolean);
+  if (boxes.length < 2) return null;
+  var x0 = Math.min.apply(null, boxes.map(function (b) { return b.x; }));
+  var y0 = Math.min.apply(null, boxes.map(function (b) { return b.y; }));
+  var x1 = Math.max.apply(null, boxes.map(function (b) { return b.x + b.width; }));
+  var y1 = Math.max.apply(null, boxes.map(function (b) { return b.y + b.height; }));
+  return { x: x0, y: y0, width: x1 - x0, height: y1 - y0 };
+}
+
+// Export the selection and send it to Cavalry, one node at a time
 async function sendSelectionToCavalry() {
   const selection = figma.currentPage.selection;
 
@@ -1758,25 +1803,22 @@ async function sendSelectionToCavalry() {
     return;
   }
 
-  const node = selection[0];
-
-  // Validate node type
-  // Anything Figma can export as SVG with real dimensions will do - a bare
-  // vector or text layer works as well as a frame. Page-level and slice nodes
-  // are not artwork, so they stay excluded.
-  const notArtwork = node.type === 'PAGE' || node.type === 'DOCUMENT' || node.type === 'SLICE';
-  const isValidType = !notArtwork &&
-                      typeof node.exportAsync === 'function' &&
-                      typeof node.width === 'number' && node.width > 0 &&
-                      typeof node.height === 'number' && node.height > 0;
-
-  if (!isValidType) {
+  const nodes = exportableNodes(selection);
+  if (nodes.length === 0) {
     figma.ui.postMessage({
       type: 'error',
       message: 'Select a frame, group or shape'
     });
     return;
   }
+
+  const looseBox = looseBoxFor(nodes);
+  for (var n = 0; n < nodes.length; n++) {
+    await sendNodeToCavalry(nodes[n], looseBox, n, nodes.length);
+  }
+}
+
+async function sendNodeToCavalry(node, looseBox, batchIndex, batchCount) {
 
   // Temporarily enable clip content for frames to get correct viewBox
   let originalClipsContent = null;
@@ -1931,7 +1973,9 @@ async function sendSelectionToCavalry() {
       // We force clipsContent on above to get a correct viewBox, so tell Cavalry
       // what it really was - otherwise an unclipped frame imports with a clip.
       clipsContent: originalClipsContent,
-      frameContext: frameContextFor(node),
+      frameContext: frameContextFor(node, looseBox),
+      batchIndex: batchIndex,
+      batchCount: batchCount,
       // Hybrid data: vector nodes with stroke gradients
       vectorData: hasStrokeGradients ? vectorDataNodes : null,
       // Hybrid data: text nodes with alignment info
