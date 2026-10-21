@@ -25,7 +25,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Upload Release Asset
+      - name: Upload Quiver.jsc
         if: steps.auto-release.outputs.released == 'true'
         uses: actions/upload-release-asset@v1
         env:
@@ -35,3 +35,14 @@ jobs:
           asset_path: ./Quiver.jsc
           asset_name: Quiver.jsc
           asset_content_type: application/javascript
+
+      - name: Upload Quiver for Affinity.afscripts
+        if: steps.auto-release.outputs.released == 'true'
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.auto-release.outputs.upload_url }}
+          asset_path: "./Quiver for Affinity.afscripts"
+          asset_name: Quiver-for-Affinity.afscripts
+          asset_content_type: application/octet-stream

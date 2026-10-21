@@ -444,6 +444,11 @@ async function build() {
     fs.writeFileSync(OUTPUT_FILE, finalContent, 'utf8');
     
     console.log(`✅ Bundled ${loadedFiles.length} files into Quiver.js`);
+
+    // Affinity script, packed from affinity/quiver-affinity.js
+    const affinityCode = fs.readFileSync(path.join(__dirname, 'affinity', 'quiver-affinity.js'), 'utf8');
+    fs.writeFileSync(path.join(BUILD_DIR, 'Quiver for Affinity.afscripts'), require('./affinity/afscripts.js').afscripts(affinityCode));
+    console.log('✅ Packed affinity/quiver-affinity.js into Quiver for Affinity.afscripts');
     
     
     // Update Figma plugin version

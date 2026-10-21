@@ -15,32 +15,38 @@
 
 ### Launch your designs into Cavalry 🏹
 
-Quiver improves on Cavalry's native SVG import by adding support for gradients, images, editable text and more.
-
-## Features
-- Send SVGs from Figma to Cavalry in one click
-- Import or paste SVGs from other software
-- Supports embedded images, gradients, shadows, blurs, editable text and more
+Send art from Affinity/Figma to Cavalry in one click.
 
 ## Demo
 https://github.com/user-attachments/assets/d99671f8-e279-4cd0-8b74-6c054f8c5147
 
-**Plus, additional features:**
+## Other features
+- Import or paste SVGs from other software
+- Supports editable text, embedded images, gradients, shadows, blurs and more
 - **Convert To Rectangle**: create a rectangle from the bounding box of a selected layer
 - **Dynamic Align**: Dynamically adjust the pivot point of a layer
 - **Flatten Shape**: Flatten all selected shapes into one layer
 - **Horizontal/Vertical Text Alignment**: Dynamically adjust horizontal/vertical text alignment
 - **Rename Layers**: Renames all selected layers as [name] 1, [name] 2 etc. 
 
-## Instructions
+
+## Install instructions
 
 > [!IMPORTANT]
 > Make sure you have a [Cavalry project](https://docs.cavalry.scenegroup.co/user-interface/menus/window-menu/assets-window/project-settings/) selected.
 
 ## Cavalry 
-
 1. Copy the `Quiver.jsc` file into your Cavalry Scripts folder.
 2. Select the `Scripts` menu and open Quiver.
+
+## Affinity
+[!TIP]
+For colours and blend modes that match Affinity, use sRGB as Cavalry's working colour space (or leave Color Management off).
+
+1. In Affinity, go to *Settings > Scripting* and turn on *Enable Affinity Scripting*.
+2. Under *Default Permissions*, allow *Access the file system* and *Access networks*, then add your *Desktop* under *File System Access*.
+3. Drag the `Quiver for Affinity.afscripts` file into your Affinity app.
+4. Open *Window > Scripting > Scripts Library* and click *Quiver for Affinity*.
 
 ## Figma
 
@@ -94,11 +100,40 @@ Batch rename selected layers. Eg. [name] 1, [name] 2 etc.
 - [ ] Ignore overlapping layers
 4. Export or copy your frame as SVG!
 
-### Affinity
-Coming soon!
+### Affinity features
 
+| Feature name  | Supported |
+| ------------- | ------------- |
+| Rectangles, ellipses, polygons, stars  | :white_check_mark: (as live shapes)  |
+| Curves and paths  | :white_check_mark:  |
+| Live corners  | :white_check_mark:  |
+| Artboards  | :white_check_mark: (as compositions)  |
+| Art and frame text  | :white_check_mark:  |
+| Text styling (fonts, size, colour, tracking, leading)  | :white_check_mark:  |
+| Variable fonts  | :white_check_mark:  |
+| Text on a path, filler text  | :white_check_mark: (outlined)  |
+| Text columns, table text  | :x:  |
+| Solid and gradient fills  | :white_check_mark:  |
+| Multiple fills and strokes  | :white_check_mark:  |
+| Fill layers  | :white_check_mark:  |
+| Pattern fills  | :white_check_mark:  |
+| Mesh, hatch and diffusion fills  | :x:  |
+| Strokes and dashes  | :white_check_mark:  |
+| Pressure profiles  | :white_check_mark:  |
+| Vector brushes  | :white_check_mark:  |
+| Arrowheads  | :x:  |
+| Placed images  | :white_check_mark:  |
+| Pixel and RAW layers  | :white_check_mark:  |
+| Embedded documents  | :white_check_mark: (as an image)  |
+| Opacity and Transparency tool  | :white_check_mark:  |
+| Blend modes  | :white_check_mark: (most)  |
+| Clipping and masks  | :white_check_mark:  |
+| Shadows, glows, blur, colour and gradient overlay, outline  | :white_check_mark:  |
+| Bevel and emboss  | :x:  |
+| Adjustments and live filters  | :white_check_mark: (most)  |
+| CMYK documents  | :white_check_mark:  |
 
-## Supported features
+## Figma features
 
 | Feature name  | Supported |
 | ------------- | ------------- |

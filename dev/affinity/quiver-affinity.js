@@ -1,5 +1,5 @@
 /**
- * name: Quiver (v2.0) - Fire towards Cavalry
+ * name: Quiver for Affinity
  * description: Fires your selection, or the whole spread, into Cavalry as fully editable layers. Open the Quiver panel in Cavalry first.
  * version: 2.0.0
  * author: Canva Creative Team
@@ -36,6 +36,7 @@ const Story = require('affinity:story');
 const QUIVER_AFFINITY_PORT = 8767;
 const QUIVER_HOST = '127.0.0.1';
 const QUIVER_FORMAT_VERSION = 1;
+const QUIVER_VERSION = '2.0.0'; // keep in step with `version:` in the header above
 const EXPORT_IMAGES = true;      // default for the dialog switch: export placed images and pixel layers beside the JSON
 let __exportImages = EXPORT_IMAGES;
 let __nativeBrushes = false;    // dialog switch: brush textures rebuilt in Cavalry instead of sent as masks
@@ -2518,12 +2519,19 @@ function fileAccessMessage(desktop, status) {
         '. Also make sure "Access the file system" is enabled for this script (Default Permissions, or the script\'s own settings in the Scripts panel).\n\nThen run Quiver again.';
 }
 
+// Greyed out (disabled) version line, added last so it sits under everything else. As the label,
+// so it lines up with the other labels on the left (text goes in the right-hand value column).
+function addVersionLine(column) {
+    try { column.addGroup('').addStaticText('v' + QUIVER_VERSION, '').setIsEnabled(false); } catch (e) {}
+}
 // An OK / Cancel prompt; OK means "try again". Built with Dialog like the send window (its result
 // handling is known), and never touched again once runModal has returned.
 function askToTryAgain(heading, lines) {
     const dlg = Dialog.create('Quiver');
-    const group = dlg.addColumn().addGroup(heading);
-    lines.forEach(function (line) { group.addStaticText('', line); });
+    const column = dlg.addColumn(), group = column.addGroup(heading);
+    // full width: with an empty label the text would start halfway across, in the value column
+    lines.forEach(function (line) { const t = group.addStaticText('', line); try { t.setIsFullWidth(true); } catch (e) {} });
+    addVersionLine(column);
     dlg.initialWidth = 420;
     return isOk(dlg.runModal());
 }
@@ -2620,6 +2628,7 @@ function buildDialog(scopeText, chosen) {
     dlg.matchCompSize.setOnValueChangedHandler(function () { try { chosen.matchCompSize = !!dlg.matchCompSize.value; } catch (e) {} });
     dlg.includeImages.setOnValueChangedHandler(function () { try { chosen.includeImages = !!dlg.includeImages.value; } catch (e) {} });
     dlg.nativeBrushes.setOnValueChangedHandler(function () { try { chosen.nativeBrushes = !!dlg.nativeBrushes.value; } catch (e) {} });
+    addVersionLine(column);
     dlg.initialWidth = 400;
     return dlg;
 }

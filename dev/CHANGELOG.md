@@ -16,6 +16,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 -   `Security` in case of vulnerabilities
 
 
+## [2.0.0] - 2026-10-21
+
+Quiver now works with Affinity! Send editable layers straight from Affinity into Cavalry, no SVG needed. See the [Affinity setup steps](https://github.com/phillip-motion/quiver#affinity) to get started.
+
+### Added
+
+-  :art: *Affinity to Cavalry*: run the Quiver script in Affinity (3.2 or later) to send your selection, or the whole spread, into Cavalry.
+-   Each artboard becomes its own composition, and images are saved to your project's Assets/Quiver folder, just like Figma imports.
+-   Shapes stay live, text stays editable (variable fonts included), and multiple fills and strokes, vector brushes, effects, masks and most adjustments all come across.
+-   *Send options*: turn images off for a quick layout send, rebuild brush textures so they follow the path in Cavalry, or fire exactly what Affinity draws as a single image.
+-   :round_pushpin: *Fire from inside a frame*: layers you send from inside a Figma frame now land exactly where they sit in that frame.
+-   :bow_and_arrow: *Fire several things at once* from Figma.
+
+### Fixed
+
+-   Fixed importing glass layers with no fill or stroke.
+-   Rotated and transformed curves now import correctly.
+-   Shapes made of overlapping parts no longer get holes where the parts overlap.
+-   Figma frames with *Clip content* turned off now import without a clip.
+
+
 ## [1.7.5] - 2026-07-10
 
 ### Added
