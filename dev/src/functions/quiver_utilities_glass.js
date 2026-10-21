@@ -1319,4 +1319,5 @@ function processDeferredGlass() {
 }
 
 // Install the Glass filter at launch so the first glass import needs no restart.
-ensureGlassInstalled();
+// void: api.load fails when a file's last statement evaluates to a boolean.
+void ensureGlassInstalled();
