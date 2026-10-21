@@ -168,15 +168,10 @@ Batch rename selected layers. Eg. [name] 1, [name] 2 etc.
 | Background blur  | ✅  |
 | Glass  | ✅ (Figma plugin) |
 
-## Roadmap
-We're actively working on:
-- Adding support for Canva and Affinity
-- Supporting more filter effects
-
 ## Credits
 Made possible by your friends in the [Canva Creative Team](https://canvacreative.team).
 
-Idea and main development by Jack Jaeschke. UI, icons and additional development assistance by Sam Mularczyk. Repo maintained by Phillip Tibballs, Jack Jaeschke and Sam Mularczyk. Made with the assistance of Cursor!
+Idea and main development by Jack Jaeschke. UI, icons and additional development assistance by Sam Mularczyk. Repo maintained by Phillip Tibballs, Jack Jaeschke and Sam Mularczyk. Made with Claude.
 
 Feel free to open pull requests, dig through the code and use this to build your own tools. We release these freely to help further the Cavalry community!
 
