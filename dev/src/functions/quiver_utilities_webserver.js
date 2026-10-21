@@ -1289,6 +1289,8 @@ function createPathFromVectorDataWithExistingShaders(nodeData, viewBox, parentId
         // Create the editable path
         var layerId = api.createEditable(path, nodeData.name || 'Path');
         if (parentId) api.parent(layerId, parentId);
+        // Cavalry defaults to Even Odd (0); Figma's default is nonzero
+        try { api.set(layerId, { fillRule: nodeData.vectorPaths[0].windingRule === 'EVENODD' ? 0 : 1 }); } catch (eFR) {}
         
         // Position the layer
         // When targetPosition is provided (from existing SVG layer), use it if there's a significant delta
@@ -1528,6 +1530,8 @@ function createPathFromVectorData(nodeData, viewBox, parentId) {
         // Create the editable path
         var layerId = api.createEditable(path, nodeData.name || 'Path');
         if (parentId) api.parent(layerId, parentId);
+        // Cavalry defaults to Even Odd (0); Figma's default is nonzero
+        try { api.set(layerId, { fillRule: nodeData.vectorPaths[0].windingRule === 'EVENODD' ? 0 : 1 }); } catch (eFR) {}
         if (centre) {
             api.set(layerId, {"position.x": centre.x, "position.y": centre.y});
         }

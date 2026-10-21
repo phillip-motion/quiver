@@ -903,6 +903,49 @@ function pickGlassEffect(node) {
   return null;
 }
 
+// A glass pane with no visible fill or stroke exports as an EMPTY <g> - no
+// geometry, so the importer used to drop it and its glass. Send the pane's
+// box (frame-relative matrix + size + radii) so the importer can rebuild it.
+// Plain boxes go as a rect (stays a parametric rounded rect in Cavalry);
+// anything else - vectors, stars, booleans, arcs, mixed radii - sends its
+// fillGeometry outline, which Figma computes even with no fills.
+function glassPaneBox(node, frameAbsX, frameAbsY) {
+  if (node.type === 'TEXT' || !('fillGeometry' in node)) return null;
+  var visible = function (paints) {
+    if (!paints || paints === figma.mixed) return false;
+    for (var i = 0; i < paints.length; i++) {
+      if (paints[i] && paints[i].visible !== false && paints[i].opacity !== 0) return true;
+    }
+    return false;
+  };
+  try {
+    if (visible(node.fills) || visible(node.strokes)) return null;
+    var t = node.absoluteTransform;
+    var w = node.width, h = node.height;
+    // Figma's own SVG export caps the radius at half the short side
+    var r = (typeof node.cornerRadius === 'number') ? Math.min(node.cornerRadius, w / 2, h / 2) : 0;
+    var isEllipse = node.type === 'ELLIPSE';
+    var arc = isEllipse ? node.arcData : null;
+    var fullEllipse = !arc || (arc.innerRadius === 0 && Math.abs(arc.endingAngle - arc.startingAngle) >= 2 * Math.PI - 1e-6);
+    var isBox = { RECTANGLE: 1, FRAME: 1, COMPONENT: 1, INSTANCE: 1 }[node.type] && typeof node.cornerRadius === 'number';
+    var pane = {
+      a: t[0][0], b: t[1][0], c: t[0][1], d: t[1][1],
+      e: t[0][2] - frameAbsX, f: t[1][2] - frameAbsY,
+      width: w, height: h,
+      rx: isEllipse ? w / 2 : r,
+      ry: isEllipse ? h / 2 : r
+    };
+    if (isBox || (isEllipse && fullEllipse)) return pane;
+    var geo = node.fillGeometry || [];
+    if (!geo.length) return null;
+    pane.path = geo.map(function (g) { return g.data; }).join(' ');
+    pane.evenOdd = geo.some(function (g) { return g.windingRule === 'EVENODD'; });
+    return pane;
+  } catch (e) {
+    return null;
+  }
+}
+
 function findGlassNodes(node, results, parentPath, frameAbsX, frameAbsY, frameWidth, frameHeight) {
   results = results || [];
   parentPath = parentPath || '';
@@ -956,6 +999,7 @@ function findGlassNodes(node, results, parentPath, frameAbsX, frameAbsY, frameWi
     );
     if (!isOutside) {
       results.push({
+        pane: glassPaneBox(node, frameAbsX, frameAbsY),
         name: node.name,
         svgId: svgIdForNode,
         nodeType: node.type,

@@ -29,6 +29,7 @@ function setFigmaGlassData(glassDataArray) {
             name: name,
             svgId: svgId,
             nodeType: raw.nodeType ? String(raw.nodeType) : '',
+            pane: raw.pane || null,
             params: mapFigmaGlassParams(raw)
         });
     }
@@ -136,7 +137,48 @@ function attachFigmaGlassToNode(node) {
         // must become a matte, not just the first.
         var nt = entry.nodeType || '';
         node.attrs._figmaGlassAllPaths = !(nt === 'FRAME' || nt === 'COMPONENT' || nt === 'INSTANCE');
+        node.attrs._figmaGlassPane = entry.pane;
     }
+}
+
+// A fill-less Figma glass pane exports as an EMPTY <g>. Rebuild it as a rect
+// or path from the sidecar so the glass has a matte; it is hidden after import
+// (a hidden layer still works as a matte), so only the refraction shows.
+function figmaGlassPaneNode(groupNode) {
+    var a = groupNode.attrs || {};
+    var p = a._figmaGlassPane;
+    if (!a._figmaGlass || !p) return null;
+    var attrs = {
+        id: a.id,
+        width: String(p.width),
+        height: String(p.height),
+        rx: String(p.rx || 0),
+        ry: String(p.ry || 0),
+        fill: '#FFFFFF',
+        _figmaGlass: a._figmaGlass,
+        _figmaGlassHiddenPane: true
+    };
+    var matrix = 'matrix(' + [p.a, p.b, p.c, p.d, p.e, p.f].join(' ') + ')';
+    // non-box panes (vectors, booleans, mixed radii) arrive as their outline
+    if (p.path) {
+        return { type: 'path', name: groupNode.name, attrs: {
+            id: a.id,
+            d: p.path,
+            'fill-rule': p.evenOdd ? 'evenodd' : 'nonzero',
+            fill: '#FFFFFF',
+            transform: matrix,
+            _figmaGlass: a._figmaGlass,
+            _figmaGlassHiddenPane: true
+        }, children: [] };
+    }
+    var unrotated = Math.abs(p.a - 1) < 1e-6 && Math.abs(p.b) < 1e-6 && Math.abs(p.c) < 1e-6 && Math.abs(p.d - 1) < 1e-6;
+    if (unrotated) {
+        attrs.x = String(p.e);
+        attrs.y = String(p.f);
+    } else {
+        attrs.transform = matrix;
+    }
+    return { type: 'rect', name: groupNode.name, attrs: attrs, children: [] };
 }
 
 function propagateFigmaGlassToChild(fromNode, toNode) {
@@ -260,6 +302,7 @@ function maybeQueueFigmaOverlayEffects(shapeId, node, parentId) {
         if (node.attrs && node.attrs._figmaGlass) {
             queueGlass(shapeId, node.attrs._figmaGlass, parentId);
             applyGlassMatteFillOpacityToShape(shapeId);
+            if (node.attrs._figmaGlassHiddenPane) api.set(shapeId, { hidden: true });
             return;
         }
         var bgBlurRadius = node.attrs && node.attrs['data-figma-bg-blur-radius'];

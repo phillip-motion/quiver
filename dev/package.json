@@ -6,7 +6,8 @@
   "scripts": {
     "build": "node build.js",
     "release": "node build.js --minify && node --input-type=module -e \"import {encrypt} from '@scenery/bundler/encrypt.js'; import {pack} from '@scenery/bundler/package.js'; await encrypt(); await pack()\" && npm run publish:jsc",
-    "publish:jsc": "node -e \"require('fs').copyFileSync('build/Quiver.jsc','../Quiver.jsc')\""
+    "publish:jsc": "node -e \"require('fs').copyFileSync('build/Quiver.jsc','../Quiver.jsc')\"",
+    "test:affinity": "for t in affinity/tests/_*_test.js; do node \"$t\" > /dev/null || { echo \"FAILED: $t\"; exit 1; }; echo \"ok  $t\"; done"
   },
   "keywords": [
     "cavalry",

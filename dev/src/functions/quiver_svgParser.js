@@ -1926,6 +1926,9 @@ function createEditableFromPathSegments(segments, nodeName, parentId, vb, transl
     }
     var id = api.createEditable(path, nodeName || 'Path');
     if (parentId) api.parent(id, parentId);
+    // SVG defaults to nonzero but Cavalry to Even Odd (0); Figma's one-sided stroke outlines overlap at the corners and cancel under Even Odd
+    var svgRule = attrs && (attrs['fill-rule'] || attrs['clip-rule']);
+    try { api.set(id, { fillRule: svgRule === 'evenodd' ? 0 : 1 }); } catch (eFR) {}
     if (centre) {
         api.set(id, {"position.x": centre.x, "position.y": centre.y});
     }

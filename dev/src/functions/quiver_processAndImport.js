@@ -33,11 +33,24 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
     attachFigmaGlassToNode(node);
 
     if (node.type === 'g' || node.type === 'svg' || node.type === 'root') {
-        // Skip empty groups (no children)
+        // Skip empty groups (no children) - unless it is a fill-less glass pane
         if (node.type === 'g' && (!node.children || node.children.length === 0)) {
-            return null;
+            var glassPane = figmaGlassPaneNode(node);
+            if (!glassPane) return null;
+            return importNode(glassPane, parentId, vb, inheritedTranslate, stats, model, inHiddenDefs, inheritedScale, parentMatrix);
         }
-        
+        // A fill-less glass FRAME exports no background rect, so the glass
+        // would land on its first child (an icon). Rebuild the pane as that
+        // first child instead; cleared so it is inserted only once.
+        if (node.type === 'g' && !node.attrs._figmaGlassAllPaths) {
+            var framePane = figmaGlassPaneNode(node);
+            if (framePane) {
+                framePane.name = 'Glass Pane';
+                node.children.unshift(framePane);
+                node.attrs._figmaGlassPane = null;
+            }
+        }
+
         // Skip groups with data-figma-skip-parse="true" (Figma gradient simulation workaround groups)
         // These groups contain foreignObject elements used to render angular/diamond gradients
         // Since we parse data-figma-gradient-fill directly, we don't need these simulation groups
@@ -1479,16 +1492,22 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
                         seg.x = transformed.x;
                         seg.y = transformed.y;
                     }
-                    // Handle control points for curves
-                    if (seg.x1 !== undefined && seg.y1 !== undefined) {
-                        var t1 = applyMatrixToPoint(node.attrs.transform, seg.x1, seg.y1);
-                        seg.x1 = t1.x;
-                        seg.y1 = t1.y;
+                    // Handle control points for curves (same field names as
+                    // parsePathDataToAbsolute and the parent-matrix pass above)
+                    if (seg.cp1x !== undefined && seg.cp1y !== undefined) {
+                        var t1 = applyMatrixToPoint(node.attrs.transform, seg.cp1x, seg.cp1y);
+                        seg.cp1x = t1.x;
+                        seg.cp1y = t1.y;
                     }
-                    if (seg.x2 !== undefined && seg.y2 !== undefined) {
-                        var t2 = applyMatrixToPoint(node.attrs.transform, seg.x2, seg.y2);
-                        seg.x2 = t2.x;
-                        seg.y2 = t2.y;
+                    if (seg.cp2x !== undefined && seg.cp2y !== undefined) {
+                        var t2 = applyMatrixToPoint(node.attrs.transform, seg.cp2x, seg.cp2y);
+                        seg.cp2x = t2.x;
+                        seg.cp2y = t2.y;
+                    }
+                    if (seg.cpx !== undefined && seg.cpy !== undefined) {
+                        var tq = applyMatrixToPoint(node.attrs.transform, seg.cpx, seg.cpy);
+                        seg.cpx = tq.x;
+                        seg.cpy = tq.y;
                     }
                 }
                 // Reset translate since we've already applied the full transform
@@ -1531,7 +1550,9 @@ function importNode(node, parentId, vb, inheritedTranslate, stats, model, inHidd
         
         maybeQueueFigmaOverlayEffects(vecId, node, parentId);
         
-        var rotDegP = getRotationDegFromTransform(node.attrs && node.attrs.transform || '');
+        // a matrix() is already baked into the points above - rotating the
+        // layer too would apply it twice
+        var rotDegP = hasMatrix ? 0 : getRotationDegFromTransform(node.attrs && node.attrs.transform || '');
         if (Math.abs(rotDegP) > 0.0001) api.set(vecId, {"rotation": -rotDegP});
         // rotate(cx,cy) compensation for paths: rotate geometric centre around pivot
         try {
