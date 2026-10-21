@@ -1,7 +1,7 @@
 /**
  * name: Quiver for Affinity
  * description: Fires your selection, or the whole spread, into Cavalry as fully editable layers. Open the Quiver panel in Cavalry first.
- * version: 2.0.0
+ * version: 2.0.1
  * author: Canva Creative Team
  *
  * Requires: Affinity 3.2+ with scripting enabled, this script granted
@@ -36,7 +36,7 @@ const Story = require('affinity:story');
 const QUIVER_AFFINITY_PORT = 8767;
 const QUIVER_HOST = '127.0.0.1';
 const QUIVER_FORMAT_VERSION = 1;
-const QUIVER_VERSION = '2.0.0'; // keep in step with `version:` in the header above
+const QUIVER_VERSION = '2.0.1'; // keep in step with `version:` in the header above
 const EXPORT_IMAGES = true;      // default for the dialog switch: export placed images and pixel layers beside the JSON
 let __exportImages = EXPORT_IMAGES;
 let __nativeBrushes = false;    // dialog switch: brush textures rebuilt in Cavalry instead of sent as masks
@@ -2359,7 +2359,8 @@ function serialiseNode(doc, n, ctx, depth) {
     }
     if ((kind === 'shape' || kind === 'curve') && rec.stroke && rec.stroke.lineType === 'Texture') {
         if (isImageBrush(doc, n)) rec.stroke.imageBrush = true;
-        else if (rec.stroke.fill.type === 'None') rec.stroke = null; // a plain brush with no pen draws nothing
+        // a plain brush with no pen draws exactly as with an opaque black pen (byte for byte, measured 2026-10-22)
+        else if (rec.stroke.fill.type === 'None') rec.stroke.fill = { type: 'Solid', alpha: 1, blendMode: 'Normal', transform: [1, 0, 0, 0, 1, 0], scaleWithObject: true, colour: { r: 0, g: 0, b: 0, a: 1 } };
     }
     if ((kind === 'shape' || kind === 'curve') && rec.stroke && rec.stroke.lineType === 'Texture') {
         const art = exportArtBrush(doc, n, rec);
