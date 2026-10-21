@@ -29,7 +29,7 @@ https://github.com/user-attachments/assets/d99671f8-e279-4cd0-8b74-6c054f8c5147
 - **Rename Layers**: Renames all selected layers as [name] 1, [name] 2 etc. 
 
 
-## Install instructions
+## Install
 
 > [!IMPORTANT]
 > Make sure you have a [Cavalry project](https://docs.cavalry.scenegroup.co/user-interface/menus/window-menu/assets-window/project-settings/) selected.
@@ -39,8 +39,8 @@ https://github.com/user-attachments/assets/d99671f8-e279-4cd0-8b74-6c054f8c5147
 2. Select the `Scripts` menu and open Quiver.
 
 ## Affinity
-[!TIP]
-For colours and blend modes that match Affinity, use sRGB as Cavalry's working colour space (or leave Color Management off).
+> [!TIP]
+> For colours and blend modes that match Affinity, use sRGB as Cavalry's working colour space (or leave Color Management off).
 
 1. In Affinity, go to *Settings > Scripting* and turn on *Enable Affinity Scripting*.
 2. Under *Default Permissions*, allow *Access the file system* and *Access networks*, then add your *Desktop* under *File System Access*.
