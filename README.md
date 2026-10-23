@@ -109,7 +109,7 @@ Batch rename selected layers. Eg. [name] 1, [name] 2 etc.
 | Artboards  | :white_check_mark: (as compositions)  |
 | Art and frame text  | :white_check_mark:  |
 | Text styling (fonts, size, colour, tracking, leading)  | :white_check_mark:  |
-| Variable fonts  | :white_check_mark:  |
+| Variable fonts  | :white_check_mark: (limited) |
 | Text on a path, filler text  | :white_check_mark: (outlined)  |
 | Text columns, table text  | :x:  |
 | Solid and gradient fills  | :white_check_mark:  |
