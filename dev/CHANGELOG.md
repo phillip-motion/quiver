@@ -16,6 +16,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 -   `Security` in case of vulnerabilities
 
 
+## [Unreleased]
+
+### Added
+
+-   Figma: stroke width profiles (variable width strokes) import as the Stroke's Width Profile (Cavalry 2.8+).
+
 ## [2.0.0] - 2026-10-21
 
 Quiver now works with Affinity! Send editable layers straight from Affinity into Cavalry, no SVG needed. See the [Affinity setup steps](https://github.com/phillip-motion/quiver#affinity) to get started.

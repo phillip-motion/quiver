@@ -1286,6 +1286,48 @@ function findLayerByName(name) {
  * @param {object} targetPosition - Optional: existing layer's position {x, y} to use instead of nodeData's position
  * @param {number} targetRotation - Optional: existing layer's rotation (degrees) to apply to the new layer
  */
+// Figma's width profile as the stroke's Width Profile graph (Cavalry 2.8+). Figma's width is the half-width
+// as a share of the weight (0.5 = full weight, 1 = double), so the stroke is widened to the profile's peak.
+// Figma joins the points with a monotone cubic; outlined in Figma, these tangents match every test profile:
+// interior = weighted harmonic mean of the neighbouring slopes (0 at a peak or dip), ends = the end slope, or
+// twice it less the neighbour's tangent when that is steeper (a peak next to an end gives a half parabola).
+// ponytail: Cavalry centres a tapered stroke, so an Inside/Outside Figma stroke shifts by half its weight.
+function figmaWidthTangents(pts) {
+    var n = pts.length, d = [], m = [];
+    for (var i = 0; i < n - 1; i++) d.push((pts[i + 1].y - pts[i].y) / Math.max(1e-6, pts[i + 1].x - pts[i].x));
+    for (var j = 1; j < n - 1; j++) {
+        var h0 = pts[j].x - pts[j - 1].x, h1 = pts[j + 1].x - pts[j].x;
+        m[j] = d[j - 1] * d[j] > 0 ? (h0 + h1) / (h0 / d[j - 1] + h1 / d[j]) : 0;
+    }
+    var end = function (dEnd, mNext) { return mNext === undefined || Math.abs(mNext) >= Math.abs(dEnd) ? dEnd : 2 * dEnd - mNext; };
+    m[0] = end(d[0], m[1]);
+    m[n - 1] = end(d[n - 2], m[n - 2]);
+    return m;
+}
+function applyFigmaWidthProfile(layerId, nodeData) {
+    var src = nodeData.widthProfile;
+    if (!src || src.length < 2) return;
+    var peak = Math.max.apply(null, src.map(function (p) { return p.width; }));
+    if (!(peak > 0)) return;
+    var pts = src.map(function (p) { return { x: Math.max(0, Math.min(1, p.position)), y: p.width / peak }; });
+    var m = figmaWidthTangents(pts);
+    try {
+        api.set(layerId, {'stroke.width': (nodeData.strokeWeight || 1) * 2 * peak, 'stroke.taperedWidth': true});
+        for (var k = 2; k < pts.length; k++) api.addArrayIndex(layerId, 'stroke.widthGraph'); // the graph starts with two points
+        pts.forEach(function (p, i) {
+            var base = 'stroke.widthGraph.' + i + '.', a = {};
+            var lx = i > 0 ? (pts[i - 1].x - p.x) / 3 : -0.1, rx = i < pts.length - 1 ? (pts[i + 1].x - p.x) / 3 : 0.1;
+            a[base + 'position.x'] = p.x; a[base + 'position.y'] = p.y;
+            a[base + 'left.x'] = lx; a[base + 'left.y'] = lx * m[i];
+            a[base + 'right.x'] = rx; a[base + 'right.y'] = rx * m[i];
+            a[base + 'interpolation'] = 1; // Bezier
+            api.set(layerId, a);
+        });
+    } catch (e) {
+        console.error("   Failed to apply width profile: " + e.message);
+    }
+}
+
 function createPathFromVectorDataWithExistingShaders(nodeData, viewBox, parentId, existingStrokeShader, existingFillShader, hasFigmaFill, targetPosition, targetRotation) {
     try {
         // Parse the first vector path data
@@ -1437,6 +1479,7 @@ function createPathFromVectorDataWithExistingShaders(nodeData, viewBox, parentId
         if (nodeData.strokes && nodeData.strokes.length > 0) {
             api.setStroke(layerId, true);
             api.set(layerId, {"stroke.width": nodeData.strokeWeight || 1});
+            applyFigmaWidthProfile(layerId, nodeData);
             
             // Map stroke cap
             var capStyle = 0;
@@ -1615,6 +1658,7 @@ function createPathFromVectorData(nodeData, viewBox, parentId) {
             var stroke = nodeData.strokes[0];
             api.setStroke(layerId, true);
             api.set(layerId, {"stroke.width": nodeData.strokeWeight || 1});
+            applyFigmaWidthProfile(layerId, nodeData);
             
             // Map stroke cap
             var capStyle = 0;

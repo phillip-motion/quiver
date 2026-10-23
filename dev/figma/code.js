@@ -86,6 +86,16 @@ function safeString(val) {
   return String(val);
 }
 
+// Figma's width profile (variableWidthStrokeProperties) as [{position, width}] or null when uniform.
+// Presets read back with their points too. width is the half-width as a share of strokeWeight (0.5 = full weight).
+function getWidthProfile(node) {
+  var p = null;
+  try { p = node.variableWidthStrokeProperties; } catch (e) { return null; } // older Figma builds
+  if (!p || p.widthProfile === 'UNIFORM' || !p.variableWidthPoints || p.variableWidthPoints.length < 2) return null;
+  return p.variableWidthPoints.map(function (pt) { return { position: pt.position, width: pt.width }; })
+    .sort(function (a, b) { return a.position - b.position; });
+}
+
 /**
  * Check if a VectorNode might have its stroke flattened by SVG export
  * This happens with stroked paths - Figma outlines strokes for complex/thick paths
@@ -168,6 +178,12 @@ function mightGetStrokeFlattened(node) {
         return true;
       }
     }
+  }
+  
+  // A width profile always exports outlined
+  if (getWidthProfile(node)) {
+    console.log('    -> HYBRID: Width profile');
+    return true;
   }
   
   // Check stroke weight - thicker strokes are more likely to get flattened
@@ -430,6 +446,7 @@ function extractVectorNodeData(node, frameAbsX, frameAbsY) {
     strokeMiterLimit: safeNumberValue(node.strokeMiterLimit, 4),
     strokeAlign: safeStringValue(node.strokeAlign, 'CENTER'),
     dashPattern: node.dashPattern || [],
+    widthProfile: getWidthProfile(node),
     // Corner radius for Bevel deformer
     cornerRadius: cornerRadius,
     // Fill properties
