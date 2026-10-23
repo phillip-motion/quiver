@@ -2,7 +2,7 @@
   "name": "quiver",
   "displayName": "Quiver",
   "version": "2.0.1",
-  "description": "Quiver - Fire SVGs straight into Cavalry",
+  "description": "Quiver - Fire Figma and Affinity designs into Cavalry",
   "scripts": {
     "build": "node build.js",
     "release": "node build.js --minify && node --input-type=module -e \"import {encrypt} from '@scenery/bundler/encrypt.js'; import {pack} from '@scenery/bundler/package.js'; await encrypt(); await pack()\" && npm run publish:jsc",

@@ -764,7 +764,7 @@ var cornerRadiusInput = new ui.LineEdit();
     settingsLogo.setTransparentForMouseEvents(true);
     settingsLayout.add(settingsLogo);
     settingsLayout.addSpacing(10);
-    var sloganLabel = new ui.Label("Fire SVGs from Figma into Cavalry 🏹");
+    var sloganLabel = new ui.Label("Fire Figma and Affinity designs into Cavalry 🏹");
     sloganLabel.setTextColor("#bebebe");
     sloganLabel.setAlignment(1); // Center align
     settingsLayout.add(sloganLabel);

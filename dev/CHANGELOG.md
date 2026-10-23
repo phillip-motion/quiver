@@ -16,11 +16,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 -   `Security` in case of vulnerabilities
 
 
-## [Unreleased]
+## [2.0.1] - 2026-10-23
 
 ### Added
 
 -   Figma: stroke width profiles (variable width strokes) import as the Stroke's Width Profile (Cavalry 2.8+).
+
+### Fixed
+
+-   Affinity: variable font settings come across more reliably.
+-   Affinity: flipped text lands in the right place and at the right angle.
+-   Affinity: vector brushes with no stroke colour now draw in black, as they do in Affinity.
+
 
 ## [2.0.0] - 2026-10-21
 
