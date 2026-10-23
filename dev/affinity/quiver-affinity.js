@@ -440,6 +440,9 @@ function serialiseText(n) {
             style: String(safe(function () { return f.traitsName; }, 'Regular')),
             weight: num(safe(function () { return f.weight; }), 400),
             postscriptName: String(safe(function () { return f.postscriptName; }, '')),
+            // a variable font set with the Character panel's axis sliders comes back with no style or PostScript name and
+            // weight 400 whatever the sliders say; the scripting API has no way to read the axis values (Affinity 3.3)
+            variableCustom: !!(f && !safe(function () { return f.traitsName; }, 'x') && !safe(function () { return f.postscriptName; }, 'x') && safe(function () { return f.familyName; }, '')),
             isItalic: !!safe(function () { return f.isItalic; }, false),
             size: round(num(safe(function () { return a.height; }), 12)),
             tracking: round(num(safe(function () { return a.characterSpacing; })), 6), // ems (the UI shows per-mille)

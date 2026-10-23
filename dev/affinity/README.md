@@ -84,6 +84,8 @@ The window opens on the choices from your last send, which Cavalry remembers.
 
 - Art and frame text with per-run size, typeface and colour
 - Variable fonts: a named instance (such as Ease Variable SemiDisplay Bold) is matched through its PostScript name
+- Variable fonts set with the axis sliders: Affinity's scripting can't read the slider values, so Quiver matches the **Weight** axis to how wide Affinity draws the text (within about 1.5%). Other axes, such as Ease Variable's corner axes, don't change the width, so they keep their defaults and the console names them; set them in Cavalry's font axes (the three dots beside Font). Weight isn't matched for text that mixes fonts or for wrapped, turned or flipped text frames.
+- Turned and flipped text (art and frame) keeps Affinity's position, turn and mirror
 - Text strokes, including outline-only text
 - Gradients on text are laid in Screen Space across the whole text, since Cavalry draws a text shader once per glyph. Moving the text moves it through a gradient that stays put.
 - Underline, strikethrough, superscript and subscript

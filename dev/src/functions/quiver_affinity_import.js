@@ -1122,27 +1122,78 @@ function _affGradientInComp(shaderId, fill, G, vb, name) {
         }
     } catch (eSs) { _affWarn("'" + name + "': could not place its gradient (" + eSs.message + ")"); }
 }
-// Places a text frame whose transform turns it. `box` is the frame in its own space and `W` maps that to the spread.
-function _affPlaceTurnedFrame(id, t, box, W, vb, fontSize) {
-    var lx = Math.sqrt(W[0] * W[0] + W[3] * W[3]), ly = Math.sqrt(W[1] * W[1] + W[4] * W[4]);
+// Places a text whose transform turns or mirrors it, by its own top-left corner. `box` is the frame (for art text,
+// its glyph extents) in its own space and `W` maps that to the spread. Cavalry gets the turn of the reading direction
+// and, for a mirror (a negative determinant: Flip Horizontal is a half turn plus this), a scale of -1 across the lines,
+// as images do; it turns and scales a text about its position. A frame gets its own sides as its box (a spine title
+// turned 90 degrees and stretched 1.47 x 0.83 is 1726 x 318, not its upright 318 x 1726 on the page) and its glyph tops
+// on the frame's top edge; art text keeps Cavalry's own size, its drawn top-left on the glyph box's.
+function _affPlaceTransformedText(id, t, box, W, vb, fontSize, isFrame) {
+    var lx = Math.sqrt(W[0] * W[0] + W[3] * W[3]), ly = Math.sqrt(W[1] * W[1] + W[4] * W[4]), det = W[0] * W[4] - W[1] * W[3];
     var ang = Math.atan2(W[3], W[0]); // the reading direction, y-down radians
-    var corner = _affToCavalry(_affApply(W, box.x, box.y).x, _affApply(W, box.x, box.y).y, vb);
+    var c = _affApply(W, box.x, box.y), corner = _affToCavalry(c.x, c.y, vb);
     // a skewed frame keeps its height across the reading direction
-    var cross = ly > 0 && lx > 0 ? Math.abs(W[0] * W[4] - W[1] * W[3]) / lx : ly;
-    try { api.set(id, { 'autoWidth': false, 'autoHeight': false, 'textBoxSize': [box.w * lx, box.h * cross], 'rotation': 0, 'position.x': corner.x, 'position.y': corner.y }); } catch (eBox) {}
-    var dy = 0; // how far the glyph tops sit below where Cavalry puts them, measured upright
+    var cross = lx > 0 ? Math.abs(det) / lx : ly;
+    var upright = { 'rotation': 0, 'scale.x': 1, 'scale.y': 1, 'position.x': corner.x, 'position.y': corner.y };
+    if (isFrame) { upright.autoWidth = false; upright.autoHeight = false; upright.textBoxSize = [box.w * lx, box.h * cross]; }
+    else { upright.autoWidth = true; upright.autoHeight = true; }
+    try { api.set(id, upright); } catch (eBox) {}
+    var dx = 0, dy = 0; // from where Cavalry draws it to where it belongs, measured upright (y up)
     try {
-        var inv = _affInvert(W), g = t.frame.glyphBox;
-        if (inv && g && typeof g.y === 'number') {
-            var top = Infinity;
-            [[g.x, g.y], [g.x + g.w, g.y], [g.x, g.y + g.h], [g.x + g.w, g.y + g.h]].forEach(function (q) { top = Math.min(top, _affApply(inv, q[0], q[1]).y); });
-            var want = corner.y - (top - box.y) * cross, have = api.getBoundingBox(id, true).top;
-            if (isFinite(want - have) && Math.abs(want - have) < fontSize) dy = want - have;
-        }
+        var bb = api.getBoundingBox(id, true);
+        if (isFrame) {
+            // the glyph box arrives upright on the page, so its top is only the glyphs' top when the frame is turned a
+            // whole number of quarter turns; otherwise the glyph tops go on the frame's top edge, where Affinity puts them
+            // (0.02 px below it on upright frames)
+            var quarter = Math.abs(Math.sin(2 * ang)) < 1e-3;
+            var inv = _affInvert(W), g = t.frame && t.frame.glyphBox;
+            if (!quarter) { if (isFinite(corner.y - bb.top) && Math.abs(corner.y - bb.top) < fontSize) dy = corner.y - bb.top; }
+            else if (inv && g && typeof g.y === 'number') {
+                var top = Infinity;
+                [[g.x, g.y], [g.x + g.w, g.y], [g.x, g.y + g.h], [g.x + g.w, g.y + g.h]].forEach(function (q) { top = Math.min(top, _affApply(inv, q[0], q[1]).y); });
+                var want = corner.y - (top - box.y) * cross;
+                if (isFinite(want - bb.top) && Math.abs(want - bb.top) < fontSize) dy = want - bb.top;
+            }
+        } else if (isFinite(bb.left) && isFinite(bb.top)) { dx = corner.x - bb.left; dy = corner.y - bb.top; }
     } catch (eNudge) {}
-    // Cavalry turns anticlockwise (y up) about the box's top-left corner: the nudge turns with it
-    var r = -ang;
-    try { api.set(id, { 'rotation': r * 180 / Math.PI, 'position.x': corner.x - Math.sin(r) * dy, 'position.y': corner.y + Math.cos(r) * dy }); } catch (eRot) {}
+    var r = -ang, sy = det < 0 ? -1 : 1, ox = dx, oy = dy * sy;
+    try { api.set(id, { 'rotation': r * 180 / Math.PI, 'scale.y': sy, 'position.x': corner.x + Math.cos(r) * ox - Math.sin(r) * oy, 'position.y': corner.y + Math.sin(r) * ox + Math.cos(r) * oy }); } catch (eRot) {}
+}
+// Affinity cannot tell a script a variable font's axis values (see variableCustom in the serialiser), but its Weight
+// changes how wide the text draws, and the text's width is known: the Weight axis is set until Cavalry draws the text
+// as wide as Affinity does (Ease Variable at 700 / 35 / 100 came back 689.8 with the corner axes unknown, 698.2 with them
+// set, 2026-10-23). The other axes do not show in the width, so they keep their defaults and are named in a warning.
+function _affFitVariableWeight(id, node, t, runs, W, fontSize, name) {
+    var custom = runs.filter(function (r) { return r && r.variableCustom; });
+    if (!custom.length) return;
+    var axes = {}, names = [];
+    for (var i = 0; i < 64; i++) { // hasAttribute first: asking past the end prints an error in Cavalry's console
+        var nm = ''; try { if (!api.hasAttribute(id, 'fontAxes.' + i)) break; nm = api.getAttributeNiceName(id, 'fontAxes.' + i); } catch (e) { nm = ''; }
+        if (!nm) break; axes[nm] = i; names.push(nm);
+    }
+    var others = names.filter(function (n) { return n !== 'Weight'; });
+    var lx = Math.sqrt(W[0] * W[0] + W[3] * W[3]), target = 0, why = '';
+    if (custom.length !== runs.length || runs.some(function (r) { return r.family !== runs[0].family; })) why = 'it mixes fonts';
+    else if (t.kind === 'frame') {
+        var g = t.frame && t.frame.glyphBox, rot = Math.abs(Math.atan2(W[3], W[0]));
+        if (g && rot < 1e-3 && W[0] > 0 && g.h < fontSize * 1.6) target = g.w; else why = 'it is a wrapped, turned or flipped text frame';
+    } else if (node.localBox && node.localBox.w > 0) target = node.localBox.w * lx;
+    var fitted = null;
+    if (target > 0 && axes.Weight !== undefined) {
+        try {
+            api.set(id, { autoWidth: true, autoHeight: true });
+            var key = 'fontAxes.' + axes.Weight, width = function (w) { var o = {}; o[key] = w; api.set(id, o); return api.getBoundingBox(id, false).width; };
+            var lo = 1, hi = 1000;
+            if (width(lo) <= target && width(hi) >= target) {
+                for (var k = 0; k < 24; k++) { var mid = (lo + hi) / 2; if (width(mid) < target) lo = mid; else hi = mid; }
+                fitted = Math.round((lo + hi) / 2);
+                width(fitted);
+            }
+        } catch (eFit) { fitted = null; }
+    }
+    var what = "'" + name + "' uses custom " + runs[0].family + " axis values, which Affinity's scripting cannot read: ";
+    if (fitted !== null) _affWarn(what + 'Weight was matched to the text\'s width (' + fitted + ')' + (others.length ? '; set ' + others.join(', ') + ' in Cavalry\'s font axes (the three dots beside Font)' : ''));
+    else _affWarn(what + 'set them in Cavalry\'s font axes (the three dots beside Font)' + (why ? ' (Weight could not be matched: ' + why + ')' : ''));
 }
 function _affCreateTextLayer(node, parentId, vb) {
     if (!_affSetting('importLiveTextEnabled', true)) { return _affCreateTextAsPath(node, parentId, vb); }
@@ -1182,6 +1233,7 @@ function _affCreateTextLayer(node, parentId, vb) {
     // Affinity's characterSpacing is in ems (the UI shows it x1000 as per-mille): measured 0.05 em on
     // 40px text adds exactly 2px per gap. Cavalry's letterSpacing is in pixels.
     if (typeof run.tracking === 'number' && Math.abs(run.tracking) > 0.00001) { try { api.set(id, { 'letterSpacing': run.tracking * fontSize }); } catch (eTr) {} }
+    _affFitVariableWeight(id, node, t, runs, W, fontSize, name);
     _affApplyLeading(id, para, run, fontSize, scale, text, (t.kind === 'frame') && t.frame && t.frame.box);
     if (typeof para.spaceAfter === 'number' && para.spaceAfter > 0) { try { api.set(id, { 'paragraphSpacing': para.spaceAfter * scale }); } catch (ePs) {} }
 
@@ -1227,11 +1279,8 @@ function _affCreateTextLayer(node, parentId, vb) {
     var isFrame = (t.kind === 'frame') && t.frame && t.frame.box;
     var box = isFrame ? t.frame.box : (node.localBox || { x: 0, y: 0, w: 0, h: 0 });
     var wb = _affBounds(_affBoxCorners(box, W));
-    if (isFrame && Math.abs(dec.rotation) > 0.01) {
-        // A turned frame: the box is the frame's own sides as drawn (a spine title turned 90 degrees and stretched
-        // 1.47 x 0.83 is 1726 x 318, not its upright 318 x 1726 on the page), placed by the frame's own top-left
-        // corner, which Cavalry turns about; its glyph tops go onto the frame's top edge like an upright frame's
-        _affPlaceTurnedFrame(id, t, box, W, vb, fontSize);
+    if (Math.abs(dec.rotation) > 0.01 || W[0] * W[4] - W[1] * W[3] < 0) {
+        _affPlaceTransformedText(id, t, box, W, vb, fontSize, !!isFrame);
         try { if (typeof registerCreatedTextShape === 'function') registerCreatedTextShape(node.name, id); } catch (eRegT) {}
         return { id: id, rotationDeg: dec.rotation, isPath: false, isText: true };
     }
