@@ -3264,13 +3264,13 @@ function _affCleanInbox(jsonPath, data) {
     try {
         if (!api.deleteFilePath) return;
         if (__affinityInboxFallback) { console.info('🏹 Quiver/Affinity: kept the inbox files (some images are still used from the inbox)'); return; }
-        var folder = jsonPath.substring(0, jsonPath.lastIndexOf('/'));
+        var folder = jsonPath.substring(0, Math.max(jsonPath.lastIndexOf('/'), jsonPath.lastIndexOf('\\'))); // Windows paths use a backslash
         var images = _affImagePaths(data.nodes, []);
         var removed = 0;
         var seen = {};
         for (var i = 0; i < images.length; i++) {
             var p = images[i];
-            if (seen[p] || p.indexOf(folder + '/') !== 0) continue; // only files beside the payload, never elsewhere
+            if (seen[p] || !folder || (p.indexOf(folder + '/') !== 0 && p.indexOf(folder + '\\') !== 0)) continue; // only files beside the payload, never elsewhere
             seen[p] = true;
             var copy = __affinityImageStoreCache[p];
             // a file the import never used (an older payload's adjustment masks) is removed too

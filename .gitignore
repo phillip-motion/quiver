@@ -4,3 +4,5 @@ AGENTS.md
 dev/testfiles/*
 dev/build/
 dev/dist/
+
+dev/affinity/tests/

@@ -1,7 +1,7 @@
 /**
  * name: Quiver for Affinity
  * description: Fires your selection, or the whole spread, into Cavalry as fully editable layers. Open the Quiver panel in Cavalry first.
- * version: 2.0.1
+ * version: 2.0.2
  * author: Canva Creative Team
  *
  * Requires: Affinity 3.2+ with scripting enabled, this script granted
@@ -36,7 +36,7 @@ const Story = require('affinity:story');
 const QUIVER_AFFINITY_PORT = 8767;
 const QUIVER_HOST = '127.0.0.1';
 const QUIVER_FORMAT_VERSION = 1;
-const QUIVER_VERSION = '2.0.1'; // keep in step with `version:` in the header above
+const QUIVER_VERSION = '2.0.2'; // keep in step with `version:` in the header above
 const EXPORT_IMAGES = true;      // default for the dialog switch: export placed images and pixel layers beside the JSON
 let __exportImages = EXPORT_IMAGES;
 let __nativeBrushes = false;    // dialog switch: brush textures rebuilt in Cavalry instead of sent as masks
@@ -197,7 +197,7 @@ function exportFillBitmap(raster) {
         const png = pngEncode(raw, w, h, 4);
         __imageCounter++;
         const path = __sendCtx.dropFolder + '/' + __sendCtx.baseName + '_pattern' + __imageCounter + '.png';
-        const f = File.create(path, 'w');
+        const f = File.create(path, 'wb'); // binary: a PNG must not have its newline bytes translated (Windows text mode)
         if (!f.isOpen) return null;
         f.write(png.buffer, png.length); f.flush(); f.close();
         return fs.exists(path) ? { path: path, width: w, height: h } : null;
@@ -1114,7 +1114,7 @@ function originalAsPng(src, dest) {
             for (let x = 0; x < gw; x++) { const si = (sy * w + x * step) * 4, di = o + 1 + x * 4; raw[di] = pixels[si]; raw[di + 1] = pixels[si + 1]; raw[di + 2] = pixels[si + 2]; raw[di + 3] = pixels[si + 3]; }
         }
         const png = pngEncode(raw, gw, gh, 4);
-        const f = File.create(dest, 'w');
+        const f = File.create(dest, 'wb'); // binary: a PNG must not have its newline bytes translated (Windows text mode)
         if (!f.isOpen) return null;
         f.write(png.buffer, png.length); f.flush(); f.close();
         return fs.exists(dest) ? dest : null;
@@ -1193,7 +1193,7 @@ function writeRgbaPng(src, w, crop, path) {
         }
     }
     const png = pngEncode(raw, gw, gh, 4);
-    const f = File.create(path, 'w');
+    const f = File.create(path, 'wb'); // binary: a PNG must not have its newline bytes translated (Windows text mode)
     if (!f.isOpen) throw new Error('Could not open ' + path + ' for writing');
     f.write(png.buffer, png.length); f.flush(); f.close();
     return fs.exists(path) ? { w: gw, h: gh, step: k } : null;
@@ -1325,7 +1325,7 @@ function exportPixelMask(n, dropFolder, baseName) {
         const png = pngEncode(raw, gw, gh, 2);
         __imageCounter++;
         const path = dropFolder + '/' + baseName + '_mask' + __imageCounter + '.png';
-        const f = File.create(path, 'w');
+        const f = File.create(path, 'wb'); // binary: a PNG must not have its newline bytes translated (Windows text mode)
         if (!f.isOpen) throw new Error('Could not open ' + path + ' for writing');
         f.write(png.buffer, png.length); f.flush(); f.close();
         if (!fs.exists(path)) return null;
@@ -1487,7 +1487,7 @@ function exportArtBrush(doc, n, rec) {
     const png = pngEncode(raw, gw, gh, 2);
     __imageCounter++;
     const path = __sendCtx.dropFolder + '/' + __sendCtx.baseName + '_brush' + __imageCounter + '.png';
-    const f = File.create(path, 'w');
+    const f = File.create(path, 'wb'); // binary: a PNG must not have its newline bytes translated (Windows text mode)
     if (!f.isOpen) return null;
     f.write(png.buffer, png.length); f.flush(); f.close();
     if (!fs.exists(path)) return null;
@@ -1557,7 +1557,7 @@ function exportBrushMask(doc, n, rec) {
     const png = pngEncode(raw, gw, gh, 2);
     __imageCounter++;
     const path = __sendCtx.dropFolder + '/' + __sendCtx.baseName + '_brush' + __imageCounter + '.png';
-    const f = File.create(path, 'w');
+    const f = File.create(path, 'wb'); // binary: a PNG must not have its newline bytes translated (Windows text mode)
     if (!f.isOpen) return null;
     f.write(png.buffer, png.length); f.flush(); f.close();
     if (!fs.exists(path)) return null;
