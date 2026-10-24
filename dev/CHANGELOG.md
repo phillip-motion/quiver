@@ -16,6 +16,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 -   `Security` in case of vulnerabilities
 
 
+## [2.0.2] - 2026-10-24
+
+### Fixed
+
+-   Affinity on Windows: placed images, pixel layers, brushes and masks now come across into Cavalry.
+
+
 ## [2.0.1] - 2026-10-23
 
 ### Added
