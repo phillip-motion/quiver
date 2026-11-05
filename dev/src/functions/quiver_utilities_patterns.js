@@ -182,15 +182,18 @@ function applyImageShaderPatternTransform(shaderNode, patternData, layerId) {
     var imgW = parseFloat(imgMeta && imgMeta.width) || 100;
     var imgH = parseFloat(imgMeta && imgMeta.height) || 100;
 
+    // Decompose in shape pixels, not bounding-box units: a crop rotated inside a
+    // non-square box is skewed in unit space, and splitting it first loses that.
+    var px = { a: mat.a * shapeW, b: mat.b * shapeH, c: mat.c * shapeW, d: mat.d * shapeH, e: 0, f: 0 };
     var decomposed = (typeof decomposeMatrix === 'function')
-        ? decomposeMatrix(mat)
+        ? decomposeMatrix(px)
         : {
-            scaleX: Math.sqrt(mat.a * mat.a + mat.b * mat.b) || mat.a,
-            scaleY: Math.sqrt(mat.c * mat.c + mat.d * mat.d) || mat.d,
-            rotationDeg: Math.atan2(mat.b, mat.a) * 180 / Math.PI
+            scaleX: Math.sqrt(px.a * px.a + px.b * px.b) || px.a,
+            scaleY: Math.sqrt(px.c * px.c + px.d * px.d) || px.d,
+            rotationDeg: Math.atan2(px.b, px.a) * 180 / Math.PI
         };
 
-    _setFirstSupported(shaderNode, ['scale', 'generator.scale'], [decomposed.scaleX * shapeW, decomposed.scaleY * shapeH]);
+    _setFirstSupported(shaderNode, ['scale', 'generator.scale'], [decomposed.scaleX, decomposed.scaleY]);
 
     // SVG Y-down vs Cavalry Y-up: negate, matching gradient shader handling
     _setFirstSupported(shaderNode, ['rotation', 'generator.rotation'], -(decomposed.rotationDeg || 0));
