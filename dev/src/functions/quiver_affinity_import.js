@@ -2393,7 +2393,7 @@ function _affApplyAdjustment(hostId, adj) {
                 break;
             case 'BoxBlur':
                 id = _affMakeFilter('sceneGroup::boxBlurFilter', name);
-                if (id) { try { api.set(id, { 'amount': _affNum(p, 'radius', 0) * AFFINITY_LIVE_BLUR_TO_AMOUNT }); } catch (e) {} }
+                if (id) { var boxAmount = _affNum(p, 'radius', 0) * AFFINITY_LIVE_BLUR_TO_AMOUNT; try { api.set(id, { 'amount': [boxAmount, boxAmount] }); } catch (e) {} } // amount is X/Y: a single number is rejected and leaves 0
                 if (!id) { id = createAndAttachBlur(hostId, _affNum(p, 'radius', 0) * AFFINITY_LIVE_BLUR_TO_AMOUNT); _affWarn("'" + name + "': box blur approximated with a Gaussian blur"); }
                 break;
             case 'MotionBlur':

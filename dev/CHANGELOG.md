@@ -15,6 +15,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 -   `Fixed` for any bug fixes
 -   `Security` in case of vulnerabilities
 
+## [2.0.3] - 2026-11-06
+
+### Fixed
+
+-   Affinity 3.3.3: Quiver can talk to Cavalry again. Affinity changed the format of its network replies, and Quiver now reads both the old and new formats.
+-   Affinity 3.3.3: gradient colours, mask layers and brush images come across correctly.
+-   Affinity: Box Blur live filters now keep their blur amount (they arrived as 0).
+-   Figma: rotated or cropped image fills in non-square shapes now import at the right scale and rotation.
 
 ## [2.0.2] - 2026-10-24
 

@@ -1,7 +1,7 @@
 /**
  * name: Quiver for Affinity
  * description: Fires your selection, or the whole spread, into Cavalry as fully editable layers. Open the Quiver panel in Cavalry first.
- * version: 2.0.2
+ * version: 2.0.3
  * author: Canva Creative Team
  *
  * Requires: Affinity 3.2+ with scripting enabled, this script granted
@@ -36,7 +36,7 @@ const Story = require('affinity:story');
 const QUIVER_AFFINITY_PORT = 8767;
 const QUIVER_HOST = '127.0.0.1';
 const QUIVER_FORMAT_VERSION = 1;
-const QUIVER_VERSION = '2.0.2'; // keep in step with `version:` in the header above
+const QUIVER_VERSION = '2.0.3'; // keep in step with `version:` in the header above
 const EXPORT_IMAGES = true;      // default for the dialog switch: export placed images and pixel layers beside the JSON
 let __exportImages = EXPORT_IMAGES;
 let __nativeBrushes = false;    // dialog switch: brush textures rebuilt in Cavalry instead of sent as masks
@@ -111,6 +111,8 @@ function setDocumentProfile(doc) {
 }
 function rgba(colour) {
     const out = function (r, g, b, a) { const t = [r, g, b]; if (__toSrgb) __toSrgb(t, 0); return { r: t[0], g: t[1], b: t[2], a: a }; };
+    // gradient stops hand back a bare colour handle before Affinity 3.3.3 and a Colour from 3.3.3 on
+    if (colour && !colour.isColour) colour = safe(function () { return new Colour(colour); }, colour);
     try {
         if (typeof colour.getRGBAuf === 'function') {
             const f = colour.getRGBAuf(true, profileSet());
@@ -126,6 +128,9 @@ function rgba(colour) {
     } catch (e) { return null; }
 }
 function rect(r) { return r ? { x: round(r.x), y: round(r.y), w: round(r.width), h: round(r.height) } : null; }
+// The node renderer draws 1:1 from the visible box's top-left, w x h pixels; Affinity 3.3.3 rounds a
+// fractional box up a pixel (501.02 -> 502, was 501), so the drawn area is the pixel size, not the box.
+function renderBox(vb, w, h) { return { x: round(vb.x), y: round(vb.y), w: w, h: h }; }
 
 // World matrix of a node: spread <- parent chain <- node.transform
 function worldMatrix(n) {
@@ -162,7 +167,7 @@ function serialiseFill(descriptor) {
         for (let i = 0; i < count; i++) {
             const s = safe(function () { return g.getStop(i); });
             if (!s) continue;
-            const position = round(num(s.position)), midpoint = round(num(s.midpoint, 0.5)), colour = rgba(new Colour(s.colour));
+            const position = round(num(s.position)), midpoint = round(num(s.midpoint, 0.5)), colour = rgba(s.colour);
             out.stops.push({ position: position, midpoint: midpoint, colour: colour });
         }
     } else if (type === 'Bitmap') {
@@ -1536,7 +1541,7 @@ function exportBrushMask(doc, n, rec) {
         const ipath = __sendCtx.dropFolder + '/' + __sendCtx.baseName + '_brush' + __imageCounter + '.png';
         const shot = writeRgbaPng(src, w, { x: 0, y: 0, w: w, h: h }, ipath);
         if (!shot || !fs.exists(ipath)) return null;
-        return { path: ipath, box: rect(vb), pixelWidth: shot.w, pixelHeight: shot.h, image: true, opaque: false };
+        return { path: ipath, box: renderBox(vb, w, h), pixelWidth: shot.w, pixelHeight: shot.h, image: true, opaque: false };
     }
     if (__nativeBrushes) {
         let fit = null;
@@ -1561,7 +1566,7 @@ function exportBrushMask(doc, n, rec) {
     if (!f.isOpen) return null;
     f.write(png.buffer, png.length); f.flush(); f.close();
     if (!fs.exists(path)) return null;
-    const out = { path: path, box: rect(vb), pixelWidth: gw, pixelHeight: gh, opaque: true };
+    const out = { path: path, box: renderBox(vb, gw * step, gh * step), pixelWidth: gw, pixelHeight: gh, opaque: true };
     if (fallback) out.fallback = fallback;
     return out;
 }
@@ -2385,10 +2390,11 @@ function serialiseNode(doc, n, ctx, depth) {
     let clipped = 0;
     for (let i = 0; i < kids.length; i++) {
         const k = kids[i], kk = nodeKind(k);
-        // Mask layers report as EnclosureRasterNode wherever they sit (verified): one that is a child of a
-        // layer masks that layer, and an adjustment or live filter child adjusts it, exactly as when nested
-        // on it, so they join its enclosures; one standing in a group's list masks the layers below it there
-        const mask = safe(function () { return k[Symbol.toStringTag]; }, '') === 'EnclosureRasterNode';
+        // Mask layers report as EnclosureRasterNode (MaskRasterNode from Affinity 3.3.3) wherever they sit
+        // (verified): one that is a child of a layer masks that layer, and an adjustment or live filter child
+        // adjusts it, exactly as when nested on it, so they join its enclosures; one standing in a group's
+        // list masks the layers below it there
+        const mask = /^(Enclosure|Mask)RasterNode$/.test(safe(function () { return k[Symbol.toStringTag]; }, ''));
         if (!isList && (mask || kk === 'adjustment' || kk === 'liveFilter')) {
             if (mask) { const m = serialisePixelMask(doc, k, ctx, n); if (m) rec.enclosures.push({ kind: 'mask', node: m }); continue; }
             // an adjustment child adjusts the layer and the clipped layers below it, not those above (measured
@@ -2571,10 +2577,21 @@ function notifyCavalry(jsonPath, summary) {
     req.setHeaderValue('X-Quiver-Path-Encoding', 'uri');
     req.setHeaderValue('X-Quiver-Format', String(QUIVER_FORMAT_VERSION));
     req.setHeaderValue('X-Quiver-Summary', summary);
-    const result = req.do();
-    const state = safe(function () { return result.state.value; }, -1);
+    return requestOutcome(req.do());
+}
+
+// Affinity 3.3.3 changed HttpRequest.do()'s result from { state, reason, response } to
+// { response, failureReason }; read whichever shape this Affinity returns.
+function requestOutcome(result) {
     const status = safe(function () { return result.response.statusCode.value; }, 0);
-    return { ok: (state === Common.ErrorCode.OK.value), status: status, reason: String(safe(function () { return result.reason; }, '')) };
+    const state = safe(function () { return result.state; }, null);
+    if (state !== null && state !== undefined) {
+        const ok = safe(function () { return state.value; }, -1) === Common.ErrorCode.OK.value;
+        return { ok: ok, status: status, reason: ok ? '' : String(safe(function () { return result.reason; }, '')) };
+    }
+    const failure = safe(function () { return result.failureReason; }, null);
+    const hasResponse = !!safe(function () { return result.response; }, null);
+    return { ok: !failure && hasResponse, status: status, reason: failure ? String(failure) : (hasResponse ? '' : 'no response') };
 }
 
 // Ask the Quiver panel whether it is listening (Cavalry answers GET /get with a short banner).
@@ -2583,10 +2600,9 @@ function pingCavalry() {
         const req = HttpRequest.create('http://' + QUIVER_HOST + ':' + QUIVER_AFFINITY_PORT + '/get', RequestMethod.Get);
         req.setTimeoutInSec(2);
         const result = req.do();
-        const state = safe(function () { return result.state.value; }, -1);
-        const reason = String(safe(function () { return result.reason; }, ''));
-        if (state !== Common.ErrorCode.OK.value) {
-            return { state: /PERMISSION|NOT_ALLOWED/i.test(reason) ? 'blocked' : 'offline' };
+        const outcome = requestOutcome(result);
+        if (!outcome.ok) {
+            return { state: /PERMISSION|NOT_ALLOWED/i.test(outcome.reason) ? 'blocked' : 'offline' };
         }
         const body = String(safe(function () { return result.response.content; }, ''));
         let info = null;
@@ -2596,7 +2612,7 @@ function pingCavalry() {
         const options = (info && info.options && typeof info.options === 'object') ? info.options : null;
         return { state: 'online', assets: assets, options: options };
     } catch (e) {
-        return { state: 'offline' };
+        return { state: /PERMISSION|NOT_ALLOWED/i.test(String(e && e.message || e)) ? 'blocked' : 'offline' };
     }
 }
 
